@@ -61,6 +61,8 @@ export interface Post {
   author: UserPublic | null;
   reaction_count: number;
   has_reacted: boolean;
+  reactions_by_kind?: Record<string, number>;
+  my_reaction_kinds?: string[];
 }
 
 export interface ActivityDay {
