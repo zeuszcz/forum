@@ -1,8 +1,11 @@
 import type { Metadata, Viewport } from "next";
 
 import { BackgroundParticles } from "@/components/effects/BackgroundParticles";
+import { CommandPalette } from "@/components/effects/CommandPalette";
 import { NoiseOverlay } from "@/components/effects/NoiseOverlay";
 import { PlasmaCursor } from "@/components/effects/PlasmaCursor";
+import { ShortcutsOverlay } from "@/components/effects/ShortcutsOverlay";
+import { Toaster } from "@/components/effects/Toaster";
 import { Footer } from "@/components/layout/Footer";
 import { Header } from "@/components/layout/Header";
 import { apiServerOptional } from "@/lib/api";
@@ -42,17 +45,22 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   return (
     <html lang="ru" className="dark">
       <body className="flex min-h-screen flex-col">
-        {/* Global background effects (z=-10) */}
+        {/* Background effects (z=-10) */}
         <BackgroundParticles />
-        {/* Noise grain overlay (z=2, above content) */}
+        {/* Noise grain (z=2) */}
         <NoiseOverlay />
-        {/* Custom cursor (z=9999) — auto-disables on touch / reduced motion */}
+        {/* Custom cursor (z=9999) */}
         <PlasmaCursor />
 
         <AuthProvider initialUser={user}>
           <Header />
           <main className="relative z-[3] flex-1">{children}</main>
           <Footer />
+
+          {/* Power-user surfaces */}
+          <CommandPalette />
+          <ShortcutsOverlay />
+          <Toaster />
         </AuthProvider>
       </body>
     </html>

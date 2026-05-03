@@ -3,6 +3,7 @@
 import { Send } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useImperativeHandle, useState, forwardRef, useRef } from "react";
+import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -77,6 +78,7 @@ export const ReplyForm = forwardRef<ReplyFormHandle, ReplyFormProps>(
           body: JSON.stringify({ body: text }),
         });
         setBody("");
+        toast.success("Ответ отправлен");
         router.refresh();
       } catch (err) {
         if (err instanceof ApiError) setError(err.detail);

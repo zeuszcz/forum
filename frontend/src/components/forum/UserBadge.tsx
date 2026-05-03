@@ -1,5 +1,8 @@
+"use client";
+
 import Link from "next/link";
 
+import { UserHoverCard } from "@/components/forum/UserHoverCard";
 import { Badge } from "@/components/ui/badge";
 import { LetterAvatar } from "@/components/ui/avatar";
 import type { UserPublic } from "@/lib/types";
@@ -10,10 +13,11 @@ interface UserBadgeProps {
   size?: number;
   showRole?: boolean;
   className?: string;
+  /** Disable the hover-card popover */
+  noHover?: boolean;
 }
 
-/** Avatar + nickname (with optional top role colour). Links to the public profile. */
-export function UserBadge({ user, size = 28, showRole = true, className }: UserBadgeProps) {
+export function UserBadge({ user, size = 28, showRole = true, className, noHover }: UserBadgeProps) {
   if (!user) {
     return (
       <span className={cn("inline-flex items-center gap-2 text-smoke", className)}>
@@ -27,7 +31,7 @@ export function UserBadge({ user, size = 28, showRole = true, className }: UserB
     );
   }
   const topRole = user.roles?.[0];
-  return (
+  const inner = (
     <Link
       href={`/u/${user.nickname}`}
       className={cn("group inline-flex items-center gap-2", className)}
@@ -48,13 +52,14 @@ export function UserBadge({ user, size = 28, showRole = true, className }: UserB
       </span>
     </Link>
   );
+  if (noHover) return inner;
+  return <UserHoverCard user={user}>{inner}</UserHoverCard>;
 }
 
-/** Compact inline pill for sidebars. */
-export function UserPill({ user }: { user: UserPublic | null }) {
+export function UserPill({ user, noHover }: { user: UserPublic | null; noHover?: boolean }) {
   if (!user) return <span className="text-xs text-smoke">удалён</span>;
   const topRole = user.roles?.[0];
-  return (
+  const inner = (
     <Link
       href={`/u/${user.nickname}`}
       className="inline-flex items-center gap-1.5 text-xs font-medium tracking-tight transition-opacity hover:opacity-80"
@@ -64,6 +69,8 @@ export function UserPill({ user }: { user: UserPublic | null }) {
       {user.nickname}
     </Link>
   );
+  if (noHover) return inner;
+  return <UserHoverCard user={user}>{inner}</UserHoverCard>;
 }
 
 export function RoleBadges({ roles }: { roles: UserPublic["roles"] }) {

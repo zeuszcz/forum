@@ -3,6 +3,7 @@
 import { Send } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -27,6 +28,7 @@ export function NewThreadForm({ sectionSlug }: { sectionSlug: string }) {
         method: "POST",
         body: JSON.stringify({ title: title.trim(), body }),
       });
+      toast.success("Тема создана");
       router.push(`/t/${t.id}`);
       router.refresh();
     } catch (err) {

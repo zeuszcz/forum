@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 
 import { MagneticButton } from "@/components/effects/MagneticButton";
+import { NotificationCenter } from "@/components/effects/NotificationCenter";
 import { LetterAvatar } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/lib/auth-context";
@@ -86,6 +87,7 @@ export function Header() {
                   </Link>
                 </Button>
               </MagneticButton>
+              <NotificationCenter />
               <Link
                 href={`/u/${user.nickname}`}
                 className="group inline-flex items-center gap-2 rounded-md border border-transparent px-2 py-1.5 transition-colors hover:border-border hover:bg-slate"

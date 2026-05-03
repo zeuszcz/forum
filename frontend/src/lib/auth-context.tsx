@@ -1,6 +1,7 @@
 "use client";
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import { toast } from "sonner";
 
 import { api, ApiError } from "@/lib/api";
 import type { AuthResponse, UserPublic } from "@/lib/types";
@@ -56,6 +57,7 @@ export function AuthProvider({
         body: JSON.stringify({ email, password }),
       });
       setUser(r.user);
+      toast.success(`Привет, ${r.user.nickname}`);
       return r.user;
     } finally {
       setLoading(false);
@@ -70,6 +72,7 @@ export function AuthProvider({
         body: JSON.stringify({ nickname, email, password }),
       });
       setUser(r.user);
+      toast.success("Аккаунт создан", { description: `Добро пожаловать, ${r.user.nickname}` });
       return r.user;
     } finally {
       setLoading(false);
@@ -79,6 +82,7 @@ export function AuthProvider({
   const logout = useCallback(async () => {
     await api("/auth/logout", { method: "POST" });
     setUser(null);
+    toast("Ты вышел");
   }, []);
 
   const value = useMemo(

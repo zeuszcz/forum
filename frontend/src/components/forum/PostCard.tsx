@@ -3,7 +3,10 @@
 import { Heart, Quote } from "lucide-react";
 import { useState } from "react";
 
+import { HeartExplosion } from "@/components/effects/HeartExplosion";
+import { SpotlightCard } from "@/components/effects/SpotlightCard";
 import { PostBody } from "@/components/forum/PostBody";
+import { UserHoverCard } from "@/components/forum/UserHoverCard";
 import { LetterAvatar } from "@/components/ui/avatar";
 import { api, ApiError } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
@@ -22,6 +25,7 @@ export function PostCard({ post, index, onQuote }: PostCardProps) {
   const [count, setCount] = useState(post.reaction_count);
   const [reacted, setReacted] = useState(post.has_reacted);
   const [pending, setPending] = useState(false);
+  const [burstKey, setBurstKey] = useState(0);
 
   const topRole = post.author?.roles?.[0];
 
@@ -30,8 +34,10 @@ export function PostCard({ post, index, onQuote }: PostCardProps) {
     setPending(true);
     const prevReacted = reacted;
     const prevCount = count;
-    setReacted(!prevReacted);
-    setCount(prevCount + (prevReacted ? -1 : 1));
+    const isLiking = !prevReacted;
+    setReacted(isLiking);
+    setCount(prevCount + (isLiking ? 1 : -1));
+    if (isLiking) setBurstKey(Date.now());
     try {
       const r = await api<{ count: number; reacted: boolean }>(`/posts/${post.id}/react`, {
         method: "POST",
@@ -39,7 +45,6 @@ export function PostCard({ post, index, onQuote }: PostCardProps) {
       setCount(r.count);
       setReacted(r.reacted);
     } catch (err) {
-      // rollback on error
       setReacted(prevReacted);
       setCount(prevCount);
       if (err instanceof ApiError) console.error(err);
@@ -49,34 +54,39 @@ export function PostCard({ post, index, onQuote }: PostCardProps) {
   }
 
   return (
-    <article
-      id={`post-${post.id}`}
+    <SpotlightCard
+      as="article"
       className={cn(
         "grid grid-cols-1 overflow-hidden rounded-lg border border-border bg-card md:grid-cols-[200px_1fr]",
         post.is_first && "border-plasma/30",
       )}
     >
+      <div id={`post-${post.id}`} />
       {/* Author sidebar */}
-      <aside className="flex flex-col items-center gap-2 border-b border-border bg-void p-4 md:border-b-0 md:border-r">
+      <aside className="flex flex-col items-center gap-2 border-b border-border bg-void/40 p-4 md:border-b-0 md:border-r">
         {post.author ? (
-          <>
-            <LetterAvatar nickname={post.author.nickname} size={64} />
+          <UserHoverCard user={post.author}>
             <a
               href={`/u/${post.author.nickname}`}
-              className="text-base font-semibold transition-colors hover:opacity-80"
-              style={{ color: topRole?.color ?? "#e8e9f3" }}
+              className="flex flex-col items-center gap-2"
             >
-              {post.author.nickname}
-            </a>
-            {topRole && (
-              <span className="text-[10px] uppercase tracking-wider text-smoke">
-                {topRole.title}
+              <LetterAvatar nickname={post.author.nickname} size={64} />
+              <span
+                className="text-base font-semibold transition-opacity hover:opacity-80"
+                style={{ color: topRole?.color ?? "#e8e9f3" }}
+              >
+                {post.author.nickname}
               </span>
-            )}
-            {post.author.title && (
-              <span className="text-center text-xs italic text-ash">{post.author.title}</span>
-            )}
-          </>
+              {topRole && (
+                <span className="text-[10px] uppercase tracking-wider text-smoke">
+                  {topRole.title}
+                </span>
+              )}
+              {post.author.title && (
+                <span className="text-center text-xs italic text-ash">{post.author.title}</span>
+              )}
+            </a>
+          </UserHoverCard>
         ) : (
           <>
             <div className="h-16 w-16 rounded-full bg-slate" />
@@ -94,7 +104,12 @@ export function PostCard({ post, index, onQuote }: PostCardProps) {
               <span className="ml-2 italic">· отредактировано {relativeTime(post.edited_at)}</span>
             )}
           </span>
-          <span className="font-mono">#{index + 1}</span>
+          <a
+            href={`#post-${post.id}`}
+            className="font-mono transition-colors hover:text-ash"
+          >
+            #{index + 1}
+          </a>
         </header>
 
         <div className="px-5 py-5">
@@ -112,23 +127,31 @@ export function PostCard({ post, index, onQuote }: PostCardProps) {
               Цитата
             </button>
           )}
-          <button
-            type="button"
-            onClick={handleReact}
-            disabled={!user || pending}
-            className={cn(
-              "inline-flex items-center gap-1.5 rounded-md border border-transparent px-2.5 py-1.5 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50",
-              reacted
-                ? "border-flame/40 bg-flame/10 text-flame"
-                : "text-ash hover:border-border hover:bg-slate hover:text-bone",
-            )}
-            aria-pressed={reacted}
-          >
-            <Heart className={cn("h-3.5 w-3.5", reacted && "fill-flame")} />
-            <span className="font-mono">{count}</span>
-          </button>
+          <div className="relative">
+            <button
+              type="button"
+              onClick={handleReact}
+              disabled={!user || pending}
+              className={cn(
+                "inline-flex items-center gap-1.5 rounded-md border border-transparent px-2.5 py-1.5 text-xs font-medium transition-all duration-150 ease-premium disabled:cursor-not-allowed disabled:opacity-50",
+                reacted
+                  ? "border-flame/40 bg-flame/10 text-flame shadow-glow-flame"
+                  : "text-ash hover:border-border hover:bg-slate hover:text-bone",
+              )}
+              aria-pressed={reacted}
+            >
+              <Heart
+                className={cn(
+                  "h-3.5 w-3.5 transition-transform",
+                  reacted && "fill-flame scale-110",
+                )}
+              />
+              <span className="font-mono">{count}</span>
+            </button>
+            <HeartExplosion triggerKey={burstKey} />
+          </div>
         </footer>
       </div>
-    </article>
+    </SpotlightCard>
   );
 }
