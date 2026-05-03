@@ -91,6 +91,12 @@ services:
       dockerfile: Dockerfile.dev
     restart: unless-stopped
     env_file: .env
+    environment:
+      # File watching: Windows + OneDrive bind mounts don't deliver inotify
+      # events reliably, so force polling. Without this HMR misses changes.
+      WATCHPACK_POLLING: "true"
+      CHOKIDAR_USEPOLLING: "true"
+      CHOKIDAR_INTERVAL: "300"
     depends_on:
       - backend
     volumes:
