@@ -14,6 +14,7 @@ import { api, ApiError } from "@/lib/api";
 import { sfx } from "@/lib/audio";
 import { useAuth } from "@/lib/auth-context";
 import { exactTime, plural, relativeTime } from "@/lib/format";
+import { glowNickProps } from "@/lib/perks";
 import { computeRank } from "@/lib/rank";
 import type { Post, Thread } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -51,6 +52,7 @@ export function OpPostCard({ post, thread, onQuote }: OpPostCardProps) {
   const rank = author
     ? computeRank(author.total_posts, author.total_reactions_received)
     : null;
+  const glow = glowNickProps(author);
 
   async function handleReact() {
     if (!user || pending) return;
@@ -131,8 +133,14 @@ export function OpPostCard({ post, thread, onQuote }: OpPostCardProps) {
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
                     <span
-                      className="text-lg font-bold leading-none transition-opacity hover:opacity-80"
-                      style={{ color: topRole?.color ?? "#e8e9f3" }}
+                      className={cn(
+                        "text-lg font-bold leading-none transition-opacity hover:opacity-80",
+                        glow.className,
+                      )}
+                      style={{
+                        color: topRole?.color ?? "#e8e9f3",
+                        ...glow.style,
+                      }}
                     >
                       {author.nickname}
                     </span>

@@ -10,6 +10,7 @@ import { api, ApiError } from "@/lib/api";
 import { sfx } from "@/lib/audio";
 import { useAuth } from "@/lib/auth-context";
 import { relativeTime } from "@/lib/format";
+import { glowNickProps } from "@/lib/perks";
 import type { ShoutboxMessage } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -92,8 +93,14 @@ export function Shoutbox({ initialMessages }: { initialMessages: ShoutboxMessage
                   {m.author ? (
                     <Link
                       href={`/u/${m.author.nickname}`}
-                      className="text-xs font-semibold transition-opacity hover:opacity-80"
-                      style={{ color: role?.color ?? "#e8e9f3" }}
+                      className={cn(
+                        "text-xs font-semibold transition-opacity hover:opacity-80",
+                        glowNickProps(m.author).className,
+                      )}
+                      style={{
+                        color: role?.color ?? "#e8e9f3",
+                        ...glowNickProps(m.author).style,
+                      }}
                     >
                       {m.author.nickname}
                     </Link>

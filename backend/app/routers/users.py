@@ -241,6 +241,13 @@ async def list_user_posts(
     )
     counts = {pid: int(c) for pid, c in cnt_rows.all()}
 
+    # Fetch thread titles for these posts (single query)
+    from app.models.thread import Thread
+
+    thread_ids = list({p.thread_id for p in posts})
+    titles_rows = await db.execute(select(Thread.id, Thread.title).where(Thread.id.in_(thread_ids)))
+    thread_titles = {tid: title for tid, title in titles_rows.all()}
+
     roles = await auth_service.get_user_roles(db, u.id)
     author = UserPublic(
         id=u.id,
@@ -260,6 +267,7 @@ async def list_user_posts(
         PostRead(
             id=p.id,
             thread_id=p.thread_id,
+            thread_title=thread_titles.get(p.thread_id),
             body=p.body,
             is_first=p.is_first,
             parent_post_id=p.parent_post_id,

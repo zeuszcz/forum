@@ -52,6 +52,7 @@ export interface Thread {
 export interface Post {
   id: number;
   thread_id: number;
+  thread_title?: string | null;
   body: string;
   is_first: boolean;
   parent_post_id: number | null;
@@ -60,6 +61,17 @@ export interface Post {
   author: UserPublic | null;
   reaction_count: number;
   has_reacted: boolean;
+}
+
+export interface ActivityDay {
+  date: string;
+  posts: number;
+  reactions: number;
+}
+
+export interface UserActivityResponse {
+  days: ActivityDay[];
+  total_days: number;
 }
 
 export interface ThreadWithPosts {

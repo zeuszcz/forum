@@ -45,6 +45,7 @@ class PostRead(BaseModel):
 
     id: int
     thread_id: int
+    thread_title: str | None = None
     body: str
     is_first: bool
     parent_post_id: int | None = None

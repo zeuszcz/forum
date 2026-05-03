@@ -5,6 +5,7 @@ import Link from "next/link";
 import { UserHoverCard } from "@/components/forum/UserHoverCard";
 import { Badge } from "@/components/ui/badge";
 import { LetterAvatar } from "@/components/ui/avatar";
+import { glowNickProps } from "@/lib/perks";
 import type { UserPublic } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -31,6 +32,7 @@ export function UserBadge({ user, size = 28, showRole = true, className, noHover
     );
   }
   const topRole = user.roles?.[0];
+  const glow = glowNickProps(user);
   const inner = (
     <Link
       href={`/u/${user.nickname}`}
@@ -39,8 +41,11 @@ export function UserBadge({ user, size = 28, showRole = true, className, noHover
       <LetterAvatar nickname={user.nickname} size={size} />
       <span className="flex flex-col leading-tight">
         <span
-          className="text-sm font-semibold tracking-tight transition-colors group-hover:text-plasma-bright"
-          style={{ color: topRole?.color ?? "#e8e9f3" }}
+          className={cn(
+            "text-sm font-semibold tracking-tight transition-colors group-hover:text-plasma-bright",
+            glow.className,
+          )}
+          style={{ color: topRole?.color ?? "#e8e9f3", ...glow.style }}
         >
           {user.nickname}
         </span>
@@ -59,11 +64,15 @@ export function UserBadge({ user, size = 28, showRole = true, className, noHover
 export function UserPill({ user, noHover }: { user: UserPublic | null; noHover?: boolean }) {
   if (!user) return <span className="text-xs text-smoke">удалён</span>;
   const topRole = user.roles?.[0];
+  const glow = glowNickProps(user);
   const inner = (
     <Link
       href={`/u/${user.nickname}`}
-      className="inline-flex items-center gap-1.5 text-xs font-medium tracking-tight transition-opacity hover:opacity-80"
-      style={{ color: topRole?.color ?? "#e8e9f3" }}
+      className={cn(
+        "inline-flex items-center gap-1.5 text-xs font-medium tracking-tight transition-opacity hover:opacity-80",
+        glow.className,
+      )}
+      style={{ color: topRole?.color ?? "#e8e9f3", ...glow.style }}
     >
       <LetterAvatar nickname={user.nickname} size={18} />
       {user.nickname}

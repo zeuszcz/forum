@@ -13,6 +13,7 @@ import { api, ApiError } from "@/lib/api";
 import { sfx } from "@/lib/audio";
 import { useAuth } from "@/lib/auth-context";
 import { exactTime, relativeTime } from "@/lib/format";
+import { glowNickProps } from "@/lib/perks";
 import { computeRank } from "@/lib/rank";
 import type { Post } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -45,6 +46,7 @@ export function PostCard({ post, index, onQuote }: PostCardProps) {
   const rank = post.author
     ? computeRank(post.author.total_posts, post.author.total_reactions_received)
     : null;
+  const glow = glowNickProps(post.author);
 
   async function handleReact() {
     if (!user || pending) return;
@@ -104,8 +106,11 @@ export function PostCard({ post, index, onQuote }: PostCardProps) {
                 <LetterAvatar nickname={post.author.nickname} size={48} />
                 <div className="flex flex-col gap-0.5 md:items-center">
                   <span
-                    className="text-base font-semibold leading-none transition-opacity hover:opacity-80"
-                    style={{ color: topRole?.color ?? "#e8e9f3" }}
+                    className={cn(
+                      "text-base font-semibold leading-none transition-opacity hover:opacity-80",
+                      glow.className,
+                    )}
+                    style={{ color: topRole?.color ?? "#e8e9f3", ...glow.style }}
                   >
                     {post.author.nickname}
                   </span>
