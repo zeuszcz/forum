@@ -9,6 +9,7 @@ import { PostBody } from "@/components/forum/PostBody";
 import { UserHoverCard } from "@/components/forum/UserHoverCard";
 import { LetterAvatar } from "@/components/ui/avatar";
 import { api, ApiError } from "@/lib/api";
+import { sfx } from "@/lib/audio";
 import { useAuth } from "@/lib/auth-context";
 import { exactTime, relativeTime } from "@/lib/format";
 import type { Post } from "@/lib/types";
@@ -37,7 +38,10 @@ export function PostCard({ post, index, onQuote }: PostCardProps) {
     const isLiking = !prevReacted;
     setReacted(isLiking);
     setCount(prevCount + (isLiking ? 1 : -1));
-    if (isLiking) setBurstKey(Date.now());
+    if (isLiking) {
+      setBurstKey(Date.now());
+      sfx.like();
+    }
     try {
       const r = await api<{ count: number; reacted: boolean }>(`/posts/${post.id}/react`, {
         method: "POST",

@@ -3,6 +3,7 @@ import type { Metadata, Viewport } from "next";
 import { AchievementReveal } from "@/components/effects/AchievementReveal";
 import { BackgroundParticles } from "@/components/effects/BackgroundParticles";
 import { CommandPalette } from "@/components/effects/CommandPalette";
+import { Konami } from "@/components/effects/Konami";
 import { NoiseOverlay } from "@/components/effects/NoiseOverlay";
 import { PlasmaCursor } from "@/components/effects/PlasmaCursor";
 import { ShortcutsOverlay } from "@/components/effects/ShortcutsOverlay";
@@ -11,6 +12,7 @@ import { Footer } from "@/components/layout/Footer";
 import { Header } from "@/components/layout/Header";
 import { apiServerOptional } from "@/lib/api";
 import { AuthProvider } from "@/lib/auth-context";
+import { ThemeProvider } from "@/lib/theme-context";
 import type { UserPublic } from "@/lib/types";
 
 import "./globals.css";
@@ -40,11 +42,25 @@ export const viewport: Viewport = {
   initialScale: 1,
 };
 
+// Inline script to apply theme attribute synchronously, before paint, to
+// avoid a flash of default theme on hydration.
+const themeBoot = `
+(function() {
+  try {
+    var t = localStorage.getItem('ew_theme') || 'plasma';
+    document.documentElement.setAttribute('data-theme', t);
+  } catch (e) {}
+})();
+`;
+
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
   const user = await apiServerOptional<UserPublic>("/auth/me");
 
   return (
-    <html lang="ru" className="dark">
+    <html lang="ru" className="dark" suppressHydrationWarning>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: themeBoot }} />
+      </head>
       <body className="flex min-h-screen flex-col">
         {/* Background effects (z=-10) */}
         <BackgroundParticles />
@@ -53,17 +69,20 @@ export default async function RootLayout({ children }: { children: React.ReactNo
         {/* Custom cursor (z=9999) */}
         <PlasmaCursor />
 
-        <AuthProvider initialUser={user}>
-          <Header />
-          <main className="relative z-[3] flex-1">{children}</main>
-          <Footer />
+        <ThemeProvider>
+          <AuthProvider initialUser={user}>
+            <Header />
+            <main className="relative z-[3] flex-1">{children}</main>
+            <Footer />
 
-          {/* Power-user surfaces */}
-          <CommandPalette />
-          <ShortcutsOverlay />
-          <AchievementReveal />
-          <Toaster />
-        </AuthProvider>
+            {/* Power-user / easter-egg surfaces */}
+            <CommandPalette />
+            <ShortcutsOverlay />
+            <AchievementReveal />
+            <Konami />
+            <Toaster />
+          </AuthProvider>
+        </ThemeProvider>
       </body>
     </html>
   );

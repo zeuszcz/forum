@@ -7,6 +7,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { LetterAvatar } from "@/components/ui/avatar";
 import { Input } from "@/components/ui/input";
 import { api, ApiError } from "@/lib/api";
+import { sfx } from "@/lib/audio";
 import { useAuth } from "@/lib/auth-context";
 import { relativeTime } from "@/lib/format";
 import type { ShoutboxMessage } from "@/lib/types";
@@ -52,6 +53,7 @@ export function Shoutbox({ initialMessages }: { initialMessages: ShoutboxMessage
       });
       setMessages((prev) => [...prev, msg].slice(-50));
       setBody("");
+      sfx.message();
     } catch (err) {
       if (err instanceof ApiError) setError(err.detail);
       else setError("Не удалось отправить");

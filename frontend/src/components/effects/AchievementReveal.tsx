@@ -3,6 +3,7 @@
 import { AnimatePresence, motion } from "framer-motion";
 import { useEffect, useState } from "react";
 
+import { sfx } from "@/lib/audio";
 import { cn } from "@/lib/utils";
 
 export interface Achievement {
@@ -37,6 +38,7 @@ export function AchievementReveal() {
   useEffect(() => {
     function onAch(e: WindowEventMap["ew-achievement"]) {
       setCurrent(e.detail);
+      sfx.achievement();
       const t = setTimeout(() => setCurrent(null), 3500);
       return () => clearTimeout(t);
     }

@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 
 import { MagneticButton } from "@/components/effects/MagneticButton";
 import { NotificationCenter } from "@/components/effects/NotificationCenter";
+import { ThemePicker } from "@/components/effects/ThemePicker";
 import { LetterAvatar } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/lib/auth-context";
@@ -76,6 +77,8 @@ export function Header() {
               ⌘K
             </kbd>
           </button>
+
+          <ThemePicker />
 
           {user ? (
             <>

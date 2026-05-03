@@ -1,12 +1,13 @@
 import Link from "next/link";
 
+import { CursorTrackingLogo } from "@/components/effects/CursorTrackingLogo";
+
 export function Footer() {
   return (
-    <footer className="border-t border-border/60 bg-void">
+    <footer className="relative z-[3] border-t border-border/60 bg-void/80 backdrop-blur">
       <div className="container flex flex-col items-center justify-between gap-4 py-8 md:flex-row">
         <div className="flex items-center gap-3">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/logo-icon.svg" alt="" className="h-6 w-6" aria-hidden="true" />
+          <CursorTrackingLogo />
           <span className="text-sm text-smoke">
             © {new Date().getFullYear()} endless·war — CS 1.6 jail community
           </span>
