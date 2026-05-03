@@ -6,7 +6,18 @@
 import type { CSSProperties } from "react";
 
 import { computeRank } from "@/lib/rank";
-import type { UserPublic } from "@/lib/types";
+import type { Role } from "@/lib/types";
+
+/** Minimal user shape consumed by perk helpers — keeps these usable across
+ *  both `UserPublic` and `AdminUserRead` (which lacks bio/stats). */
+export type ColorableUser = {
+  roles?: Role[] | null;
+  granted_perks?: string[] | null;
+  total_posts?: number | null;
+  total_reactions_received?: number | null;
+  nick_color?: string | null;
+  avatar_glow_color?: string | null;
+};
 
 const PERK_LEVEL: Record<string, number> = {
   embed_images: 3,
@@ -17,16 +28,16 @@ const PERK_LEVEL: Record<string, number> = {
   glow_nick: 50,
 };
 
-export function hasPerk(user: UserPublic | null | undefined, perk: string): boolean {
+export function hasPerk(user: ColorableUser | null | undefined, perk: string): boolean {
   if (!user) return false;
   if (user.granted_perks?.includes(perk)) return true;
   const required = PERK_LEVEL[perk];
   if (required === undefined) return false;
-  const { level } = computeRank(user.total_posts, user.total_reactions_received);
+  const { level } = computeRank(user.total_posts ?? 0, user.total_reactions_received ?? 0);
   return level >= required;
 }
 
-export function isStaff(user: UserPublic | null | undefined): boolean {
+export function isStaff(user: ColorableUser | null | undefined): boolean {
   return Boolean(user?.roles?.some((r) => r.is_staff));
 }
 
@@ -37,7 +48,7 @@ const DEFAULT_NICK_COLOR = "#e8e9f3";
  * if the user actually has the glow_nick perk to set it), then top-role color,
  * then bone fallback.
  */
-export function nickColor(user: UserPublic | null | undefined): string {
+export function nickColor(user: ColorableUser | null | undefined): string {
   if (!user) return DEFAULT_NICK_COLOR;
   if (user.nick_color && hasPerk(user, "glow_nick")) return user.nick_color;
   return user.roles?.[0]?.color ?? DEFAULT_NICK_COLOR;
@@ -48,7 +59,7 @@ export function nickColor(user: UserPublic | null | undefined): string {
  * (gated by animated_frame), fallback to nick color so the halo stays
  * thematic.
  */
-export function avatarGlowColor(user: UserPublic | null | undefined): string | null {
+export function avatarGlowColor(user: ColorableUser | null | undefined): string | null {
   if (!user) return null;
   if (!hasPerk(user, "animated_frame")) return null;
   if (user.avatar_glow_color) return user.avatar_glow_color;
@@ -59,7 +70,7 @@ export function avatarGlowColor(user: UserPublic | null | undefined): string | n
  * Return CSS style/class to apply on a nickname when the user has the
  * glow_nick perk. Color uses the resolved nickColor (user override > role).
  */
-export function glowNickProps(user: UserPublic | null | undefined): {
+export function glowNickProps(user: ColorableUser | null | undefined): {
   className: string;
   style: CSSProperties;
 } {
@@ -76,7 +87,7 @@ export function glowNickProps(user: UserPublic | null | undefined): {
 }
 
 /** Apply animated frame ring around an avatar when the perk is unlocked. */
-export function animatedFrameStyle(user: UserPublic | null | undefined): CSSProperties {
+export function animatedFrameStyle(user: ColorableUser | null | undefined): CSSProperties {
   if (!hasPerk(user, "animated_frame")) return {};
   const color = avatarGlowColor(user) ?? "rgb(var(--plasma-rgb))";
   return {
