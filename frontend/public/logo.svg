@@ -1,0 +1,23 @@
+<svg viewBox="0 0 320 64" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="endless·war">
+  <title>endless·war</title>
+  <defs>
+    <linearGradient id="plasma" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#7c5cff"/>
+      <stop offset="60%" stop-color="#a855f7"/>
+      <stop offset="100%" stop-color="#ec4899"/>
+    </linearGradient>
+    <linearGradient id="plasmaText" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#a855f7"/>
+      <stop offset="100%" stop-color="#ec4899"/>
+    </linearGradient>
+  </defs>
+  <g transform="translate(8,8)">
+    <path d="M 24 0 L 48 24 L 24 48 L 0 24 Z" fill="none" stroke="url(#plasma)" stroke-width="2.5" stroke-linejoin="miter"/>
+    <line x1="14" y1="14" x2="14" y2="34" stroke="url(#plasma)" stroke-width="1.5"/>
+    <line x1="24" y1="8" x2="24" y2="40" stroke="url(#plasma)" stroke-width="1.5"/>
+    <line x1="34" y1="14" x2="34" y2="34" stroke="url(#plasma)" stroke-width="1.5"/>
+  </g>
+  <text x="76" y="42" font-family="'Inter', system-ui, -apple-system, sans-serif" font-size="22" font-weight="700" letter-spacing="3.5" fill="#e8e9f3">ENDLESS</text>
+  <circle cx="200" cy="34" r="2" fill="url(#plasma)"/>
+  <text x="214" y="42" font-family="'Inter', system-ui, -apple-system, sans-serif" font-size="22" font-weight="300" letter-spacing="3.5" fill="url(#plasmaText)">WAR</text>
+</svg>

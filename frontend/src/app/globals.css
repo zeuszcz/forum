@@ -1,0 +1,135 @@
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap");
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* --- Surfaces (HSL) --- */
+    --background: 230 32% 6%;          /* ink #0a0b14 */
+    --foreground: 234 30% 93%;         /* bone #e8e9f3 */
+
+    --card: 232 22% 10%;               /* void #13141d */
+    --card-foreground: 234 30% 93%;
+
+    --popover: 230 19% 13%;            /* slate #1a1c27 */
+    --popover-foreground: 234 30% 93%;
+
+    --muted: 230 18% 14%;
+    --muted-foreground: 230 11% 67%;   /* ash */
+
+    /* --- Brand accents --- */
+    --primary: 252 100% 68%;           /* plasma #7c5cff */
+    --primary-foreground: 234 30% 95%;
+
+    --secondary: 230 19% 13%;
+    --secondary-foreground: 234 30% 93%;
+
+    --accent: 327 81% 60%;             /* flame #ec4899 */
+    --accent-foreground: 234 30% 95%;
+
+    --destructive: 350 89% 60%;        /* ember #f43f5e */
+    --destructive-foreground: 234 30% 95%;
+
+    --border: 232 19% 19%;
+    --input: 230 19% 13%;
+    --ring: 252 100% 68%;              /* plasma focus ring */
+
+    --radius: 0.625rem;
+  }
+
+  /* No light mode for v0 — premium dark only. Toggle in Phase 1. */
+
+  * {
+    @apply border-border;
+  }
+
+  html {
+    color-scheme: dark;
+    scroll-behavior: smooth;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+    font-feature-settings:
+      "cv11" on,
+      "ss01" on;
+  }
+
+  ::selection {
+    @apply bg-plasma/30 text-bone;
+  }
+
+  /* Custom scrollbar — premium thin */
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    @apply bg-void;
+  }
+  ::-webkit-scrollbar-thumb {
+    @apply bg-slate rounded-md;
+    border: 2px solid hsl(var(--card));
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: #383b54;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+}
+
+@layer components {
+  /* Subtle plasma underline animating in on hover — for inline links */
+  .link-plasma {
+    @apply relative text-plasma transition-colors duration-150 ease-premium hover:text-plasma-bright;
+  }
+  .link-plasma::after {
+    content: "";
+    @apply absolute -bottom-px left-0 h-px w-0 bg-plasma-bright transition-all duration-300 ease-premium;
+  }
+  .link-plasma:hover::after {
+    @apply w-full;
+  }
+
+  /* Hero gradient — only for top-of-page surfaces. Modern plasma glow. */
+  .hero-bg {
+    background:
+      radial-gradient(ellipse 80% 60% at 25% -15%, rgba(124, 92, 255, 0.20), transparent 60%),
+      radial-gradient(ellipse 60% 50% at 80% 10%, rgba(236, 72, 153, 0.15), transparent 60%),
+      radial-gradient(ellipse 70% 40% at 50% 100%, rgba(34, 211, 238, 0.06), transparent 60%),
+      hsl(var(--background));
+  }
+
+  /* Premium card — flat by default, plasma border on hover */
+  .card-premium {
+    @apply rounded-lg border border-border bg-card transition-all duration-150 ease-premium;
+  }
+  .card-premium:hover {
+    @apply border-plasma/40 bg-card/80;
+  }
+
+  /* Gradient text utility — for hero headlines */
+  .text-plasma-gradient {
+    @apply bg-plasma bg-clip-text text-transparent;
+    background-size: 200% 200%;
+  }
+
+  /* Live pulse dot */
+  .dot-live {
+    @apply inline-block h-2 w-2 rounded-full bg-cyan;
+    box-shadow: 0 0 12px rgba(34, 211, 238, 0.6);
+  }
+}

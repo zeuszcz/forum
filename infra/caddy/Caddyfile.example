@@ -1,0 +1,57 @@
+# =====================================================
+# Caddy production reverse proxy — endless-war
+# Copy to /etc/caddy/Caddyfile or /infra/caddy/Caddyfile
+# Replace endless-war.example with your real domain.
+# Auto-TLS via Let's Encrypt (HTTP-01).
+# =====================================================
+
+{
+	email admin@endless-war.example
+	servers {
+		trusted_proxies static 127.0.0.1
+	}
+}
+
+endless-war.example {
+	encode zstd gzip
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		Permissions-Policy "camera=(), microphone=(), geolocation=()"
+		-Server
+	}
+
+	# API
+	handle_path /api/* {
+		reverse_proxy backend:8000
+	}
+
+	# WebSocket (Phase 2)
+	handle_path /ws* {
+		reverse_proxy backend:8000
+	}
+
+	# Frontend (Next.js)
+	handle {
+		reverse_proxy frontend:3000
+	}
+
+	log {
+		output file /var/log/caddy/access.log {
+			roll_size 50mb
+			roll_keep 7
+		}
+		format json
+	}
+}
+
+cdn.endless-war.example {
+	# Public media via MinIO
+	reverse_proxy minio:9000
+	header {
+		Cache-Control "public, max-age=31536000, immutable"
+	}
+}
