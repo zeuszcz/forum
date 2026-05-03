@@ -86,7 +86,6 @@ export default async function UsersAdminPage({
             </thead>
             <tbody className="divide-y divide-border bg-card">
               {data.users.map((u) => {
-                const topRole = u.roles?.[0];
                 return (
                   <tr key={u.id} className="transition-colors hover:bg-void/40">
                     <td className="px-4 py-3">
