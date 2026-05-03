@@ -15,12 +15,6 @@ import { computeRank } from "@/lib/rank";
 import type { UserPublic } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
-interface ProfileEditDialogProps {
-  user: UserPublic;
-  /** When provided, dialog is opened by this trigger instead of an internal button. */
-  children?: React.ReactNode;
-}
-
 export function ProfileEditButton({ user }: { user: UserPublic }) {
   const [open, setOpen] = useState(false);
   return (
