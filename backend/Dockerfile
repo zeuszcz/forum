@@ -32,8 +32,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Install wheels system-wide so the non-root `app` user can read them
 COPY --from=builder /wheels /wheels
-COPY pyproject.toml ./
-RUN pip install --no-index --find-links=/wheels . && rm -rf /wheels
+RUN pip install --no-index /wheels/*.whl && rm -rf /wheels
 
 COPY --chown=app:app . .
 
