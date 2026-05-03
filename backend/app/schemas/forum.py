@@ -65,6 +65,10 @@ class PostCreate(BaseModel):
     parent_post_id: int | None = None
 
 
+class PostUpdate(BaseModel):
+    body: str = Field(min_length=1, max_length=20000)
+
+
 class ThreadWithPostsRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

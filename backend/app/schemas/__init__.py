@@ -6,6 +6,7 @@ from app.schemas.auth import (
 from app.schemas.forum import (
     PostCreate,
     PostRead,
+    PostUpdate,
     SectionRead,
     ThreadCreate,
     ThreadRead,
@@ -19,6 +20,7 @@ __all__ = [
     "LoginRequest",
     "PostCreate",
     "PostRead",
+    "PostUpdate",
     "RegisterRequest",
     "RoleRead",
     "SectionRead",

@@ -86,3 +86,30 @@ export interface SectionThreadsResponse {
   limit: number;
   offset: number;
 }
+
+export interface SparklineData {
+  slug: string;
+  values: number[];
+}
+
+export interface ActivityBucket {
+  hour: string;
+  posts: number;
+  threads: number;
+}
+
+export interface ActivityResponse {
+  buckets: ActivityBucket[];
+  hours: number;
+}
+
+export interface TopUser {
+  id: number;
+  rank: number;
+  nickname: string;
+  avatar_url: string | null;
+  title: string | null;
+  posts: number;
+  reactions: number;
+  score: number;
+}

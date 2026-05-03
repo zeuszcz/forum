@@ -51,6 +51,35 @@ async def heartbeat(user: CurrentUser, db: DbSession) -> dict[str, str]:
     return {"status": "ok"}
 
 
+@router.get("/{nickname}/stats")
+async def get_user_stats(nickname: str, db: DbSession) -> dict:
+    from sqlalchemy import func as _func, select as _select
+
+    from app.models.thread import Post, Reaction
+
+    user_q = await db.execute(_select(User).where(User.nickname == nickname))
+    u = user_q.scalar_one_or_none()
+    if u is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Пользователь не найден")
+
+    posts_q = await db.execute(
+        _select(_func.count())
+        .select_from(Post)
+        .where(Post.author_id == u.id, Post.is_deleted.is_(False))
+    )
+    posts = int(posts_q.scalar_one())
+
+    reactions_q = await db.execute(
+        _select(_func.count())
+        .select_from(Reaction)
+        .join(Post, Post.id == Reaction.post_id)
+        .where(Post.author_id == u.id)
+    )
+    reactions = int(reactions_q.scalar_one())
+
+    return {"posts": posts, "reactions": reactions}
+
+
 @router.get("/{nickname}", response_model=UserPublic)
 async def get_user(nickname: str, db: DbSession) -> UserPublic:
     result = await db.execute(select(User).where(User.nickname == nickname))

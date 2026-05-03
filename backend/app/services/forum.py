@@ -78,6 +78,42 @@ async def list_recent_threads(db: AsyncSession, *, limit: int = 10) -> list[Thre
     return list(result.scalars().all())
 
 
+async def list_hot_threads(db: AsyncSession, *, limit: int = 5, hours: int = 24) -> list[Thread]:
+    """Threads with the most activity in the last `hours`. Score = replies in
+    window + view_count weight."""
+    from sqlalchemy import text as _text
+
+    sql = _text(
+        """
+        SELECT t.*
+        FROM threads t
+        WHERE NOT t.is_deleted
+          AND (t.last_post_at IS NULL OR t.last_post_at >= NOW() - (:hours || ' hours')::interval)
+        ORDER BY (t.reply_count * 1.5 + LEAST(t.view_count, 200) * 0.05) DESC,
+                 t.last_post_at DESC NULLS LAST
+        LIMIT :limit
+        """
+    )
+    rows = (await db.execute(sql, {"hours": str(hours), "limit": limit})).mappings().all()
+    out: list[Thread] = []
+    for r in rows:
+        thread = await db.get(Thread, r["id"])
+        if thread is not None:
+            out.append(thread)
+    return out
+
+
+async def edit_post(
+    db: AsyncSession, *, post: Post, new_body: str
+) -> Post:
+    from datetime import UTC, datetime
+    post.body = new_body
+    post.edited_at = datetime.now(UTC)
+    await db.commit()
+    await db.refresh(post)
+    return post
+
+
 async def get_thread_with_posts(
     db: AsyncSession,
     thread_id: int,

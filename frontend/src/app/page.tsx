@@ -8,51 +8,77 @@ import {
   StaggerItem,
   StaggerList,
 } from "@/components/effects/ScrollReveal";
+import { ActivityPulse } from "@/components/forum/ActivityPulse";
+import { HotThreads } from "@/components/forum/HotThreads";
 import { OnlineList } from "@/components/forum/OnlineList";
 import { RecentThreads } from "@/components/forum/RecentThreads";
 import { SectionCard } from "@/components/forum/SectionCard";
 import { Shoutbox } from "@/components/forum/Shoutbox";
+import { TopPodium, type TopUser } from "@/components/forum/TopPodium";
 import { apiServer } from "@/lib/api";
 import { relativeTime } from "@/lib/format";
-import type { Section, ShoutboxMessage, Thread, UserPublic } from "@/lib/types";
+import type {
+  ActivityResponse,
+  Section,
+  ShoutboxMessage,
+  SparklineData,
+  Thread,
+  UserPublic,
+} from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
 async function loadHomeData() {
-  const [sections, recentThreads, online, shoutbox] = await Promise.all([
-    apiServer<Section[]>("/sections"),
-    apiServer<Thread[]>("/threads/recent?limit=8"),
-    apiServer<UserPublic[]>("/users/online"),
-    apiServer<ShoutboxMessage[]>("/shoutbox?limit=50"),
-  ]);
-  return { sections, recentThreads, online, shoutbox };
+  const [sections, recentThreads, hotThreads, online, shoutbox, sparklines, top, activity] =
+    await Promise.all([
+      apiServer<Section[]>("/sections"),
+      apiServer<Thread[]>("/threads/recent?limit=8"),
+      apiServer<Thread[]>("/threads/hot?limit=5&hours=24"),
+      apiServer<UserPublic[]>("/users/online"),
+      apiServer<ShoutboxMessage[]>("/shoutbox?limit=50"),
+      apiServer<SparklineData[]>("/stats/sparklines?hours=24"),
+      apiServer<TopUser[]>("/stats/top-users?period=week&limit=3"),
+      apiServer<ActivityResponse>("/stats/activity?hours=24"),
+    ]);
+  return { sections, recentThreads, hotThreads, online, shoutbox, sparklines, top, activity };
 }
 
 export default async function HomePage() {
-  const { sections, recentThreads, online, shoutbox } = await loadHomeData();
+  const {
+    sections,
+    recentThreads,
+    hotThreads,
+    online,
+    shoutbox,
+    sparklines,
+    top,
+    activity,
+  } = await loadHomeData();
+
   const totalThreads = sections.reduce((s, x) => s + x.thread_count, 0);
   const totalPosts = sections.reduce((s, x) => s + x.post_count, 0);
+  const sparkBySlug = Object.fromEntries(sparklines.map((s) => [s.slug, s.values]));
 
-  // Marquee items: latest 6 threads + online count
   const tickerItems = [
-    <span key="online">
-      <Users className="h-3 w-3 text-cyan" /> {online.length} онлайн
+    <span key="online" className="inline-flex items-center gap-1.5">
+      <Users className="h-3 w-3 text-cyan" />
+      <span className="text-cyan font-mono">{online.length}</span> онлайн
     </span>,
     ...recentThreads.slice(0, 5).map((t) => (
-      <span key={t.id}>
-        <Flame className="h-3 w-3 text-flame" />{" "}
-        <span className="text-ash">{t.title}</span>{" "}
+      <span key={t.id} className="inline-flex items-center gap-1.5">
+        <Flame className="h-3 w-3 text-flame" />
+        <span className="text-ash">{t.title}</span>
         <span className="text-smoke/60">· {relativeTime(t.last_post_at ?? t.created_at)}</span>
       </span>
     )),
-    <span key="welcome">
+    <span key="welcome" className="inline-flex items-center gap-1.5">
       <Sparkles className="h-3 w-3 text-plasma" /> endless·war v0
     </span>,
   ];
 
   return (
     <div className="relative">
-      {/* === Hero with mesh + marquee === */}
+      {/* === Hero === */}
       <section className="relative overflow-hidden border-b border-border/40">
         <MeshBackground />
         <div className="dotted-grid absolute inset-0 -z-[5] opacity-50" />
@@ -81,10 +107,16 @@ export default async function HomePage() {
         </div>
       </section>
 
+      {/* === Pulse strip === */}
+      <section className="border-b border-border/40">
+        <div className="container py-4">
+          <ActivityPulse initial={activity} />
+        </div>
+      </section>
+
       {/* === Main grid === */}
       <div className="container py-8 md:py-10">
         <div className="grid gap-6 lg:grid-cols-[1fr_360px]">
-          {/* main column */}
           <div className="space-y-8">
             <section>
               <header className="mb-4 flex items-center gap-3">
@@ -104,7 +136,7 @@ export default async function HomePage() {
                 <StaggerList stagger={0.05} className="grid gap-4 sm:grid-cols-2">
                   {sections.map((s) => (
                     <StaggerItem key={s.id}>
-                      <SectionCard section={s} />
+                      <SectionCard section={s} sparkline={sparkBySlug[s.slug]} />
                     </StaggerItem>
                   ))}
                 </StaggerList>
@@ -116,12 +148,19 @@ export default async function HomePage() {
             </ScrollReveal>
           </div>
 
-          {/* sidebar */}
           <aside className="space-y-6 lg:sticky lg:top-20 lg:self-start">
             <ScrollReveal>
               <Shoutbox initialMessages={shoutbox} />
             </ScrollReveal>
             <ScrollReveal delay={0.05}>
+              <HotThreads threads={hotThreads} />
+            </ScrollReveal>
+            {top.length > 0 && (
+              <ScrollReveal delay={0.1}>
+                <TopPodium users={top} />
+              </ScrollReveal>
+            )}
+            <ScrollReveal delay={0.15}>
               <OnlineList users={online} />
             </ScrollReveal>
           </aside>

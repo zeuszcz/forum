@@ -9,6 +9,7 @@ from app.models.user import User
 from app.schemas.forum import (
     PostCreate,
     PostRead,
+    PostUpdate,
     SectionRead,
     ThreadCreate,
     ThreadRead,
@@ -108,6 +109,40 @@ async def list_section_threads(
         "limit": limit,
         "offset": offset,
     }
+
+
+@router.get("/threads/hot", response_model=list[ThreadRead])
+async def list_hot_threads(
+    db: DbSession,
+    limit: int = Query(5, ge=1, le=20),
+    hours: int = Query(24, ge=1, le=168),
+) -> list[ThreadRead]:
+    threads = await forum_service.list_hot_threads(db, limit=limit, hours=hours)
+    user_ids = {t.author_id for t in threads if t.author_id} | {
+        t.last_post_author_id for t in threads if t.last_post_author_id
+    }
+    users = await _users_by_ids(db, user_ids)
+    out: list[ThreadRead] = []
+    for t in threads:
+        author = users.get(t.author_id) if t.author_id else None
+        last_author = users.get(t.last_post_author_id) if t.last_post_author_id else None
+        out.append(
+            ThreadRead(
+                id=t.id,
+                section_id=t.section_id,
+                title=t.title,
+                slug=t.slug,
+                is_pinned=t.is_pinned,
+                is_locked=t.is_locked,
+                view_count=t.view_count,
+                reply_count=t.reply_count,
+                last_post_at=t.last_post_at,
+                created_at=t.created_at,
+                author=await _user_to_public(db, author) if author else None,
+                last_post_author=await _user_to_public(db, last_author) if last_author else None,
+            )
+        )
+    return out
 
 
 @router.get("/threads/recent", response_model=list[ThreadRead])
@@ -254,3 +289,34 @@ async def create_post(
 @router.post("/posts/{post_id}/react")
 async def toggle_reaction(post_id: int, user: CurrentUser, db: DbSession) -> dict:
     return await forum_service.toggle_reaction(db, post_id=post_id, user_id=user.id)
+
+
+@router.patch("/posts/{post_id}", response_model=PostRead)
+async def edit_post_endpoint(
+    post_id: int, payload: PostUpdate, user: CurrentUser, db: DbSession
+) -> PostRead:
+    from sqlalchemy import select as _select
+    from app.models.thread import Post
+
+    p_q = await db.execute(_select(Post).where(Post.id == post_id))
+    post = p_q.scalar_one_or_none()
+    if post is None or post.is_deleted:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Пост не найден")
+    if post.author_id != user.id:
+        # Allow staff later — check user roles
+        roles = await auth_service.get_user_roles(db, user.id)
+        if not any(r.is_staff for r in roles):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Нет прав на правку")
+    edited = await forum_service.edit_post(db, post=post, new_body=payload.body)
+    return PostRead(
+        id=edited.id,
+        thread_id=edited.thread_id,
+        body=edited.body,
+        is_first=edited.is_first,
+        parent_post_id=edited.parent_post_id,
+        edited_at=edited.edited_at,
+        created_at=edited.created_at,
+        author=await _user_to_public(db, user),
+        reaction_count=0,
+        has_reacted=False,
+    )

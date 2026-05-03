@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 
+import { AchievementReveal } from "@/components/effects/AchievementReveal";
 import { BackgroundParticles } from "@/components/effects/BackgroundParticles";
 import { CommandPalette } from "@/components/effects/CommandPalette";
 import { NoiseOverlay } from "@/components/effects/NoiseOverlay";
@@ -60,6 +61,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
           {/* Power-user surfaces */}
           <CommandPalette />
           <ShortcutsOverlay />
+          <AchievementReveal />
           <Toaster />
         </AuthProvider>
       </body>
