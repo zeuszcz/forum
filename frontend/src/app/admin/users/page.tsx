@@ -1,4 +1,4 @@
-import { Ban, MicOff, Lock, Search } from "lucide-react";
+import { Ban, MicOff, Lock } from "lucide-react";
 import Link from "next/link";
 
 import { UserActions } from "@/components/admin/UserActions";
