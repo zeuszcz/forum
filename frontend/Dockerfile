@@ -6,6 +6,16 @@ RUN npm install --legacy-peer-deps --no-audit --fund=false
 FROM node:22-alpine AS builder
 WORKDIR /app
 ENV NEXT_TELEMETRY_DISABLED=1
+
+# NEXT_PUBLIC_* are inlined into the JS bundle at build time, so they MUST be
+# passed as build args (env_file at runtime is too late).
+ARG NEXT_PUBLIC_API_URL
+ARG NEXT_PUBLIC_APP_URL
+ARG NEXT_PUBLIC_BRAND_NAME
+ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL} \
+    NEXT_PUBLIC_APP_URL=${NEXT_PUBLIC_APP_URL} \
+    NEXT_PUBLIC_BRAND_NAME=${NEXT_PUBLIC_BRAND_NAME}
+
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 RUN npm run build
