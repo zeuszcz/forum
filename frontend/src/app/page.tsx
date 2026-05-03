@@ -1,4 +1,4 @@
-import { Activity, Flame, Sparkles, Users } from "lucide-react";
+import { Flame, Sparkles, Users } from "lucide-react";
 
 import { MarqueeTicker } from "@/components/effects/MarqueeTicker";
 import { MeshBackground } from "@/components/effects/MeshBackground";
@@ -10,16 +10,21 @@ import {
 } from "@/components/effects/ScrollReveal";
 import { ActivityPulse } from "@/components/forum/ActivityPulse";
 import { HotThreads } from "@/components/forum/HotThreads";
+import { LiveActivityFeed } from "@/components/forum/LiveActivityFeed";
 import { OnlineList } from "@/components/forum/OnlineList";
+import { PersonalCard } from "@/components/forum/PersonalCard";
 import { RecentThreads } from "@/components/forum/RecentThreads";
 import { SectionCard } from "@/components/forum/SectionCard";
+import { ServerStatusWidget } from "@/components/forum/ServerStatusWidget";
 import { Shoutbox } from "@/components/forum/Shoutbox";
 import { TopPodium, type TopUser } from "@/components/forum/TopPodium";
 import { apiServer } from "@/lib/api";
 import { relativeTime } from "@/lib/format";
 import type {
   ActivityResponse,
+  FeedEvent,
   Section,
+  SectionPulse,
   ShoutboxMessage,
   SparklineData,
   Thread,
@@ -29,18 +34,41 @@ import type {
 export const dynamic = "force-dynamic";
 
 async function loadHomeData() {
-  const [sections, recentThreads, hotThreads, online, shoutbox, sparklines, top, activity] =
-    await Promise.all([
-      apiServer<Section[]>("/sections"),
-      apiServer<Thread[]>("/threads/recent?limit=8"),
-      apiServer<Thread[]>("/threads/hot?limit=5&hours=24"),
-      apiServer<UserPublic[]>("/users/online"),
-      apiServer<ShoutboxMessage[]>("/shoutbox?limit=50"),
-      apiServer<SparklineData[]>("/stats/sparklines?hours=24"),
-      apiServer<TopUser[]>("/stats/top-users?period=week&limit=3"),
-      apiServer<ActivityResponse>("/stats/activity?hours=24"),
-    ]);
-  return { sections, recentThreads, hotThreads, online, shoutbox, sparklines, top, activity };
+  const [
+    sections,
+    recentThreads,
+    hotThreads,
+    online,
+    shoutbox,
+    sparklines,
+    top,
+    activity,
+    feed,
+    pulse,
+  ] = await Promise.all([
+    apiServer<Section[]>("/sections"),
+    apiServer<Thread[]>("/threads/recent?limit=8"),
+    apiServer<Thread[]>("/threads/hot?limit=5&hours=24"),
+    apiServer<UserPublic[]>("/users/online"),
+    apiServer<ShoutboxMessage[]>("/shoutbox?limit=50"),
+    apiServer<SparklineData[]>("/stats/sparklines?hours=24"),
+    apiServer<TopUser[]>("/stats/top-users?period=week&limit=3"),
+    apiServer<ActivityResponse>("/stats/activity?hours=24"),
+    apiServer<FeedEvent[]>("/stats/feed?limit=20"),
+    apiServer<SectionPulse[]>("/stats/section-pulse?minutes=10"),
+  ]);
+  return {
+    sections,
+    recentThreads,
+    hotThreads,
+    online,
+    shoutbox,
+    sparklines,
+    top,
+    activity,
+    feed,
+    pulse,
+  };
 }
 
 export default async function HomePage() {
@@ -53,22 +81,29 @@ export default async function HomePage() {
     sparklines,
     top,
     activity,
+    feed,
+    pulse,
   } = await loadHomeData();
 
   const totalThreads = sections.reduce((s, x) => s + x.thread_count, 0);
   const totalPosts = sections.reduce((s, x) => s + x.post_count, 0);
   const sparkBySlug = Object.fromEntries(sparklines.map((s) => [s.slug, s.values]));
+  const pulseBySection = Object.fromEntries(
+    pulse.map((p) => [p.section_id, p.count]),
+  );
 
   const tickerItems = [
     <span key="online" className="inline-flex items-center gap-1.5">
       <Users className="h-3 w-3 text-cyan" />
-      <span className="text-cyan font-mono">{online.length}</span> онлайн
+      <span className="font-mono text-cyan">{online.length}</span> онлайн
     </span>,
     ...recentThreads.slice(0, 5).map((t) => (
       <span key={t.id} className="inline-flex items-center gap-1.5">
         <Flame className="h-3 w-3 text-flame" />
         <span className="text-ash">{t.title}</span>
-        <span className="text-smoke/60">· {relativeTime(t.last_post_at ?? t.created_at)}</span>
+        <span className="text-smoke/60">
+          · {relativeTime(t.last_post_at ?? t.created_at)}
+        </span>
       </span>
     )),
     <span key="welcome" className="inline-flex items-center gap-1.5">
@@ -78,20 +113,20 @@ export default async function HomePage() {
 
   return (
     <div className="relative">
-      {/* === Hero === */}
+      {/* === Compact hero === */}
       <section className="relative overflow-hidden border-b border-border/40">
         <MeshBackground />
         <div className="dotted-grid absolute inset-0 -z-[5] opacity-50" />
 
-        <div className="container relative z-10 pt-10 pb-8 md:pt-14 md:pb-10">
+        <div className="container relative z-10 pt-8 pb-6 md:pt-10 md:pb-8">
           <div className="flex flex-wrap items-end justify-between gap-6">
-            <div>
-              <h1 className="font-sans text-3xl font-extrabold leading-[1.05] tracking-tight md:text-5xl">
+            <div className="min-w-0">
+              <h1 className="font-sans text-3xl font-extrabold leading-[1.05] tracking-tight md:text-4xl">
                 <span className="text-bone">сообщество </span>
                 <span className="text-iridescent">endless·war</span>
               </h1>
-              <p className="mt-3 max-w-xl text-sm text-ash md:text-base">
-                CS 1.6 jail mode. Ниже — разделы форума, общий чат и кто сейчас в сети.
+              <p className="mt-1.5 max-w-xl text-sm text-ash">
+                CS 1.6 jail — общение, бан-апелляции, жалобы и движ
               </p>
             </div>
             <div className="grid grid-cols-3 gap-6 text-center md:gap-10">
@@ -101,30 +136,42 @@ export default async function HomePage() {
             </div>
           </div>
 
-          <div className="mt-8 rounded-md glass px-4 py-2.5">
+          <div className="mt-6 rounded-md glass px-4 py-2.5">
             <MarqueeTicker items={tickerItems} />
           </div>
         </div>
       </section>
 
-      {/* === Pulse strip === */}
+      {/* === Pulse strip — full width === */}
       <section className="border-b border-border/40">
         <div className="container py-4">
           <ActivityPulse initial={activity} />
         </div>
       </section>
 
+      {/* === Personal greeting (logged-in only) === */}
+      <div className="container pt-6">
+        <PersonalCard />
+      </div>
+
       {/* === Main grid === */}
-      <div className="container py-8 md:py-10">
+      <div className="container py-6 md:py-8">
         <div className="grid gap-6 lg:grid-cols-[1fr_360px]">
-          <div className="space-y-8">
+          {/* === Main column === */}
+          <div className="space-y-6">
             <section>
-              <header className="mb-4 flex items-center gap-3">
-                <Activity className="h-4 w-4 text-plasma" />
+              <header className="mb-3 flex items-center gap-3">
                 <h2 className="text-xs font-semibold uppercase tracking-widest text-smoke">
                   разделы
                 </h2>
                 <div className="h-px flex-1 bg-gradient-to-r from-border to-transparent" />
+                <span className="text-[10px] uppercase tracking-widest text-smoke">
+                  ●{" "}
+                  <span className="text-flame">
+                    {pulse.reduce((s, p) => s + p.count, 0)}
+                  </span>{" "}
+                  за 10 мин
+                </span>
               </header>
 
               {sections.length === 0 ? (
@@ -136,7 +183,11 @@ export default async function HomePage() {
                 <StaggerList stagger={0.05} className="grid gap-4 sm:grid-cols-2">
                   {sections.map((s) => (
                     <StaggerItem key={s.id}>
-                      <SectionCard section={s} sparkline={sparkBySlug[s.slug]} />
+                      <SectionCard
+                        section={s}
+                        sparkline={sparkBySlug[s.slug]}
+                        pulseCount={pulseBySection[s.id] ?? 0}
+                      />
                     </StaggerItem>
                   ))}
                 </StaggerList>
@@ -144,23 +195,31 @@ export default async function HomePage() {
             </section>
 
             <ScrollReveal>
+              <LiveActivityFeed initialEvents={feed} visible={12} />
+            </ScrollReveal>
+
+            <ScrollReveal>
               <RecentThreads threads={recentThreads} />
             </ScrollReveal>
           </div>
 
+          {/* === Sticky sidebar === */}
           <aside className="space-y-6 lg:sticky lg:top-20 lg:self-start">
             <ScrollReveal>
               <Shoutbox initialMessages={shoutbox} />
             </ScrollReveal>
             <ScrollReveal delay={0.05}>
+              <ServerStatusWidget />
+            </ScrollReveal>
+            <ScrollReveal delay={0.1}>
               <HotThreads threads={hotThreads} />
             </ScrollReveal>
             {top.length > 0 && (
-              <ScrollReveal delay={0.1}>
+              <ScrollReveal delay={0.15}>
                 <TopPodium users={top} />
               </ScrollReveal>
             )}
-            <ScrollReveal delay={0.15}>
+            <ScrollReveal delay={0.2}>
               <OnlineList users={online} />
             </ScrollReveal>
           </aside>
@@ -182,16 +241,24 @@ function Stat({
   live?: boolean;
 }) {
   const colorClass =
-    accent === "plasma" ? "text-plasma" : accent === "flame" ? "text-flame" : "text-cyan";
+    accent === "plasma"
+      ? "text-plasma"
+      : accent === "flame"
+        ? "text-flame"
+        : "text-cyan";
   return (
     <div className="text-center">
-      <div className={`flex items-baseline justify-center gap-1.5 font-mono text-2xl font-bold ${colorClass} md:text-3xl`}>
+      <div
+        className={`flex items-baseline justify-center gap-1.5 font-mono text-2xl font-bold ${colorClass} md:text-3xl`}
+      >
         <NumberTicker value={value} />
         {live && (
           <span className="dot-live ml-1 inline-block animate-pulse-slow self-center" />
         )}
       </div>
-      <div className="mt-1 text-[10px] uppercase tracking-widest text-smoke">{label}</div>
+      <div className="mt-1 text-[10px] uppercase tracking-widest text-smoke">
+        {label}
+      </div>
     </div>
   );
 }

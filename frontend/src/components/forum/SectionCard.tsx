@@ -49,27 +49,48 @@ const SPARK_COLOR: Record<Section["accent"], string> = {
 export function SectionCard({
   section,
   sparkline,
+  pulseCount = 0,
 }: {
   section: Section;
   sparkline?: number[];
+  /** number of posts in this section over the last 10 minutes — drives "hot" indicator */
+  pulseCount?: number;
 }) {
   const Icon = ICONS[section.icon] ?? MessageSquare;
   const sparkSum = sparkline?.reduce((s, v) => s + v, 0) ?? 0;
+  const hot = pulseCount > 0;
 
   return (
     <TiltCard max={6} className="h-full">
       <ConicBorder className="h-full">
-        <SpotlightCard className="group block h-full rounded-lg border border-border bg-card p-5 transition-colors duration-200 ease-premium hover:bg-card/85">
+        <SpotlightCard
+          className={cn(
+            "group block h-full rounded-lg border bg-card p-5 transition-colors duration-200 ease-premium hover:bg-card/85",
+            hot ? "border-flame/40" : "border-border",
+          )}
+        >
           <Link href={`/f/${section.slug}`} className="flex h-full flex-col gap-3">
             <div className="flex items-start gap-4">
               <div
                 className={cn(
-                  "flex h-12 w-12 shrink-0 items-center justify-center rounded-md border border-border bg-slate transition-colors duration-200",
+                  "relative flex h-12 w-12 shrink-0 items-center justify-center rounded-md border border-border bg-slate transition-colors duration-200",
                   "group-hover:border-plasma/40",
                 )}
                 style={{ transform: "translateZ(20px)" }}
               >
                 <Icon className={cn("h-5 w-5 transition-colors", ACCENTS[section.accent])} />
+                {hot && (
+                  <span
+                    className="absolute -right-1 -top-1 inline-flex h-3.5 w-3.5 items-center justify-center rounded-full"
+                    title={`${pulseCount} новых за 10 мин`}
+                    style={{
+                      background: "rgb(var(--flame-rgb))",
+                      boxShadow: "0 0 10px rgb(var(--flame-rgb) / 0.7)",
+                    }}
+                  >
+                    <span className="absolute inset-0 animate-ping rounded-full bg-flame opacity-60" />
+                  </span>
+                )}
               </div>
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">

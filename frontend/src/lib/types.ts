@@ -74,6 +74,26 @@ export interface UserActivityResponse {
   total_days: number;
 }
 
+export type FeedEventKind =
+  | "thread_created"
+  | "post_created"
+  | "reaction"
+  | "user_registered";
+
+export interface FeedEvent {
+  kind: FeedEventKind;
+  ts: string;
+  actor: UserPublic | null;
+  thread_id: number | null;
+  thread_title: string | null;
+  post_id: number | null;
+}
+
+export interface SectionPulse {
+  section_id: number;
+  count: number;
+}
+
 export interface ThreadWithPosts {
   thread: Thread;
   posts: Post[];

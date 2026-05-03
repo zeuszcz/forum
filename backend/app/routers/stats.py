@@ -140,6 +140,179 @@ async def all_sparklines(db: DbSession, hours: int = 24) -> list[dict]:
     return [{"slug": slug, "values": values} for slug, values in grouped.items()]
 
 
+@router.get("/feed")
+async def activity_feed(db: DbSession, limit: int = Query(30, ge=1, le=100)) -> list[dict]:
+    """Mixed live feed of recent forum events. Each entry has a kind discriminator
+    and the actor's UserPublic (nickname + roles + level info).
+
+    Frontend polls this every ~20s to render a "Что происходит" sidebar.
+    """
+    from datetime import datetime as _dt
+
+    from app.models.thread import Post, Reaction, Thread
+    from app.models.user import User
+    from sqlalchemy import desc as _desc, select as _select
+    from sqlalchemy.orm import aliased as _aliased
+
+    # Pull a generous slice of each event type, then merge & trim
+    fetch = limit * 2
+
+    threads_rows = await db.execute(
+        _select(Thread)
+        .where(Thread.is_deleted.is_(False))
+        .order_by(_desc(Thread.created_at))
+        .limit(fetch)
+    )
+    threads = list(threads_rows.scalars().all())
+
+    posts_rows = await db.execute(
+        _select(Post)
+        .where(Post.is_deleted.is_(False), Post.is_first.is_(False))
+        .order_by(_desc(Post.created_at))
+        .limit(fetch)
+    )
+    posts_list = list(posts_rows.scalars().all())
+
+    reactions_rows = await db.execute(
+        _select(Reaction).order_by(_desc(Reaction.created_at)).limit(fetch)
+    )
+    reactions_list = list(reactions_rows.scalars().all())
+
+    users_rows = await db.execute(
+        _select(User)
+        .where(User.is_active.is_(True))
+        .order_by(_desc(User.created_at))
+        .limit(fetch)
+    )
+    users_list = list(users_rows.scalars().all())
+
+    # Resolve thread titles for posts and reactions
+    needed_thread_ids: set[int] = set()
+    needed_thread_ids.update(t.id for t in threads)
+    needed_thread_ids.update(p.thread_id for p in posts_list)
+    needed_post_ids = {r.post_id for r in reactions_list}
+    if needed_post_ids:
+        post_threads = await db.execute(
+            _select(Post.id, Post.thread_id).where(Post.id.in_(needed_post_ids))
+        )
+        post_thread_map: dict[int, int] = {pid: tid for pid, tid in post_threads.all()}
+        needed_thread_ids.update(post_thread_map.values())
+    else:
+        post_thread_map = {}
+
+    thread_titles: dict[int, str] = {}
+    if needed_thread_ids:
+        tt = await db.execute(
+            _select(Thread.id, Thread.title).where(Thread.id.in_(needed_thread_ids))
+        )
+        thread_titles = {tid: title for tid, title in tt.all()}
+
+    # Resolve users in one fetch
+    user_ids: set[int] = set()
+    user_ids.update(t.author_id for t in threads if t.author_id)
+    user_ids.update(p.author_id for p in posts_list if p.author_id)
+    user_ids.update(r.user_id for r in reactions_list if r.user_id)
+    user_ids.update(u.id for u in users_list)
+
+    users_map: dict[int, User] = {}
+    if user_ids:
+        ures = await db.execute(_select(User).where(User.id.in_(user_ids)))
+        users_map = {u.id: u for u in ures.scalars().all()}
+
+    def _user_dict(uid: int | None) -> dict | None:
+        if uid is None:
+            return None
+        u = users_map.get(uid)
+        if u is None:
+            return None
+        topRole = None
+        # Avoid additional N+1 — just return minimal payload (no roles list)
+        return {
+            "id": u.id,
+            "nickname": u.nickname,
+            "avatar_url": u.avatar_url,
+            "title": u.title,
+            "is_active": u.is_active,
+            "last_seen_at": u.last_seen_at.isoformat() if u.last_seen_at else None,
+            "created_at": u.created_at.isoformat(),
+            "roles": [],
+            "total_posts": u.total_posts,
+            "total_reactions_received": u.total_reactions_received,
+            "granted_perks": list(u.granted_perks or []),
+        }
+
+    events: list[dict] = []
+    for t in threads:
+        events.append(
+            {
+                "kind": "thread_created",
+                "ts": t.created_at.isoformat(),
+                "actor": _user_dict(t.author_id),
+                "thread_id": t.id,
+                "thread_title": thread_titles.get(t.id),
+                "post_id": None,
+            }
+        )
+    for p in posts_list:
+        events.append(
+            {
+                "kind": "post_created",
+                "ts": p.created_at.isoformat(),
+                "actor": _user_dict(p.author_id),
+                "thread_id": p.thread_id,
+                "thread_title": thread_titles.get(p.thread_id),
+                "post_id": p.id,
+            }
+        )
+    for r in reactions_list:
+        tid = post_thread_map.get(r.post_id)
+        events.append(
+            {
+                "kind": "reaction",
+                "ts": r.created_at.isoformat(),
+                "actor": _user_dict(r.user_id),
+                "thread_id": tid,
+                "thread_title": thread_titles.get(tid) if tid else None,
+                "post_id": r.post_id,
+            }
+        )
+    for u in users_list:
+        events.append(
+            {
+                "kind": "user_registered",
+                "ts": u.created_at.isoformat(),
+                "actor": _user_dict(u.id),
+                "thread_id": None,
+                "thread_title": None,
+                "post_id": None,
+            }
+        )
+
+    # Newest first
+    events.sort(key=lambda e: e["ts"], reverse=True)
+    return events[:limit]
+
+
+@router.get("/section-pulse")
+async def section_pulse(db: DbSession, minutes: int = Query(10, ge=1, le=120)) -> list[dict]:
+    """Per-section count of posts in the last `minutes`. Used to show a
+    'hot' indicator on each section card."""
+    sql = text(
+        """
+        SELECT t.section_id, COUNT(*) AS cnt
+        FROM posts p
+        JOIN threads t ON t.id = p.thread_id
+        WHERE p.created_at >= NOW() - (:minutes || ' minutes')::interval
+          AND NOT p.is_deleted
+        GROUP BY t.section_id
+        """
+    )
+    rows = (
+        await db.execute(sql, {"minutes": str(minutes)})
+    ).mappings().all()
+    return [{"section_id": int(r["section_id"]), "count": int(r["cnt"])} for r in rows]
+
+
 @router.get("/top-users")
 async def top_users(
     db: DbSession,
