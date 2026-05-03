@@ -2,7 +2,7 @@
 
 import { motion } from "framer-motion";
 import { Heart, Quote, Sparkles } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 
 import { HeartExplosion } from "@/components/effects/HeartExplosion";
 import { SpotlightCard } from "@/components/effects/SpotlightCard";
