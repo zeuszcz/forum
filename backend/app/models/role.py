@@ -16,6 +16,15 @@ class Role(Base, TimestampMixin):
     display_order: Mapped[int] = mapped_column(Integer, nullable=False, default=100)
     is_staff: Mapped[bool] = mapped_column(default=False, nullable=False)
 
+    # Granular permissions (added in migration 20260503_1700)
+    can_ban: Mapped[bool] = mapped_column(default=False, nullable=False)
+    can_mute: Mapped[bool] = mapped_column(default=False, nullable=False)
+    can_manage_threads: Mapped[bool] = mapped_column(default=False, nullable=False)
+    can_manage_users: Mapped[bool] = mapped_column(default=False, nullable=False)
+    can_manage_roles: Mapped[bool] = mapped_column(default=False, nullable=False)
+    can_grant_perks: Mapped[bool] = mapped_column(default=False, nullable=False)
+    can_view_audit: Mapped[bool] = mapped_column(default=False, nullable=False)
+
 
 class UserRole(Base):
     __tablename__ = "user_roles"

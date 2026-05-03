@@ -103,7 +103,7 @@ export function RolesManager({ initialRoles }: { initialRoles: RoleAdminRead[] }
               <th className="px-3 py-2.5 text-left">Slug</th>
               <th className="px-3 py-2.5 text-left">Название</th>
               <th className="px-3 py-2.5 text-left">Цвет</th>
-              <th className="px-3 py-2.5 text-left">Staff</th>
+              <th className="px-3 py-2.5 text-left">Права</th>
               <th className="px-3 py-2.5 text-left">Order</th>
               <th className="px-3 py-2.5 text-left">Юзеров</th>
               <th className="px-3 py-2.5 text-right"></th>
@@ -126,6 +126,16 @@ export function RolesManager({ initialRoles }: { initialRoles: RoleAdminRead[] }
   );
 }
 
+const PERMISSIONS = [
+  { key: "can_ban", label: "Бан", short: "ban" },
+  { key: "can_mute", label: "Мьют", short: "mute" },
+  { key: "can_manage_threads", label: "Темы", short: "threads" },
+  { key: "can_manage_users", label: "Юзеры", short: "users" },
+  { key: "can_manage_roles", label: "Роли", short: "roles" },
+  { key: "can_grant_perks", label: "Перки", short: "perks" },
+  { key: "can_view_audit", label: "Аудит", short: "audit" },
+] as const;
+
 function RoleRow({
   role,
   onUpdate,
@@ -142,6 +152,15 @@ function RoleRow({
   const [color, setColor] = useState(role.color);
   const [isStaff, setIsStaff] = useState(role.is_staff);
   const [order, setOrder] = useState(role.display_order);
+  const [perms, setPerms] = useState<Record<string, boolean>>({
+    can_ban: role.can_ban,
+    can_mute: role.can_mute,
+    can_manage_threads: role.can_manage_threads,
+    can_manage_users: role.can_manage_users,
+    can_manage_roles: role.can_manage_roles,
+    can_grant_perks: role.can_grant_perks,
+    can_view_audit: role.can_view_audit,
+  });
 
   async function save() {
     const patch: Partial<RoleAdminRead> = {};
@@ -149,9 +168,18 @@ function RoleRow({
     if (color !== role.color) patch.color = color;
     if (isStaff !== role.is_staff) patch.is_staff = isStaff;
     if (order !== role.display_order) patch.display_order = order;
+    for (const p of PERMISSIONS) {
+      if (perms[p.key] !== (role as Record<string, unknown>)[p.key]) {
+        (patch as Record<string, unknown>)[p.key] = perms[p.key];
+      }
+    }
     if (Object.keys(patch).length > 0) await onUpdate(patch);
     setEditing(false);
   }
+
+  const activePerms = PERMISSIONS.filter(
+    (p) => (role as unknown as Record<string, boolean>)[p.key],
+  );
 
   return (
     <tr className="transition-colors hover:bg-void/40">
@@ -213,21 +241,38 @@ function RoleRow({
       </td>
       <td className="px-3 py-2">
         {editing ? (
-          <label className="inline-flex items-center gap-2 text-xs">
-            <input
-              type="checkbox"
-              checked={isStaff}
-              onChange={(e) => setIsStaff(e.target.checked)}
-              className="accent-plasma"
-            />
-            staff
-          </label>
-        ) : role.is_staff ? (
-          <span className="inline-flex items-center gap-1 text-xs text-plasma">
-            <Shield className="h-3 w-3" /> staff
-          </span>
+          <div className="flex max-w-md flex-wrap gap-1">
+            <PermToggle label="staff" active={isStaff} onChange={setIsStaff} accent="plasma" />
+            {PERMISSIONS.map((p) => (
+              <PermToggle
+                key={p.key}
+                label={p.label}
+                active={perms[p.key]}
+                onChange={(v) => setPerms({ ...perms, [p.key]: v })}
+              />
+            ))}
+          </div>
         ) : (
-          <span className="text-xs text-smoke">—</span>
+          <div className="flex flex-wrap items-center gap-1">
+            {role.is_staff && (
+              <span className="inline-flex items-center gap-1 rounded border border-plasma/40 bg-plasma/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-plasma">
+                <Shield className="h-3 w-3" />
+                staff
+              </span>
+            )}
+            {activePerms.map((p) => (
+              <span
+                key={p.key}
+                className="rounded border border-cyan/30 bg-cyan/5 px-1.5 py-0.5 text-[10px] uppercase tracking-wider text-cyan"
+                title={p.label}
+              >
+                {p.short}
+              </span>
+            ))}
+            {!role.is_staff && activePerms.length === 0 && (
+              <span className="text-xs text-smoke">—</span>
+            )}
+          </div>
         )}
       </td>
       <td className="px-3 py-2">
@@ -263,6 +308,15 @@ function RoleRow({
                 setColor(role.color);
                 setIsStaff(role.is_staff);
                 setOrder(role.display_order);
+                setPerms({
+                  can_ban: role.can_ban,
+                  can_mute: role.can_mute,
+                  can_manage_threads: role.can_manage_threads,
+                  can_manage_users: role.can_manage_users,
+                  can_manage_roles: role.can_manage_roles,
+                  can_grant_perks: role.can_grant_perks,
+                  can_view_audit: role.can_view_audit,
+                });
                 setEditing(false);
               }}
               className="inline-flex h-7 items-center rounded-md px-2 text-xs text-smoke transition-colors hover:bg-slate hover:text-bone"
@@ -436,5 +490,34 @@ function CreateRoleForm({
         </p>
       )}
     </form>
+  );
+}
+
+function PermToggle({
+  label,
+  active,
+  onChange,
+  accent = "cyan",
+}: {
+  label: string;
+  active: boolean;
+  onChange: (v: boolean) => void;
+  accent?: "cyan" | "plasma";
+}) {
+  return (
+    <button
+      type="button"
+      onClick={() => onChange(!active)}
+      className={cn(
+        "rounded border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider transition-colors",
+        active
+          ? accent === "plasma"
+            ? "border-plasma/60 bg-plasma/15 text-plasma"
+            : "border-cyan/50 bg-cyan/15 text-cyan"
+          : "border-border bg-card text-smoke hover:border-border-strong hover:text-ash",
+      )}
+    >
+      {label}
+    </button>
   );
 }

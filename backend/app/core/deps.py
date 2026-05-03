@@ -57,3 +57,29 @@ async def get_current_user(
 CurrentUser = Annotated[User, Depends(get_current_user)]
 OptionalUser = Annotated["User | None", Depends(get_optional_user)]
 DbSession = Annotated[AsyncSession, Depends(get_db)]
+
+
+def require_permission(permission: str):
+    """FastAPI dependency that requires the current user to have at least one
+    role granting the given permission flag (Role.can_*).
+
+    Usage:
+        actor: Annotated[User, Depends(require_permission("can_ban"))]
+    """
+
+    async def _dep(
+        user: Annotated[User, Depends(get_current_user)],
+        db: Annotated[AsyncSession, Depends(get_db)],
+    ) -> User:
+        # Lazy import to avoid circular
+        from app.services import auth as auth_service
+
+        roles = await auth_service.get_user_roles(db, user.id)
+        if not any(getattr(r, permission, False) for r in roles):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Нет права: {permission}",
+            )
+        return user
+
+    return _dep

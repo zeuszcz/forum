@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class RoleRead(BaseModel):
@@ -30,3 +30,17 @@ class UserPublic(BaseModel):
     # Cached stats — used by frontend to compute level + rank locally
     total_posts: int = 0
     total_reactions_received: int = 0
+
+    # Manually-granted perks that bypass level requirements
+    granted_perks: list[str] = []
+
+
+class UserProfileUpdate(BaseModel):
+    """Self-update of own profile.
+    bio is always editable;
+    title requires level >= 25 (custom-title perk) — enforced in router;
+    signature requires level >= 5.
+    """
+    bio: str | None = Field(default=None, max_length=1024)
+    title: str | None = Field(default=None, max_length=80)
+    signature: str | None = Field(default=None, max_length=1024)

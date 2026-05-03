@@ -17,6 +17,7 @@ export interface UserPublic {
   roles: Role[];
   total_posts: number;
   total_reactions_received: number;
+  granted_perks: string[];
 }
 
 export interface Section {
@@ -136,6 +137,17 @@ export interface AdminUserRead {
   muted_until: string | null;
   can_create_threads: boolean;
   roles: Role[];
+  granted_perks: string[];
+}
+
+export interface AdminPermissions {
+  can_ban: boolean;
+  can_mute: boolean;
+  can_manage_threads: boolean;
+  can_manage_users: boolean;
+  can_manage_roles: boolean;
+  can_grant_perks: boolean;
+  can_view_audit: boolean;
 }
 
 export interface AdminUsersResponse {
@@ -175,4 +187,22 @@ export interface RoleAdminRead {
   display_order: number;
   is_staff: boolean;
   member_count: number;
+  can_ban: boolean;
+  can_mute: boolean;
+  can_manage_threads: boolean;
+  can_manage_users: boolean;
+  can_manage_roles: boolean;
+  can_grant_perks: boolean;
+  can_view_audit: boolean;
 }
+
+/** Available perks that admins can grant manually (mirror backend ALLOWED_PERKS) */
+export const GRANTABLE_PERKS = [
+  { slug: "custom_title", label: "Кастомный титул", description: "Свободный текст под ником (lvl 25)" },
+  { slug: "glow_nick", label: "Glow-ник", description: "Светящийся ник в шоутбоксе и постах (lvl 50)" },
+  { slug: "animated_frame", label: "Анимированная рамка", description: "Аватар с плазма-кольцом (lvl 15)" },
+  { slug: "embed_images", label: "Картинки в постах", description: "Прикреплять изображения (lvl 3)" },
+  { slug: "create_polls", label: "Создание опросов", description: "Опросы в своих темах (lvl 10)" },
+  { slug: "vote_polls", label: "Голосование в опросах", description: "Голосовать в опросах (lvl 5)" },
+] as const;
+

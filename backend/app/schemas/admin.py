@@ -31,6 +31,7 @@ class AdminUserRead(BaseModel):
     can_create_threads: bool
 
     roles: list[RoleRead] = []
+    granted_perks: list[str] = []
 
 
 class AdminUsersResponse(BaseModel):
@@ -61,6 +62,11 @@ class ThreadCreationRequest(BaseModel):
 
 class DeletePostRequest(BaseModel):
     reason: str | None = Field(default=None, max_length=500)
+
+
+class PerksUpdate(BaseModel):
+    """Replace user's granted_perks with this list. Whitelist enforced server-side."""
+    perks: list[str] = Field(default_factory=list)
 
 
 class ModerationLogRead(BaseModel):
@@ -98,6 +104,15 @@ class RoleAdminRead(BaseModel):
     is_staff: bool
     member_count: int = 0
 
+    # Granular permissions
+    can_ban: bool = False
+    can_mute: bool = False
+    can_manage_threads: bool = False
+    can_manage_users: bool = False
+    can_manage_roles: bool = False
+    can_grant_perks: bool = False
+    can_view_audit: bool = False
+
 
 class RoleCreate(BaseModel):
     slug: str = Field(min_length=2, max_length=32, pattern=r"^[a-z0-9][a-z0-9_-]*$")
@@ -105,6 +120,13 @@ class RoleCreate(BaseModel):
     color: str = Field(default="#7c5cff", pattern=r"^#[0-9a-fA-F]{6}$")
     display_order: int = Field(default=100, ge=0, le=9999)
     is_staff: bool = False
+    can_ban: bool = False
+    can_mute: bool = False
+    can_manage_threads: bool = False
+    can_manage_users: bool = False
+    can_manage_roles: bool = False
+    can_grant_perks: bool = False
+    can_view_audit: bool = False
 
 
 class RoleUpdate(BaseModel):
@@ -112,3 +134,10 @@ class RoleUpdate(BaseModel):
     color: str | None = Field(default=None, pattern=r"^#[0-9a-fA-F]{6}$")
     display_order: int | None = Field(default=None, ge=0, le=9999)
     is_staff: bool | None = None
+    can_ban: bool | None = None
+    can_mute: bool | None = None
+    can_manage_threads: bool | None = None
+    can_manage_users: bool | None = None
+    can_manage_roles: bool | None = None
+    can_grant_perks: bool | None = None
+    can_view_audit: bool | None = None

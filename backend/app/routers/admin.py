@@ -5,7 +5,7 @@ from typing import Annotated, Literal
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func, select
 
-from app.core.deps import CurrentUser, DbSession
+from app.core.deps import CurrentUser, DbSession, require_permission
 from app.models.role import Role, UserRole
 from app.models.section import Section
 from app.models.thread import Post, Thread
@@ -18,6 +18,7 @@ from app.schemas.admin import (
     DeletePostRequest,
     ModerationLogRead,
     MuteRequest,
+    PerksUpdate,
     RoleAdminRead,
     RoleCreate,
     RoleUpdate,
@@ -46,12 +47,41 @@ async def require_staff(user: CurrentUser, db: DbSession) -> User:
 
 StaffUser = Annotated[User, Depends(require_staff)]
 
+# Per-permission deps — used to gate individual actions
+BanActor = Annotated[User, Depends(require_permission("can_ban"))]
+MuteActor = Annotated[User, Depends(require_permission("can_mute"))]
+ThreadActor = Annotated[User, Depends(require_permission("can_manage_threads"))]
+UsersActor = Annotated[User, Depends(require_permission("can_manage_users"))]
+RolesActor = Annotated[User, Depends(require_permission("can_manage_roles"))]
+PerksActor = Annotated[User, Depends(require_permission("can_grant_perks"))]
+AuditActor = Annotated[User, Depends(require_permission("can_view_audit"))]
+
+# Whitelist of perks that can be granted manually (mirrors lib/rank.ts)
+ALLOWED_PERKS = {"custom_title", "glow_nick", "animated_frame", "embed_images", "create_polls", "vote_polls"}
+
 router = APIRouter(prefix="/admin", tags=["admin"], dependencies=[Depends(require_staff)])
 
 
 # -----------------------------------------------------------------------------
 # Helpers
 # -----------------------------------------------------------------------------
+
+async def _user_permissions(db, user: User) -> dict[str, bool]:
+    """Aggregate per-permission booleans for this user (OR across their roles)."""
+    roles = await auth_service.get_user_roles(db, user.id)
+    perms = {}
+    for p in [
+        "can_ban",
+        "can_mute",
+        "can_manage_threads",
+        "can_manage_users",
+        "can_manage_roles",
+        "can_grant_perks",
+        "can_view_audit",
+    ]:
+        perms[p] = any(getattr(r, p, False) for r in roles)
+    return perms
+
 
 async def _serialize_admin_user(db, user: User) -> AdminUserRead:
     roles = await auth_service.get_user_roles(db, user.id)
@@ -73,6 +103,7 @@ async def _serialize_admin_user(db, user: User) -> AdminUserRead:
         muted_until=user.muted_until,
         can_create_threads=user.can_create_threads,
         roles=[RoleRead.model_validate(r) for r in roles],
+        granted_perks=list(user.granted_perks or []),
     )
 
 
@@ -139,8 +170,15 @@ async def list_users(
     )
 
 
+@router.get("/me/permissions")
+async def my_permissions(actor: StaffUser, db: DbSession) -> dict:
+    """Return the set of granular permissions the current staff user has.
+    Frontend uses this to show/hide actions in the admin UI."""
+    return await _user_permissions(db, actor)
+
+
 @router.post("/users/{user_id}/ban", response_model=AdminUserRead)
-async def ban(user_id: int, payload: BanRequest, actor: StaffUser, db: DbSession) -> AdminUserRead:
+async def ban(user_id: int, payload: BanRequest, actor: BanActor, db: DbSession) -> AdminUserRead:
     user = await admin_service.ban_user(
         db, actor=actor, target_id=user_id, reason=payload.reason, duration_hours=payload.duration_hours
     )
@@ -148,13 +186,13 @@ async def ban(user_id: int, payload: BanRequest, actor: StaffUser, db: DbSession
 
 
 @router.post("/users/{user_id}/unban", response_model=AdminUserRead)
-async def unban(user_id: int, actor: StaffUser, db: DbSession) -> AdminUserRead:
+async def unban(user_id: int, actor: BanActor, db: DbSession) -> AdminUserRead:
     user = await admin_service.unban_user(db, actor=actor, target_id=user_id)
     return await _serialize_admin_user(db, user)
 
 
 @router.post("/users/{user_id}/mute", response_model=AdminUserRead)
-async def mute(user_id: int, payload: MuteRequest, actor: StaffUser, db: DbSession) -> AdminUserRead:
+async def mute(user_id: int, payload: MuteRequest, actor: MuteActor, db: DbSession) -> AdminUserRead:
     user = await admin_service.mute_user(
         db, actor=actor, target_id=user_id, reason=payload.reason, duration_hours=payload.duration_hours
     )
@@ -162,14 +200,14 @@ async def mute(user_id: int, payload: MuteRequest, actor: StaffUser, db: DbSessi
 
 
 @router.post("/users/{user_id}/unmute", response_model=AdminUserRead)
-async def unmute(user_id: int, actor: StaffUser, db: DbSession) -> AdminUserRead:
+async def unmute(user_id: int, actor: MuteActor, db: DbSession) -> AdminUserRead:
     user = await admin_service.unmute_user(db, actor=actor, target_id=user_id)
     return await _serialize_admin_user(db, user)
 
 
 @router.post("/users/{user_id}/thread-creation", response_model=AdminUserRead)
 async def set_thread_creation(
-    user_id: int, payload: ThreadCreationRequest, actor: StaffUser, db: DbSession
+    user_id: int, payload: ThreadCreationRequest, actor: ThreadActor, db: DbSession
 ) -> AdminUserRead:
     user = await admin_service.set_thread_creation(
         db, actor=actor, target_id=user_id, can_create=payload.can_create, reason=payload.reason
@@ -178,7 +216,7 @@ async def set_thread_creation(
 
 
 @router.post("/users/{user_id}/role/{role_slug}", response_model=AdminUserRead)
-async def grant_role(user_id: int, role_slug: str, actor: StaffUser, db: DbSession) -> AdminUserRead:
+async def grant_role(user_id: int, role_slug: str, actor: UsersActor, db: DbSession) -> AdminUserRead:
     user = await admin_service.get_user_or_404(db, user_id)
     role_q = await db.execute(select(Role).where(Role.slug == role_slug))
     role = role_q.scalar_one_or_none()
@@ -204,7 +242,7 @@ async def grant_role(user_id: int, role_slug: str, actor: StaffUser, db: DbSessi
 
 
 @router.delete("/users/{user_id}/role/{role_slug}", response_model=AdminUserRead)
-async def revoke_role(user_id: int, role_slug: str, actor: StaffUser, db: DbSession) -> AdminUserRead:
+async def revoke_role(user_id: int, role_slug: str, actor: UsersActor, db: DbSession) -> AdminUserRead:
     user = await admin_service.get_user_or_404(db, user_id)
     from app.models.moderation import ModerationLog
 
@@ -235,7 +273,7 @@ async def revoke_role(user_id: int, role_slug: str, actor: StaffUser, db: DbSess
 # -----------------------------------------------------------------------------
 
 @router.post("/sections/{slug}/lock")
-async def lock_section(slug: str, payload: ThreadLockRequest, actor: StaffUser, db: DbSession) -> dict:
+async def lock_section(slug: str, payload: ThreadLockRequest, actor: ThreadActor, db: DbSession) -> dict:
     section = await admin_service.lock_section(db, actor=actor, slug=slug, locked=payload.locked)
     return {"slug": section.slug, "is_locked": section.is_locked}
 
@@ -245,14 +283,14 @@ async def lock_section(slug: str, payload: ThreadLockRequest, actor: StaffUser, 
 # -----------------------------------------------------------------------------
 
 @router.post("/threads/{thread_id}/lock")
-async def lock_thread(thread_id: int, payload: ThreadLockRequest, actor: StaffUser, db: DbSession) -> dict:
+async def lock_thread(thread_id: int, payload: ThreadLockRequest, actor: ThreadActor, db: DbSession) -> dict:
     thread = await admin_service.lock_thread(db, actor=actor, thread_id=thread_id, locked=payload.locked)
     return {"id": thread.id, "is_locked": thread.is_locked}
 
 
 @router.post("/posts/{post_id}/delete")
 async def delete_post(
-    post_id: int, payload: DeletePostRequest, actor: StaffUser, db: DbSession
+    post_id: int, payload: DeletePostRequest, actor: ThreadActor, db: DbSession
 ) -> dict:
     post = await admin_service.delete_post(db, actor=actor, post_id=post_id, reason=payload.reason)
     return {"id": post.id, "is_deleted": post.is_deleted}
@@ -265,6 +303,17 @@ async def delete_post(
 PROTECTED_ROLE_SLUGS = {"owner", "admin", "member"}
 
 
+PERMISSION_FIELDS = (
+    "can_ban",
+    "can_mute",
+    "can_manage_threads",
+    "can_manage_users",
+    "can_manage_roles",
+    "can_grant_perks",
+    "can_view_audit",
+)
+
+
 def _serialize_role(role: Role, member_count: int) -> RoleAdminRead:
     return RoleAdminRead(
         id=role.id,
@@ -274,6 +323,13 @@ def _serialize_role(role: Role, member_count: int) -> RoleAdminRead:
         display_order=role.display_order,
         is_staff=role.is_staff,
         member_count=member_count,
+        can_ban=role.can_ban,
+        can_mute=role.can_mute,
+        can_manage_threads=role.can_manage_threads,
+        can_manage_users=role.can_manage_users,
+        can_manage_roles=role.can_manage_roles,
+        can_grant_perks=role.can_grant_perks,
+        can_view_audit=role.can_view_audit,
     )
 
 
@@ -293,7 +349,7 @@ async def list_roles(db: DbSession) -> list[RoleAdminRead]:
 
 
 @router.post("/roles", response_model=RoleAdminRead, status_code=status.HTTP_201_CREATED)
-async def create_role(payload: RoleCreate, actor: StaffUser, db: DbSession) -> RoleAdminRead:
+async def create_role(payload: RoleCreate, actor: RolesActor, db: DbSession) -> RoleAdminRead:
     existing = await db.execute(select(Role).where(Role.slug == payload.slug))
     if existing.scalar_one_or_none() is not None:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Slug уже занят")
@@ -303,6 +359,13 @@ async def create_role(payload: RoleCreate, actor: StaffUser, db: DbSession) -> R
         color=payload.color,
         display_order=payload.display_order,
         is_staff=payload.is_staff,
+        can_ban=payload.can_ban,
+        can_mute=payload.can_mute,
+        can_manage_threads=payload.can_manage_threads,
+        can_manage_users=payload.can_manage_users,
+        can_manage_roles=payload.can_manage_roles,
+        can_grant_perks=payload.can_grant_perks,
+        can_view_audit=payload.can_view_audit,
     )
     db.add(role)
     await db.commit()
@@ -312,7 +375,7 @@ async def create_role(payload: RoleCreate, actor: StaffUser, db: DbSession) -> R
 
 @router.patch("/roles/{slug}", response_model=RoleAdminRead)
 async def update_role(
-    slug: str, payload: RoleUpdate, actor: StaffUser, db: DbSession
+    slug: str, payload: RoleUpdate, actor: RolesActor, db: DbSession
 ) -> RoleAdminRead:
     result = await db.execute(select(Role).where(Role.slug == slug))
     role = result.scalar_one_or_none()
@@ -331,6 +394,11 @@ async def update_role(
                 detail=f"Нельзя снять флаг staff с защищённой роли {slug}",
             )
         role.is_staff = payload.is_staff
+    # Apply granular permission updates
+    for perm in PERMISSION_FIELDS:
+        val = getattr(payload, perm)
+        if val is not None:
+            setattr(role, perm, val)
     await db.commit()
     await db.refresh(role)
     cnt_q = await db.execute(
@@ -340,7 +408,7 @@ async def update_role(
 
 
 @router.delete("/roles/{slug}")
-async def delete_role(slug: str, actor: StaffUser, db: DbSession) -> dict:
+async def delete_role(slug: str, actor: RolesActor, db: DbSession) -> dict:
     if slug in PROTECTED_ROLE_SLUGS:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -362,9 +430,48 @@ async def delete_role(slug: str, actor: StaffUser, db: DbSession) -> dict:
 
 @router.get("/audit", response_model=list[ModerationLogRead])
 async def list_audit(
+    actor: AuditActor,
     db: DbSession,
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
 ) -> list[ModerationLogRead]:
     rows = await admin_service.list_audit(db, limit=limit, offset=offset)
     return [ModerationLogRead.model_validate(r) for r in rows]
+
+
+# -----------------------------------------------------------------------------
+# Manually-granted user perks (bypass level gate)
+# -----------------------------------------------------------------------------
+
+@router.post("/users/{user_id}/perks", response_model=AdminUserRead)
+async def set_user_perks(
+    user_id: int,
+    payload: PerksUpdate,
+    actor: PerksActor,
+    db: DbSession,
+) -> AdminUserRead:
+    """Replace the user's granted_perks with the given list (whitelisted)."""
+    invalid = set(payload.perks) - ALLOWED_PERKS
+    if invalid:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Неизвестные перки: {sorted(invalid)}",
+        )
+
+    target = await admin_service.get_user_or_404(db, user_id)
+    new_perks = sorted(set(payload.perks))
+    target.granted_perks = new_perks
+
+    from app.models.moderation import ModerationLog
+
+    db.add(
+        ModerationLog(
+            actor_id=actor.id,
+            target_user_id=target.id,
+            action="perks_granted",
+            reason=", ".join(new_perks) if new_perks else "—",
+        )
+    )
+    await db.commit()
+    await db.refresh(target)
+    return await _serialize_admin_user(db, target)

@@ -35,6 +35,7 @@ const ACTION_META: Record<
   user_threads_enabled: { icon: Unlock, label: "Открыть создание тем", color: "text-cyan" },
   role_grant: { icon: ShieldCheck, label: "Дать роль", color: "text-plasma" },
   role_revoke: { icon: ShieldCheck, label: "Снять роль", color: "text-ash" },
+  perks_granted: { icon: ScrollText, label: "Выдать перки", color: "text-plasma" },
 };
 
 export default async function AuditPage() {

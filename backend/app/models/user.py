@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 
 from sqlalchemy import BigInteger, DateTime, String
+from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base, TimestampMixin
@@ -41,3 +42,9 @@ class User(Base, TimestampMixin):
     muted_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     can_create_threads: Mapped[bool] = mapped_column(default=True, nullable=False)
+
+    # Manually-granted perks that bypass the level gate
+    # Allowed values: "custom_title", "glow_nick", "animated_frame"
+    granted_perks: Mapped[list[str]] = mapped_column(
+        ARRAY(String(32)), nullable=False, default=list, server_default="{}"
+    )
