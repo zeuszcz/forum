@@ -1,0 +1,51 @@
+# Production overrides — apply on top of docker-compose.yml:
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+#
+# - postgres / redis / minio do not expose host ports (internal-only)
+# - backend  → 127.0.0.1:${FORUM_BACKEND_PORT}  (default 8030)
+# - frontend → 127.0.0.1:${FORUM_FRONTEND_PORT} (default 3030)
+# - both build from production Dockerfile (multi-stage, no source bind mount)
+# - restart: always
+
+services:
+  postgres:
+    ports: !reset []
+    restart: always
+
+  redis:
+    ports: !reset []
+    restart: always
+
+  minio:
+    ports: !reset []
+    restart: always
+
+  minio-init:
+    restart: "no"
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    image: endless-war-backend:prod
+    volumes: !reset []
+    ports:
+      - "127.0.0.1:${FORUM_BACKEND_PORT:-8030}:8000"
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 2 --no-access-log
+    restart: always
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    image: endless-war-frontend:prod
+    environment: !reset
+      INTERNAL_API_URL: http://backend:8000
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
+      NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL}
+      NODE_ENV: production
+    volumes: !reset []
+    ports:
+      - "127.0.0.1:${FORUM_FRONTEND_PORT:-3030}:3000"
+    command: npm run start
+    restart: always
