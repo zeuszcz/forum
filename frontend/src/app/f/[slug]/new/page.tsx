@@ -1,4 +1,4 @@
-import { ChevronRight } from "lucide-react";
+import { ChevronRight, Lock } from "lucide-react";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 
@@ -29,34 +29,44 @@ export default async function NewThreadPage({
 
   if (section.is_locked) {
     return (
-      <div className="container max-w-3xl py-10">
-        <p className="rounded-lg border border-border bg-card p-8 text-center text-sm text-smoke">
-          Раздел закрыт для постинга
-        </p>
+      <div className="container max-w-3xl py-12">
+        <div className="rounded-lg border border-flame/30 bg-flame/5 p-8 text-center">
+          <Lock className="mx-auto h-8 w-8 text-flame" />
+          <h1 className="mt-3 text-xl font-bold text-bone">Раздел закрыт</h1>
+          <p className="mt-1 text-sm text-ash">
+            В разделе «{section.title}» сейчас нельзя создавать темы
+          </p>
+          <Link
+            href={`/f/${section.slug}`}
+            className="mt-4 inline-block link-plasma"
+          >
+            ← Вернуться в раздел
+          </Link>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="container max-w-3xl py-6 md:py-10">
+    <div className="container max-w-3xl py-6 md:py-8">
       <nav className="mb-4 flex items-center gap-1 text-xs text-smoke">
         <Link href="/" className="transition-colors hover:text-ash">
           Форум
         </Link>
         <ChevronRight className="h-3 w-3" />
-        <Link href={`/f/${section.slug}`} className="transition-colors hover:text-ash">
+        <Link
+          href={`/f/${section.slug}`}
+          className="transition-colors hover:text-ash"
+        >
           {section.title}
         </Link>
         <ChevronRight className="h-3 w-3" />
-        <span className="text-ash">Новая тема</span>
+        <span className="text-iridescent font-semibold uppercase tracking-widest">
+          Новая тема
+        </span>
       </nav>
 
-      <h1 className="mb-1 text-xl font-bold tracking-tight text-bone">Новая тема</h1>
-      <p className="mb-6 text-sm text-smoke">
-        в разделе <span className="text-ash">{section.title}</span>
-      </p>
-
-      <NewThreadForm sectionSlug={section.slug} />
+      <NewThreadForm section={section} />
     </div>
   );
 }

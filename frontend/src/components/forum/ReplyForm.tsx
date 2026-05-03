@@ -1,15 +1,17 @@
 "use client";
 
-import { Send } from "lucide-react";
+import { Quote as QuoteIcon, Send, X } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useImperativeHandle, useState, forwardRef, useRef } from "react";
+import { forwardRef, useImperativeHandle, useRef, useState } from "react";
 import { toast } from "sonner";
 
+import { LetterAvatar } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { api, ApiError } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import type { Post } from "@/lib/types";
+import { cn } from "@/lib/utils";
 
 export interface ReplyFormHandle {
   insertQuote: (post: Post) => void;
@@ -21,31 +23,53 @@ interface ReplyFormProps {
   threadLocked: boolean;
 }
 
+interface QuoteBlock {
+  uid: string;
+  postId: number;
+  author: string | null;
+  authorColor: string | null;
+  body: string;
+}
+
+const MAX_QUOTE_LINES_VISIBLE = 4;
+
 export const ReplyForm = forwardRef<ReplyFormHandle, ReplyFormProps>(
   ({ threadId, threadLocked }, ref) => {
     const router = useRouter();
     const { user } = useAuth();
     const [body, setBody] = useState("");
+    const [quotes, setQuotes] = useState<QuoteBlock[]>([]);
     const [error, setError] = useState<string | null>(null);
     const [submitting, setSubmitting] = useState(false);
     const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 
     useImperativeHandle(ref, () => ({
       insertQuote(post) {
-        const quote =
-          (post.author ? `> **${post.author.nickname}** написал:\n` : "> Цитата:\n") +
-          post.body
-            .split("\n")
-            .map((l) => `> ${l}`)
-            .join("\n") +
-          "\n\n";
-        setBody((prev) => (prev ? `${prev}\n${quote}` : quote));
-        textareaRef.current?.focus();
+        // Skip if already quoted
+        setQuotes((prev) => {
+          if (prev.some((q) => q.postId === post.id)) return prev;
+          return [
+            ...prev,
+            {
+              uid: `${post.id}-${Date.now()}`,
+              postId: post.id,
+              author: post.author?.nickname ?? null,
+              authorColor: post.author?.roles?.[0]?.color ?? null,
+              body: post.body,
+            },
+          ];
+        });
+        // Defer focus so DOM updates first
+        requestAnimationFrame(() => textareaRef.current?.focus());
       },
       focus() {
         textareaRef.current?.focus();
       },
     }));
+
+    function removeQuote(uid: string) {
+      setQuotes((qs) => qs.filter((q) => q.uid !== uid));
+    }
 
     if (threadLocked) {
       return (
@@ -66,18 +90,44 @@ export const ReplyForm = forwardRef<ReplyFormHandle, ReplyFormProps>(
       );
     }
 
+    function serialize(): string {
+      // Strip leading `>` from quoted bodies (in case user is quoting a post
+      // that itself contains quotes — flatten one level for the new quote).
+      const stripQuoteMarkers = (raw: string): string =>
+        raw
+          .split("\n")
+          .filter((l) => !/^>\s*\*\*.+\*\*\s+(?:написал|сказал)\s*:\s*$/i.test(l))
+          .map((l) => l.replace(/^>\s?/, ""))
+          .join("\n")
+          .trim();
+
+      const parts: string[] = [];
+      for (const q of quotes) {
+        const cleaned = stripQuoteMarkers(q.body);
+        const lines = cleaned.split("\n").map((l) => `> ${l}`).join("\n");
+        const header = q.author
+          ? `> **${q.author}** написал:`
+          : `> цитата:`;
+        parts.push(`${header}\n${lines}`);
+      }
+      const text = body.trim();
+      if (text) parts.push(text);
+      return parts.join("\n\n");
+    }
+
     async function submit(e: React.FormEvent) {
       e.preventDefault();
-      const text = body.trim();
-      if (text.length < 1 || submitting) return;
+      const fullBody = serialize().trim();
+      if (fullBody.length < 1 || submitting) return;
       setSubmitting(true);
       setError(null);
       try {
         await api(`/threads/${threadId}/posts`, {
           method: "POST",
-          body: JSON.stringify({ body: text }),
+          body: JSON.stringify({ body: fullBody }),
         });
         setBody("");
+        setQuotes([]);
         toast.success("Ответ отправлен");
         router.refresh();
       } catch (err) {
@@ -88,36 +138,95 @@ export const ReplyForm = forwardRef<ReplyFormHandle, ReplyFormProps>(
       }
     }
 
+    const canSubmit = quotes.length > 0 || body.trim().length > 0;
+
     return (
-      <form
-        onSubmit={submit}
-        className="space-y-3 rounded-lg border border-border bg-card p-4"
-      >
+      <form onSubmit={submit} className="space-y-3 rounded-lg border border-border bg-card p-4">
+        {/* Quote cards (above input) */}
+        {quotes.length > 0 && (
+          <ul className="space-y-2">
+            {quotes.map((q) => (
+              <QuoteChip key={q.uid} quote={q} onRemove={() => removeQuote(q.uid)} />
+            ))}
+          </ul>
+        )}
+
         <Textarea
           ref={textareaRef}
           value={body}
           onChange={(e) => setBody(e.target.value)}
-          placeholder="Твой ответ…  Поддерживаются переносы строк и > цитаты"
+          placeholder={
+            quotes.length > 0
+              ? "Твой ответ к цитате…"
+              : "Напиши ответ…"
+          }
           rows={5}
           maxLength={20000}
           disabled={submitting}
         />
-        <div className="flex items-center justify-between">
-          <span className="text-xs text-smoke">
-            {body.length}/20000 · markdown в Phase 1
-          </span>
-          <Button
-            type="submit"
-            variant="gradient"
-            disabled={!body.trim() || submitting}
-          >
+
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-2 text-[11px] text-smoke">
+            {quotes.length > 0 && (
+              <span className="inline-flex items-center gap-1 rounded-md border border-plasma/30 bg-plasma/10 px-2 py-0.5 text-plasma">
+                <QuoteIcon className="h-3 w-3" />
+                {quotes.length}{" "}
+                {quotes.length === 1 ? "цитата" : "цитат"}
+              </span>
+            )}
+            <span>{body.length}/20000</span>
+          </div>
+          <Button type="submit" variant="gradient" disabled={!canSubmit || submitting}>
             <Send className="h-4 w-4" />
             {submitting ? "Отправляем…" : "Отправить"}
           </Button>
         </div>
+
         {error && <p className="text-xs text-ember">{error}</p>}
       </form>
     );
   },
 );
 ReplyForm.displayName = "ReplyForm";
+
+function QuoteChip({ quote, onRemove }: { quote: QuoteBlock; onRemove: () => void }) {
+  const lines = quote.body.split("\n");
+  const collapsed = lines.length > MAX_QUOTE_LINES_VISIBLE;
+  const visible = collapsed
+    ? lines.slice(0, MAX_QUOTE_LINES_VISIBLE).join("\n") + "\n…"
+    : quote.body;
+
+  return (
+    <li className="overflow-hidden rounded-md border border-plasma/30 bg-plasma/5">
+      <header className="flex items-center justify-between gap-2 border-b border-plasma/20 bg-plasma/10 px-3 py-1.5">
+        <div className="inline-flex items-center gap-2 text-[11px]">
+          <QuoteIcon className="h-3 w-3 text-plasma" />
+          <span className="uppercase tracking-widest text-smoke">цитата</span>
+          {quote.author && (
+            <span className="inline-flex items-center gap-1.5 font-semibold">
+              <LetterAvatar nickname={quote.author} size={14} />
+              <span style={{ color: quote.authorColor ?? "#e8e9f3" }}>
+                {quote.author}
+              </span>
+            </span>
+          )}
+        </div>
+        <button
+          type="button"
+          onClick={onRemove}
+          className="rounded-md p-1 text-smoke transition-colors hover:bg-slate hover:text-bone"
+          aria-label="Убрать цитату"
+        >
+          <X className="h-3 w-3" />
+        </button>
+      </header>
+      <p
+        className={cn(
+          "whitespace-pre-wrap px-3 py-2 text-xs italic leading-relaxed text-ash [overflow-wrap:anywhere]",
+        )}
+      >
+        {visible}
+      </p>
+    </li>
+  );
+}
