@@ -73,6 +73,16 @@ async def login_user(db: AsyncSession, payload: LoginRequest) -> tuple[User, str
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Аккаунт заблокирован",
         )
+    # Block banned users from logging in
+    from app.services.admin import is_currently_banned
+
+    if is_currently_banned(user):
+        msg = "Ты забанен"
+        if user.ban_reason:
+            msg += f": {user.ban_reason}"
+        if user.banned_until:
+            msg += f" (до {user.banned_until.strftime('%d.%m.%Y %H:%M UTC')})"
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=msg)
     token = create_token(str(user.id), token_type="refresh")
     return user, token
 

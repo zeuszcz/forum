@@ -26,3 +26,14 @@ class User(Base, TimestampMixin):
     is_verified: Mapped[bool] = mapped_column(default=False, nullable=False)
 
     last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    # ---- Moderation state ----
+    is_banned: Mapped[bool] = mapped_column(default=False, nullable=False, index=True)
+    ban_reason: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    banned_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    is_muted: Mapped[bool] = mapped_column(default=False, nullable=False, index=True)
+    mute_reason: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    muted_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    can_create_threads: Mapped[bool] = mapped_column(default=True, nullable=False)

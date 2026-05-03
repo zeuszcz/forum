@@ -170,6 +170,23 @@ async def create_thread(
     author: User,
     payload: ThreadCreate,
 ) -> Thread:
+    from app.services.admin import is_currently_banned, is_currently_muted
+
+    if is_currently_banned(author):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Ты забанен{': ' + author.ban_reason if author.ban_reason else ''}",
+        )
+    if is_currently_muted(author):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Тебе закрыли голос{': ' + author.mute_reason if author.mute_reason else ''}",
+        )
+    if not author.can_create_threads:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Тебе закрыто создание новых тем",
+        )
     if section.is_locked:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Раздел закрыт для постинга")
 
@@ -212,6 +229,18 @@ async def create_post(
     author: User,
     payload: PostCreate,
 ) -> Post:
+    from app.services.admin import is_currently_banned, is_currently_muted
+
+    if is_currently_banned(author):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Ты забанен{': ' + author.ban_reason if author.ban_reason else ''}",
+        )
+    if is_currently_muted(author):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Тебе закрыли голос{': ' + author.mute_reason if author.mute_reason else ''}",
+        )
     thread_q = await db.execute(select(Thread).where(Thread.id == thread_id))
     thread = thread_q.scalar_one_or_none()
     if thread is None or thread.is_deleted:

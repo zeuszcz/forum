@@ -1,6 +1,6 @@
 "use client";
 
-import { Command, LogOut, Plus, User as UserIcon } from "lucide-react";
+import { Command, LogOut, Plus, Shield, User as UserIcon } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
@@ -23,6 +23,7 @@ export function Header() {
   const { user, logout } = useAuth();
   const pathname = usePathname();
   const topRole = user?.roles?.[0];
+  const isStaff = user?.roles?.some((r) => r.is_staff);
 
   return (
     <header className="sticky top-0 z-40 border-b border-white/5 glass-strong">
@@ -77,6 +78,16 @@ export function Header() {
               ⌘K
             </kbd>
           </button>
+
+          {isStaff && (
+            <Link
+              href="/admin"
+              className="hidden h-9 items-center gap-1.5 rounded-md border border-plasma/40 bg-plasma/10 px-3 text-xs font-semibold uppercase tracking-widest text-plasma transition-colors hover:bg-plasma/20 sm:inline-flex"
+            >
+              <Shield className="h-3.5 w-3.5" />
+              admin
+            </Link>
+          )}
 
           <ThemePicker />
 
