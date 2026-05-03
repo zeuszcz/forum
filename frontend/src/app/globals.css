@@ -6,40 +6,89 @@
 
 @layer base {
   :root {
-    /* --- Surfaces (HSL) --- */
-    --background: 230 32% 6%;          /* ink #0a0b14 */
-    --foreground: 234 30% 93%;         /* bone #e8e9f3 */
-
-    --card: 232 22% 10%;               /* void #13141d */
+    /* --- Surfaces (HSL) — Plasma default theme --- */
+    --background: 230 32% 6%;
+    --foreground: 234 30% 93%;
+    --card: 232 22% 10%;
     --card-foreground: 234 30% 93%;
-
-    --popover: 230 19% 13%;            /* slate #1a1c27 */
+    --popover: 230 19% 13%;
     --popover-foreground: 234 30% 93%;
-
-    --muted: 230 18% 14%;
-    --muted-foreground: 230 11% 67%;   /* ash */
-
-    /* --- Brand accents --- */
-    --primary: 252 100% 68%;           /* plasma #7c5cff */
+    --muted: 240 12% 14%;
+    --muted-foreground: 230 11% 67%;
+    --primary: 252 100% 68%;
     --primary-foreground: 234 30% 95%;
-
     --secondary: 230 19% 13%;
     --secondary-foreground: 234 30% 93%;
-
-    --accent: 327 81% 60%;             /* flame #ec4899 */
+    --accent: 327 81% 60%;
     --accent-foreground: 234 30% 95%;
-
-    --destructive: 350 89% 60%;        /* ember #f43f5e */
+    --destructive: 350 89% 60%;
     --destructive-foreground: 234 30% 95%;
-
     --border: 232 19% 19%;
     --input: 230 19% 13%;
-    --ring: 252 100% 68%;              /* plasma focus ring */
+    --ring: 252 100% 68%;
 
     --radius: 0.625rem;
+
+    /* Brand colors as RGB triplets for opacity ops */
+    --plasma-rgb: 124 92 255;
+    --plasma-bright-rgb: 154 125 255;
+    --flame-rgb: 236 72 153;
+    --cyan-rgb: 34 211 238;
+    --ember-rgb: 244 63 94;
   }
 
-  /* No light mode for v0 — premium dark only. Toggle in Phase 1. */
+  /* === THEME: Neon Arcade === */
+  [data-theme="neon-arcade"] {
+    --background: 270 50% 4%;
+    --foreground: 50 100% 90%;
+    --card: 270 35% 8%;
+    --primary: 175 100% 55%;
+    --accent: 60 100% 65%;
+    --plasma-rgb: 0 240 255;
+    --flame-rgb: 255 230 0;
+  }
+
+  /* === THEME: Hacker Mono === */
+  [data-theme="hacker-mono"] {
+    --background: 120 8% 5%;
+    --foreground: 120 50% 80%;
+    --card: 120 8% 8%;
+    --primary: 120 80% 55%;
+    --accent: 120 80% 65%;
+    --plasma-rgb: 64 240 80;
+    --flame-rgb: 64 240 80;
+  }
+
+  /* === THEME: Glass Foil — iridescent === */
+  [data-theme="glass-foil"] {
+    --background: 220 30% 7%;
+    --foreground: 220 40% 95%;
+    --primary: 195 90% 65%;
+    --accent: 290 80% 70%;
+    --plasma-rgb: 96 200 255;
+    --flame-rgb: 220 130 255;
+  }
+
+  /* === THEME: Retro Jail (orange/sepia, single warm theme) === */
+  [data-theme="retro-jail"] {
+    --background: 25 30% 6%;
+    --foreground: 30 50% 92%;
+    --card: 25 25% 9%;
+    --primary: 25 95% 55%;
+    --accent: 18 90% 60%;
+    --plasma-rgb: 255 130 50;
+    --flame-rgb: 255 90 30;
+  }
+
+  /* High-contrast accessibility */
+  [data-theme="high-contrast"] {
+    --background: 0 0% 0%;
+    --foreground: 0 0% 100%;
+    --card: 0 0% 5%;
+    --border: 0 0% 50%;
+    --primary: 60 100% 70%;
+    --plasma-rgb: 255 255 0;
+  }
 
   * {
     @apply border-border;
@@ -55,81 +104,445 @@
 
   body {
     @apply bg-background text-foreground font-sans antialiased;
-    font-feature-settings:
-      "cv11" on,
-      "ss01" on;
+    font-feature-settings: "cv11" on, "ss01" on;
+    /* Prevent horizontal overflow from cursor effects */
+    overflow-x: clip;
   }
 
   ::selection {
-    @apply bg-plasma/30 text-bone;
+    background: rgb(var(--plasma-rgb) / 0.30);
+    color: hsl(var(--foreground));
   }
 
-  /* Custom scrollbar — premium thin */
   ::-webkit-scrollbar {
     width: 10px;
     height: 10px;
   }
   ::-webkit-scrollbar-track {
-    @apply bg-void;
+    background: hsl(var(--card));
   }
   ::-webkit-scrollbar-thumb {
-    @apply bg-slate rounded-md;
+    background: hsl(var(--muted));
+    border-radius: 6px;
     border: 2px solid hsl(var(--card));
   }
   ::-webkit-scrollbar-thumb:hover {
-    background: #383b54;
+    background: rgb(var(--plasma-rgb) / 0.6);
   }
 
   @media (prefers-reduced-motion: reduce) {
-    *,
-    *::before,
-    *::after {
+    *, *::before, *::after {
       animation-duration: 0.01ms !important;
       animation-iteration-count: 1 !important;
       transition-duration: 0.01ms !important;
     }
   }
+
+  /* Custom cursor: hide on devices with fine pointer; keep native on touch */
+  @media (pointer: fine) {
+    .cursor-plasma-active,
+    .cursor-plasma-active * {
+      cursor: none;
+    }
+    /* Always-visible affordance fallback for inputs */
+    .cursor-plasma-active input,
+    .cursor-plasma-active textarea {
+      cursor: text;
+    }
+  }
 }
 
 @layer components {
-  /* Subtle plasma underline animating in on hover — for inline links */
+  /* ==========================================================
+   * Glass surfaces (Cyber-luxe / Liquid glass)
+   * ========================================================== */
+  .glass {
+    background: rgba(20, 20, 26, 0.55);
+    backdrop-filter: blur(14px) saturate(140%);
+    -webkit-backdrop-filter: blur(14px) saturate(140%);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.04),
+      0 8px 30px rgba(0, 0, 0, 0.35);
+  }
+  .glass-strong {
+    background: rgba(15, 15, 20, 0.72);
+    backdrop-filter: blur(20px) saturate(160%);
+    -webkit-backdrop-filter: blur(20px) saturate(160%);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.05),
+      0 12px 40px rgba(0, 0, 0, 0.45);
+  }
+  .glass-thin {
+    background: rgba(20, 20, 26, 0.30);
+    backdrop-filter: blur(8px) saturate(120%);
+    -webkit-backdrop-filter: blur(8px) saturate(120%);
+    border: 1px solid rgba(255, 255, 255, 0.05);
+  }
+
+  /* ==========================================================
+   * Conic gradient rotating border (Linear/Cursor signature)
+   * Wraps an element — rotates on hover.
+   * Usage: <div class="conic-border"><div class="conic-inner">…</div></div>
+   * ========================================================== */
+  .conic-border {
+    position: relative;
+    border-radius: inherit;
+    overflow: visible;
+    isolation: isolate;
+  }
+  .conic-border::before {
+    content: "";
+    position: absolute;
+    inset: -1px;
+    border-radius: inherit;
+    padding: 1px;
+    background: conic-gradient(
+      from var(--conic-angle, 0deg),
+      transparent 0%,
+      rgb(var(--plasma-rgb)) 25%,
+      rgb(var(--flame-rgb)) 50%,
+      rgb(var(--cyan-rgb)) 75%,
+      transparent 100%
+    );
+    -webkit-mask:
+      linear-gradient(#000 0 0) content-box,
+      linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+    mask:
+      linear-gradient(#000 0 0) content-box,
+      linear-gradient(#000 0 0);
+    mask-composite: exclude;
+    opacity: 0;
+    transition: opacity 300ms ease-out;
+    z-index: 0;
+    pointer-events: none;
+  }
+  .conic-border:hover::before {
+    opacity: 1;
+    animation: conic-spin 4s linear infinite;
+  }
+  @property --conic-angle {
+    syntax: "<angle>";
+    initial-value: 0deg;
+    inherits: false;
+  }
+  @keyframes conic-spin {
+    to { --conic-angle: 360deg; }
+  }
+
+  /* ==========================================================
+   * Spotlight effect — hover reveals radial highlight at cursor
+   * Set --mx, --my via JS (SpotlightCard component)
+   * ========================================================== */
+  .spotlight {
+    position: relative;
+    overflow: hidden;
+    isolation: isolate;
+  }
+  .spotlight::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(
+      400px circle at var(--mx, 50%) var(--my, 50%),
+      rgb(var(--plasma-rgb) / 0.18),
+      transparent 40%
+    );
+    opacity: 0;
+    transition: opacity 200ms ease-out;
+    pointer-events: none;
+    z-index: 1;
+  }
+  .spotlight:hover::before {
+    opacity: 1;
+  }
+
+  /* ==========================================================
+   * Mesh gradient hero background — slow drifting blobs
+   * ========================================================== */
+  .hero-mesh {
+    position: relative;
+    background:
+      radial-gradient(at 18% 22%, rgb(var(--plasma-rgb) / 0.22) 0px, transparent 50%),
+      radial-gradient(at 80% 12%, rgb(var(--flame-rgb) / 0.18) 0px, transparent 50%),
+      radial-gradient(at 70% 82%, rgb(var(--cyan-rgb) / 0.10) 0px, transparent 50%),
+      radial-gradient(at 18% 78%, rgb(var(--plasma-rgb) / 0.10) 0px, transparent 50%),
+      hsl(var(--background));
+    background-size: 200% 200%;
+    animation: mesh-drift 18s ease-in-out infinite alternate;
+  }
+  @keyframes mesh-drift {
+    0% { background-position: 0% 0%; }
+    50% { background-position: 50% 100%; }
+    100% { background-position: 100% 50%; }
+  }
+
+  /* ==========================================================
+   * Dotted grid background (Vercel-style)
+   * ========================================================== */
+  .dotted-grid {
+    background-image: radial-gradient(
+      circle,
+      rgba(255, 255, 255, 0.04) 1px,
+      transparent 1.5px
+    );
+    background-size: 24px 24px;
+    background-position: 0 0;
+  }
+  .dotted-grid-fine {
+    background-image: radial-gradient(
+      circle,
+      rgba(255, 255, 255, 0.05) 1px,
+      transparent 1px
+    );
+    background-size: 16px 16px;
+  }
+
+  /* ==========================================================
+   * Noise/grain overlay — fixed, pointer-events-none
+   * ========================================================== */
+  .noise-overlay {
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 2;
+    opacity: 0.04;
+    mix-blend-mode: overlay;
+    /* Inline noise SVG */
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 200'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0.9 0 0 0 0 0.9 0 0 0 0 0.95 0 0 0 0.9 0'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>");
+  }
+
+  /* ==========================================================
+   * Premium link with animated underline
+   * ========================================================== */
   .link-plasma {
-    @apply relative text-plasma transition-colors duration-150 ease-premium hover:text-plasma-bright;
+    position: relative;
+    color: rgb(var(--plasma-rgb));
+    transition: color 150ms cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  .link-plasma:hover {
+    color: rgb(var(--plasma-bright-rgb));
   }
   .link-plasma::after {
     content: "";
-    @apply absolute -bottom-px left-0 h-px w-0 bg-plasma-bright transition-all duration-300 ease-premium;
+    position: absolute;
+    bottom: -1px;
+    left: 0;
+    height: 1px;
+    width: 0;
+    background: linear-gradient(
+      90deg,
+      rgb(var(--plasma-rgb)),
+      rgb(var(--flame-rgb))
+    );
+    transition: width 300ms cubic-bezier(0.16, 1, 0.3, 1);
   }
-  .link-plasma:hover::after {
-    @apply w-full;
-  }
+  .link-plasma:hover::after { width: 100%; }
 
-  /* Hero gradient — only for top-of-page surfaces. Modern plasma glow. */
-  .hero-bg {
-    background:
-      radial-gradient(ellipse 80% 60% at 25% -15%, rgba(124, 92, 255, 0.20), transparent 60%),
-      radial-gradient(ellipse 60% 50% at 80% 10%, rgba(236, 72, 153, 0.15), transparent 60%),
-      radial-gradient(ellipse 70% 40% at 50% 100%, rgba(34, 211, 238, 0.06), transparent 60%),
-      hsl(var(--background));
-  }
-
-  /* Premium card — flat by default, plasma border on hover */
+  /* ==========================================================
+   * Card premium — flat by default, subtle border on hover
+   * ========================================================== */
   .card-premium {
-    @apply rounded-lg border border-border bg-card transition-all duration-150 ease-premium;
+    @apply rounded-lg border border-border bg-card transition-all duration-200 ease-premium;
   }
   .card-premium:hover {
-    @apply border-plasma/40 bg-card/80;
+    border-color: rgb(var(--plasma-rgb) / 0.4);
+    background: hsl(var(--card) / 0.85);
   }
 
-  /* Gradient text utility — for hero headlines */
+  /* ==========================================================
+   * Plasma gradient text
+   * ========================================================== */
   .text-plasma-gradient {
-    @apply bg-plasma bg-clip-text text-transparent;
-    background-size: 200% 200%;
+    background: linear-gradient(
+      90deg,
+      rgb(var(--plasma-rgb)),
+      rgb(var(--flame-rgb)),
+      rgb(var(--plasma-rgb))
+    );
+    background-size: 200% 100%;
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    -webkit-text-fill-color: transparent;
+  }
+  .text-iridescent {
+    background: linear-gradient(
+      90deg,
+      rgb(var(--cyan-rgb)),
+      rgb(var(--plasma-rgb)),
+      rgb(var(--flame-rgb)),
+      rgb(var(--cyan-rgb))
+    );
+    background-size: 300% 100%;
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    -webkit-text-fill-color: transparent;
+    animation: iridescent-shift 6s ease-in-out infinite;
+  }
+  @keyframes iridescent-shift {
+    0%, 100% { background-position: 0% 50%; }
+    50% { background-position: 100% 50%; }
   }
 
-  /* Live pulse dot */
+  /* ==========================================================
+   * Live pulse dot
+   * ========================================================== */
   .dot-live {
-    @apply inline-block h-2 w-2 rounded-full bg-cyan;
-    box-shadow: 0 0 12px rgba(34, 211, 238, 0.6);
+    @apply inline-block h-2 w-2 rounded-full;
+    background: rgb(var(--cyan-rgb));
+    box-shadow: 0 0 12px rgb(var(--cyan-rgb) / 0.7);
+  }
+
+  /* ==========================================================
+   * Skeleton shimmer
+   * ========================================================== */
+  .skeleton {
+    position: relative;
+    overflow: hidden;
+    background: hsl(var(--muted));
+    border-radius: var(--radius);
+  }
+  .skeleton::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(
+      90deg,
+      transparent,
+      rgb(var(--plasma-rgb) / 0.06),
+      transparent
+    );
+    animation: shimmer 1.4s ease-in-out infinite;
+  }
+  @keyframes shimmer {
+    0% { transform: translateX(-100%); }
+    100% { transform: translateX(100%); }
+  }
+
+  /* ==========================================================
+   * Marquee — endless horizontal scroll
+   * ========================================================== */
+  .marquee {
+    display: flex;
+    overflow: hidden;
+    user-select: none;
+    mask-image: linear-gradient(
+      90deg,
+      transparent,
+      black 10%,
+      black 90%,
+      transparent
+    );
+  }
+  .marquee-track {
+    flex-shrink: 0;
+    display: flex;
+    gap: 3rem;
+    padding-right: 3rem;
+    min-width: 100%;
+    animation: marquee-scroll 40s linear infinite;
+  }
+  @keyframes marquee-scroll {
+    from { transform: translateX(0); }
+    to { transform: translateX(-100%); }
+  }
+
+  /* ==========================================================
+   * Heart explosion particles
+   * ========================================================== */
+  @keyframes heart-burst {
+    0% {
+      transform: translate(0, 0) scale(0.4);
+      opacity: 1;
+    }
+    70% { opacity: 1; }
+    100% {
+      transform: translate(var(--dx), var(--dy)) scale(1);
+      opacity: 0;
+    }
+  }
+
+  /* ==========================================================
+   * Glitch effect (used for hacker theme + critical buttons)
+   * ========================================================== */
+  @keyframes glitch-shift {
+    0% { transform: translate(0); }
+    20% { transform: translate(-1px, 1px); }
+    40% { transform: translate(-1px, -1px); }
+    60% { transform: translate(1px, 1px); }
+    80% { transform: translate(1px, -1px); }
+    100% { transform: translate(0); }
+  }
+  .glitch:hover {
+    animation: glitch-shift 80ms steps(2, end) 1;
+  }
+
+  /* ==========================================================
+   * View Transitions — page transitions
+   * ========================================================== */
+  ::view-transition-old(root),
+  ::view-transition-new(root) {
+    animation-duration: 300ms;
+    animation-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
+  }
+
+  /* ==========================================================
+   * Scroll-driven section reveal
+   * ========================================================== */
+  @supports (animation-timeline: view()) {
+    .reveal-on-scroll {
+      animation: reveal linear both;
+      animation-timeline: view();
+      animation-range: entry 5% cover 25%;
+    }
+    @keyframes reveal {
+      from {
+        opacity: 0;
+        transform: translateY(24px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+  }
+
+  /* ==========================================================
+   * Hero logo scroll-rotate (logo gently rotates as you scroll)
+   * ========================================================== */
+  @supports (animation-timeline: scroll()) {
+    .logo-scroll-rotate {
+      animation: logo-rotate linear;
+      animation-timeline: scroll();
+      animation-range: 0 100vh;
+    }
+    @keyframes logo-rotate {
+      to { transform: rotate(180deg); }
+    }
+  }
+
+  /* ==========================================================
+   * Scanlines (for hacker / arcade themes)
+   * ========================================================== */
+  .scanlines {
+    position: relative;
+  }
+  .scanlines::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: repeating-linear-gradient(
+      to bottom,
+      transparent 0,
+      transparent 2px,
+      rgba(0, 0, 0, 0.18) 2px,
+      rgba(0, 0, 0, 0.18) 3px
+    );
+    pointer-events: none;
+    z-index: 1;
   }
 }

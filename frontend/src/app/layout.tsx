@@ -1,5 +1,8 @@
 import type { Metadata, Viewport } from "next";
 
+import { BackgroundParticles } from "@/components/effects/BackgroundParticles";
+import { NoiseOverlay } from "@/components/effects/NoiseOverlay";
+import { PlasmaCursor } from "@/components/effects/PlasmaCursor";
 import { Footer } from "@/components/layout/Footer";
 import { Header } from "@/components/layout/Header";
 import { apiServerOptional } from "@/lib/api";
@@ -16,9 +19,7 @@ export const metadata: Metadata = {
   description:
     "Форум сообщества endless·war. CS 1.6 jail mode: обсуждения, бан-апелляции, заявки в админы, статистика игроков.",
   metadataBase: new URL(process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000"),
-  icons: {
-    icon: [{ url: "/favicon.svg", type: "image/svg+xml" }],
-  },
+  icons: { icon: [{ url: "/favicon.svg", type: "image/svg+xml" }] },
   openGraph: {
     title: "endless·war",
     description: "CS 1.6 jail community forum",
@@ -41,9 +42,16 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   return (
     <html lang="ru" className="dark">
       <body className="flex min-h-screen flex-col">
+        {/* Global background effects (z=-10) */}
+        <BackgroundParticles />
+        {/* Noise grain overlay (z=2, above content) */}
+        <NoiseOverlay />
+        {/* Custom cursor (z=9999) — auto-disables on touch / reduced motion */}
+        <PlasmaCursor />
+
         <AuthProvider initialUser={user}>
           <Header />
-          <main className="flex-1">{children}</main>
+          <main className="relative z-[3] flex-1">{children}</main>
           <Footer />
         </AuthProvider>
       </body>

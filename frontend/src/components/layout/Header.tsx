@@ -1,9 +1,10 @@
 "use client";
 
-import { LogOut, Plus, User as UserIcon } from "lucide-react";
+import { Command, LogOut, Plus, User as UserIcon } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
+import { MagneticButton } from "@/components/effects/MagneticButton";
 import { LetterAvatar } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/lib/auth-context";
@@ -22,7 +23,7 @@ export function Header() {
   const topRole = user?.roles?.[0];
 
   return (
-    <header className="sticky top-0 z-40 border-b border-border/60 bg-background/80 backdrop-blur-md">
+    <header className="sticky top-0 z-40 border-b border-white/5 glass-strong">
       <div className="container flex h-16 items-center justify-between">
         <Link
           href="/"
@@ -42,25 +43,49 @@ export function Header() {
                 key={item.href}
                 href={item.href}
                 className={cn(
-                  "text-sm font-medium tracking-wide transition-colors duration-150 ease-premium",
+                  "relative text-sm font-medium tracking-wide transition-colors duration-150 ease-premium",
                   active ? "text-bone" : "text-ash hover:text-bone",
                 )}
               >
                 {item.label}
+                {active && (
+                  <span
+                    className="absolute -bottom-[21px] left-0 right-0 h-px"
+                    style={{
+                      background:
+                        "linear-gradient(90deg, transparent, rgb(var(--plasma-rgb)), transparent)",
+                    }}
+                  />
+                )}
               </Link>
             );
           })}
         </nav>
 
         <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => window.dispatchEvent(new CustomEvent("open-command-palette"))}
+            className="hidden h-9 items-center gap-2 rounded-md border border-border bg-card/60 px-3 text-xs text-smoke transition-colors hover:border-plasma/40 hover:text-ash sm:inline-flex"
+            aria-label="Open command palette"
+          >
+            <Command className="h-3.5 w-3.5" />
+            <span>поиск</span>
+            <kbd className="ml-2 inline-flex h-5 items-center rounded border border-border bg-slate px-1.5 font-mono text-[10px] text-ash">
+              ⌘K
+            </kbd>
+          </button>
+
           {user ? (
             <>
-              <Button variant="outline" size="sm" asChild className="hidden sm:inline-flex">
-                <Link href="/f/general/new">
-                  <Plus className="h-4 w-4" />
-                  Создать тему
-                </Link>
-              </Button>
+              <MagneticButton strength={0.25} className="hidden sm:inline-block">
+                <Button variant="outline" size="sm" asChild>
+                  <Link href="/f/general/new">
+                    <Plus className="h-4 w-4" />
+                    Создать тему
+                  </Link>
+                </Button>
+              </MagneticButton>
               <Link
                 href={`/u/${user.nickname}`}
                 className="group inline-flex items-center gap-2 rounded-md border border-transparent px-2 py-1.5 transition-colors hover:border-border hover:bg-slate"
@@ -98,9 +123,11 @@ export function Header() {
                   <span className="hidden sm:inline">Войти</span>
                 </Link>
               </Button>
-              <Button variant="gradient" size="sm" asChild>
-                <Link href="/register">Регистрация</Link>
-              </Button>
+              <MagneticButton strength={0.3}>
+                <Button variant="gradient" size="sm" asChild>
+                  <Link href="/register">Регистрация</Link>
+                </Button>
+              </MagneticButton>
             </>
           )}
         </div>
