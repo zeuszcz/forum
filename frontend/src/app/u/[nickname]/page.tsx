@@ -11,7 +11,7 @@ import { XPBar } from "@/components/forum/XPBar";
 import { apiServer, ApiError, apiServerOptional } from "@/lib/api";
 import { exactTime, relativeTime } from "@/lib/format";
 import { glowNickProps, hasPerk } from "@/lib/perks";
-import { computeRank } from "@/lib/rank";
+import { computeKarma, computeRank } from "@/lib/rank";
 import type {
   Post,
   Thread,
@@ -55,6 +55,7 @@ export default async function UserProfilePage({
 
   const topRole = user.roles?.[0];
   const rank = computeRank(user.total_posts, user.total_reactions_received);
+  const karma = computeKarma(user.total_posts, user.total_reactions_received);
   const isOnline =
     user.last_seen_at &&
     Date.now() - new Date(user.last_seen_at).getTime() < 10 * 60 * 1000;
@@ -114,7 +115,7 @@ export default async function UserProfilePage({
               <p className="mt-1 text-sm italic text-ash">{user.title}</p>
             )}
 
-            <div className="mt-3 flex items-center gap-2">
+            <div className="mt-3 flex flex-wrap items-center gap-2">
               <span
                 className="inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[11px] font-bold uppercase tracking-widest"
                 style={{
@@ -127,6 +128,20 @@ export default async function UserProfilePage({
               </span>
               <span className="text-xs font-semibold" style={{ color: rank.color }}>
                 {rank.title}
+              </span>
+              <span
+                className="inline-flex items-center gap-1.5 rounded-md border px-2 py-0.5 text-[11px] font-mono font-bold"
+                title={`Карма растёт от постов и полученных реакций. Текущий тир: ${karma.title}.`}
+                style={{
+                  borderColor: `${karma.color}55`,
+                  color: karma.color,
+                  backgroundColor: `${karma.color}10`,
+                }}
+              >
+                ⚡ {karma.value}
+                <span className="text-[9px] uppercase tracking-widest opacity-70">
+                  карма
+                </span>
               </span>
             </div>
 

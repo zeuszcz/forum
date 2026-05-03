@@ -20,10 +20,10 @@ import { useState } from "react";
 import { toast } from "sonner";
 
 import { MeshBackground } from "@/components/effects/MeshBackground";
+import { MentionTextarea } from "@/components/forum/MentionTextarea";
 import { PostBody } from "@/components/forum/PostBody";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import { api, ApiError } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import type { Section, Thread } from "@/lib/types";
@@ -197,17 +197,17 @@ export function NewThreadForm({ section }: { section: Section }) {
 
         {tab === "compose" ? (
           <div className="p-4">
-            <Textarea
+            <MentionTextarea
               value={body}
-              onChange={(e) => setBody(e.target.value)}
-              placeholder="Распиши подробно — что тебя интересует, что ты предлагаешь, что ты увидел…"
+              onChange={setBody}
+              placeholder="Распиши подробно — @упоминай людей, переносы строк сохраняются…"
               rows={12}
               maxLength={BODY_MAX}
               required
               className="resize-y border-0 bg-transparent text-[15px] leading-relaxed focus-visible:ring-0"
             />
             <p className="mt-2 text-[11px] text-smoke">
-              переносы строк сохраняются · ссылки автокликабельны
+              переносы строк сохраняются · ссылки автокликабельны · @ник — упомянуть
             </p>
           </div>
         ) : (

@@ -38,6 +38,7 @@ function ProfileEditDialog({
   const router = useRouter();
   const [bio, setBio] = useState(user.bio ?? "");
   const [title, setTitle] = useState(user.title ?? "");
+  const [birthday, setBirthday] = useState(user.birthday ?? "");
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -48,7 +49,10 @@ function ProfileEditDialog({
     setPending(true);
     setError(null);
     try {
-      const body: Record<string, string | null> = { bio: bio.trim() || null };
+      const body: Record<string, string | null> = {
+        bio: bio.trim() || null,
+        birthday: birthday.trim() || "",
+      };
       if (titleUnlocked) body.title = title.trim() || null;
       await api<UserPublic>("/users/me", {
         method: "PATCH",
@@ -104,6 +108,27 @@ function ProfileEditDialog({
               placeholder="Несколько слов о себе. Будет видно на странице профиля."
             />
             <p className="text-[10px] text-smoke">{bio.length}/1024</p>
+          </div>
+
+          <div className="space-y-2">
+            <label
+              htmlFor="profile-bday"
+              className="text-[10px] font-semibold uppercase tracking-widest text-smoke"
+            >
+              День рождения
+            </label>
+            <Input
+              id="profile-bday"
+              type="date"
+              value={birthday}
+              onChange={(e) => setBirthday(e.target.value)}
+              max={new Date().toISOString().slice(0, 10)}
+              min="1920-01-01"
+              className="h-10 [color-scheme:dark]"
+            />
+            <p className="text-[10px] text-smoke">
+              месяц + день показываются другим в виджете «Сегодня ДР» — год скрыт
+            </p>
           </div>
 
           <div className="space-y-2">

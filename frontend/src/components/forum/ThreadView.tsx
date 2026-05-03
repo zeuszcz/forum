@@ -1,22 +1,26 @@
 "use client";
 
 import { MessageCircle } from "lucide-react";
-import { useRef } from "react";
+import { useRef, useState } from "react";
 
 import { ThreadHotkeys } from "@/components/effects/ThreadHotkeys";
 import { OpPostCard } from "@/components/forum/OpPostCard";
+import { PollComposer } from "@/components/forum/PollComposer";
+import { PollWidget } from "@/components/forum/PollWidget";
 import { PostCard } from "@/components/forum/PostCard";
 import { ReplyForm, type ReplyFormHandle } from "@/components/forum/ReplyForm";
 import { plural } from "@/lib/format";
-import type { Post, Thread } from "@/lib/types";
+import type { Poll, Post, Thread } from "@/lib/types";
 
 interface ThreadViewProps {
   thread: Thread;
   posts: Post[];
+  initialPoll?: Poll | null;
 }
 
-export function ThreadView({ thread, posts }: ThreadViewProps) {
+export function ThreadView({ thread, posts, initialPoll = null }: ThreadViewProps) {
   const replyRef = useRef<ReplyFormHandle | null>(null);
+  const [poll, setPoll] = useState<Poll | null>(initialPoll);
 
   function handleQuote(post: Post) {
     replyRef.current?.insertQuote(post);
@@ -29,6 +33,18 @@ export function ThreadView({ thread, posts }: ThreadViewProps) {
   return (
     <div className="space-y-6">
       <ThreadHotkeys threadId={thread.id} />
+
+      {/* Poll: existing widget OR composer (only thread author/staff w/ perk see composer) */}
+      {poll ? (
+        <PollWidget threadId={thread.id} initialPoll={poll} />
+      ) : (
+        <PollComposer
+          threadId={thread.id}
+          threadAuthorId={thread.author?.id ?? null}
+          onCreated={(p) => setPoll(p)}
+        />
+      )}
+
       {opPost && <OpPostCard post={opPost} thread={thread} onQuote={handleQuote} />}
 
       {/* Divider — only show if there are replies */}

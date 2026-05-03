@@ -34,13 +34,18 @@ class UserPublic(BaseModel):
     # Manually-granted perks that bypass level requirements
     granted_perks: list[str] = []
 
+    # ISO date string YYYY-MM-DD if user has set their birthday
+    birthday: str | None = None
+
 
 class UserProfileUpdate(BaseModel):
     """Self-update of own profile.
-    bio is always editable;
+    bio + birthday are always editable;
     title requires level >= 25 (custom-title perk) — enforced in router;
     signature requires level >= 5.
     """
     bio: str | None = Field(default=None, max_length=1024)
     title: str | None = Field(default=None, max_length=80)
     signature: str | None = Field(default=None, max_length=1024)
+    # Accept "YYYY-MM-DD" or empty string to clear; validated in router
+    birthday: str | None = Field(default=None)

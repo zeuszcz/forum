@@ -3,9 +3,9 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import { ThreadView } from "@/components/forum/ThreadView";
-import { apiServer, ApiError } from "@/lib/api";
+import { apiServer, ApiError, apiServerOptional } from "@/lib/api";
 import { plural } from "@/lib/format";
-import type { ThreadWithPosts } from "@/lib/types";
+import type { Poll, ThreadWithPosts } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
@@ -22,6 +22,9 @@ export default async function ThreadPage({ params }: { params: Promise<{ id: str
     throw err;
   }
   const { thread, posts, section, total_posts } = data;
+
+  // Best-effort poll fetch — endpoint returns null when no poll exists.
+  const poll = await apiServerOptional<Poll | null>(`/threads/${threadId}/poll`);
 
   return (
     <div className="container max-w-4xl py-6 md:py-10">
@@ -58,7 +61,7 @@ export default async function ThreadPage({ params }: { params: Promise<{ id: str
         </div>
       </header>
 
-      <ThreadView thread={thread} posts={posts} />
+      <ThreadView thread={thread} posts={posts} initialPoll={poll ?? null} />
     </div>
   );
 }

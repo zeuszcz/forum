@@ -5,9 +5,9 @@ import { useRouter } from "next/navigation";
 import { forwardRef, useImperativeHandle, useRef, useState } from "react";
 import { toast } from "sonner";
 
+import { MentionTextarea } from "@/components/forum/MentionTextarea";
 import { LetterAvatar } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/textarea";
 import { api, ApiError } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import type { Post } from "@/lib/types";
@@ -151,14 +151,14 @@ export const ReplyForm = forwardRef<ReplyFormHandle, ReplyFormProps>(
           </ul>
         )}
 
-        <Textarea
+        <MentionTextarea
           ref={textareaRef}
           value={body}
-          onChange={(e) => setBody(e.target.value)}
+          onChange={setBody}
           placeholder={
             quotes.length > 0
-              ? "Твой ответ к цитате…"
-              : "Напиши ответ…"
+              ? "Твой ответ к цитате… @ник для упоминания"
+              : "Напиши ответ… используй @ник чтобы упомянуть"
           }
           rows={5}
           maxLength={20000}

@@ -8,7 +8,7 @@ import { LetterAvatar } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { exactTime, relativeTime } from "@/lib/format";
 import { glowNickProps } from "@/lib/perks";
-import { computeRank } from "@/lib/rank";
+import { computeKarma, computeRank } from "@/lib/rank";
 import type { UserPublic } from "@/lib/types";
 
 interface UserHoverCardProps {
@@ -105,6 +105,25 @@ export function UserHoverCard({ user, children }: UserHoverCardProps) {
                       }}
                     />
                   </div>
+                </div>
+              );
+            })()}
+            {(() => {
+              const karma = computeKarma(
+                user.total_posts,
+                user.total_reactions_received,
+              );
+              return (
+                <div className="flex items-center justify-between border-t border-white/5 bg-void/40 px-4 py-2">
+                  <span className="inline-flex items-center gap-1.5 text-[11px]">
+                    <span className="font-mono font-bold" style={{ color: karma.color }}>
+                      ⚡ {karma.value}
+                    </span>
+                    <span className="text-smoke">карма</span>
+                  </span>
+                  <span className="text-[10px] uppercase tracking-widest" style={{ color: karma.color }}>
+                    {karma.title}
+                  </span>
                 </div>
               );
             })()}

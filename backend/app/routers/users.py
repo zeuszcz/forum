@@ -43,6 +43,7 @@ async def list_online(db: DbSession) -> list[UserPublic]:
                 total_posts=u.total_posts,
                 total_reactions_received=u.total_reactions_received,
                 granted_perks=list(u.granted_perks or []),
+                birthday=u.birthday.isoformat() if u.birthday else None,
             )
         )
     return out
@@ -98,6 +99,33 @@ async def update_me(payload: UserProfileUpdate, user: CurrentUser, db: DbSession
             )
         user.title = payload.title.strip() or None
 
+    if payload.birthday is not None:
+        from datetime import date as _date
+
+        s = payload.birthday.strip()
+        if s == "":
+            user.birthday = None
+        else:
+            try:
+                bd = _date.fromisoformat(s)
+            except ValueError as exc:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Неверный формат даты, ожидается YYYY-MM-DD",
+                ) from exc
+            today = datetime.now(UTC).date()
+            if bd > today:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="ДР не может быть в будущем",
+                )
+            if bd.year < 1920:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Слишком ранний год",
+                )
+            user.birthday = bd
+
     await db.commit()
     await db.refresh(user)
 
@@ -114,6 +142,7 @@ async def update_me(payload: UserProfileUpdate, user: CurrentUser, db: DbSession
         total_posts=user.total_posts,
         total_reactions_received=user.total_reactions_received,
         granted_perks=list(user.granted_perks or []),
+        birthday=user.birthday.isoformat() if user.birthday else None,
     )
 
 
@@ -180,6 +209,7 @@ async def search_users(
                 total_posts=u.total_posts,
                 total_reactions_received=u.total_reactions_received,
                 granted_perks=list(u.granted_perks or []),
+                birthday=u.birthday.isoformat() if u.birthday else None,
             )
         )
     return out
@@ -219,6 +249,7 @@ async def birthdays_today(db: DbSession) -> list[UserPublic]:
                 total_posts=u.total_posts,
                 total_reactions_received=u.total_reactions_received,
                 granted_perks=list(u.granted_perks or []),
+                birthday=u.birthday.isoformat() if u.birthday else None,
             )
         )
     return out
@@ -256,6 +287,7 @@ async def recent_visitors(db: DbSession, hours: int = Query(24, ge=1, le=168)) -
                 total_posts=u.total_posts,
                 total_reactions_received=u.total_reactions_received,
                 granted_perks=list(u.granted_perks or []),
+                birthday=u.birthday.isoformat() if u.birthday else None,
             )
         )
     return out
@@ -299,6 +331,7 @@ async def list_user_threads(
         total_posts=u.total_posts,
         total_reactions_received=u.total_reactions_received,
         granted_perks=list(u.granted_perks or []),
+        birthday=u.birthday.isoformat() if u.birthday else None,
     )
     return [
         ThreadRead(
@@ -377,6 +410,7 @@ async def list_user_posts(
         total_posts=u.total_posts,
         total_reactions_received=u.total_reactions_received,
         granted_perks=list(u.granted_perks or []),
+        birthday=u.birthday.isoformat() if u.birthday else None,
     )
     return [
         PostRead(
@@ -481,4 +515,5 @@ async def get_user(nickname: str, db: DbSession) -> UserPublic:
         total_posts=u.total_posts,
         total_reactions_received=u.total_reactions_received,
         granted_perks=list(u.granted_perks or []),
+        birthday=u.birthday.isoformat() if u.birthday else None,
     )

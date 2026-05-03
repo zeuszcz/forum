@@ -349,6 +349,7 @@ async def activity_feed(db: DbSession, limit: int = Query(30, ge=1, le=100)) -> 
             "total_posts": u.total_posts,
             "total_reactions_received": u.total_reactions_received,
             "granted_perks": list(u.granted_perks or []),
+            "birthday": u.birthday.isoformat() if u.birthday else None,
         }
 
     events: list[dict] = []

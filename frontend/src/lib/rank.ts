@@ -121,3 +121,23 @@ export function nextLockedPerk(level: number): { level: number; name: string } |
   if (!next) return null;
   return { level: next.level, name: next.name };
 }
+
+/**
+ * Karma — separate authority/reputation score derived from forum activity.
+ * Weighs reactions heavily since they reflect community judgement.
+ *   value = posts × 1 + reactions_received × 3
+ */
+export interface KarmaInfo {
+  value: number;
+  title: string;
+  color: string;
+}
+
+export function computeKarma(posts: number, reactions: number): KarmaInfo {
+  const value = posts + 3 * reactions;
+  if (value >= 1500) return { value, title: "мифический", color: "#ec4899" };
+  if (value >= 500) return { value, title: "легендарный", color: "#f43f5e" };
+  if (value >= 200) return { value, title: "уважаемый", color: "#7c5cff" };
+  if (value >= 50) return { value, title: "симпатичный", color: "#22d3ee" };
+  return { value, title: "новичок", color: "#a0a3b8" };
+}

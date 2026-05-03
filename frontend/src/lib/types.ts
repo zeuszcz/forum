@@ -18,6 +18,7 @@ export interface UserPublic {
   total_posts: number;
   total_reactions_received: number;
   granted_perks: string[];
+  birthday?: string | null;
 }
 
 export interface Section {
