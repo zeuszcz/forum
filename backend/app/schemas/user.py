@@ -26,3 +26,7 @@ class UserPublic(BaseModel):
     last_seen_at: datetime | None = None
     created_at: datetime
     roles: list[RoleRead] = []
+
+    # Cached stats — used by frontend to compute level + rank locally
+    total_posts: int = 0
+    total_reactions_received: int = 0

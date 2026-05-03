@@ -35,6 +35,8 @@ async def _serialize_user(db, user) -> UserPublic:
         last_seen_at=user.last_seen_at,
         created_at=user.created_at,
         roles=[RoleRead.model_validate(r) for r in roles],
+        total_posts=user.total_posts,
+        total_reactions_received=user.total_reactions_received,
     )
 
 

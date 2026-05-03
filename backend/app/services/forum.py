@@ -217,6 +217,9 @@ async def create_thread(
     section.post_count += 1
     section.last_thread_id = thread.id
 
+    # Maintain cached author stats
+    author.total_posts += 1
+
     await db.commit()
     await db.refresh(thread)
     return thread
@@ -269,6 +272,9 @@ async def create_post(
     section.post_count += 1
     section.last_thread_id = thread.id
 
+    # Maintain cached author stats
+    author.total_posts += 1
+
     await db.commit()
     await db.refresh(post)
     return post
@@ -277,6 +283,12 @@ async def create_post(
 async def toggle_reaction(
     db: AsyncSession, *, post_id: int, user_id: int, kind: str = "like"
 ) -> dict:
+    # ensure post exists; we also need its author to bump their cached counter
+    p_q = await db.execute(select(Post).where(Post.id == post_id))
+    post = p_q.scalar_one_or_none()
+    if post is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Пост не найден")
+
     existing_q = await db.execute(
         select(Reaction).where(
             Reaction.post_id == post_id, Reaction.user_id == user_id, Reaction.kind == kind
@@ -285,18 +297,23 @@ async def toggle_reaction(
     existing = existing_q.scalar_one_or_none()
     if existing is not None:
         await db.delete(existing)
-        await db.commit()
         delta = -1
         reacted = False
     else:
-        # ensure post exists
-        p_q = await db.execute(select(Post).where(Post.id == post_id))
-        if p_q.scalar_one_or_none() is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Пост не найден")
         db.add(Reaction(post_id=post_id, user_id=user_id, kind=kind))
-        await db.commit()
         delta = 1
         reacted = True
+
+    # Maintain cached author counter (received reactions)
+    if post.author_id is not None and post.author_id != user_id:
+        author_q = await db.execute(select(User).where(User.id == post.author_id))
+        author_user = author_q.scalar_one_or_none()
+        if author_user is not None:
+            author_user.total_reactions_received = max(
+                0, author_user.total_reactions_received + delta
+            )
+
+    await db.commit()
 
     cnt_q = await db.execute(
         select(func.count()).select_from(Reaction).where(Reaction.post_id == post_id)

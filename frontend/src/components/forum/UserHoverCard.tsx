@@ -7,6 +7,7 @@ import Link from "next/link";
 import { LetterAvatar } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { exactTime, relativeTime } from "@/lib/format";
+import { computeRank } from "@/lib/rank";
 import type { UserPublic } from "@/lib/types";
 
 interface UserHoverCardProps {
@@ -69,7 +70,50 @@ export function UserHoverCard({ user, children }: UserHoverCardProps) {
                 </div>
               )}
             </div>
-            <div className="grid grid-cols-2 gap-2 border-t border-white/5 bg-void/60 px-4 py-3 text-[11px] text-smoke">
+            {(() => {
+              const rank = computeRank(
+                user.total_posts,
+                user.total_reactions_received,
+              );
+              return (
+                <div className="border-t border-white/5 bg-void/60 px-4 py-3">
+                  <div className="flex items-center justify-between text-[11px]">
+                    <div className="inline-flex items-center gap-1.5">
+                      <span
+                        className="font-mono text-sm font-bold"
+                        style={{ color: rank.color }}
+                      >
+                        Lvl {rank.level}
+                      </span>
+                      <span className="text-smoke">{rank.title}</span>
+                    </div>
+                    <span className="font-mono text-smoke">
+                      {rank.xpInto}/{rank.xpForNext - rank.xpForLevel}
+                    </span>
+                  </div>
+                  <div className="mt-1.5 h-1 overflow-hidden rounded-full bg-slate">
+                    <div
+                      className="h-full rounded-full"
+                      style={{
+                        width: `${rank.percent}%`,
+                        background: `linear-gradient(90deg, ${rank.color}, rgb(var(--flame-rgb)))`,
+                      }}
+                    />
+                  </div>
+                </div>
+              );
+            })()}
+            <div className="grid grid-cols-3 gap-2 border-t border-white/5 bg-void/60 px-4 py-3 text-[11px] text-smoke">
+              <div>
+                <div className="uppercase tracking-wider text-smoke/70">постов</div>
+                <div className="mt-0.5 font-mono text-ash">{user.total_posts}</div>
+              </div>
+              <div>
+                <div className="uppercase tracking-wider text-smoke/70">реакций</div>
+                <div className="mt-0.5 font-mono text-ash">
+                  {user.total_reactions_received}
+                </div>
+              </div>
               <div>
                 <div className="uppercase tracking-wider text-smoke/70">в сети</div>
                 <div
@@ -77,12 +121,6 @@ export function UserHoverCard({ user, children }: UserHoverCardProps) {
                   title={user.last_seen_at ? exactTime(user.last_seen_at) : ""}
                 >
                   {user.last_seen_at ? relativeTime(user.last_seen_at) : "—"}
-                </div>
-              </div>
-              <div>
-                <div className="uppercase tracking-wider text-smoke/70">на форуме</div>
-                <div className="mt-0.5 font-mono text-ash" title={exactTime(user.created_at)}>
-                  {relativeTime(user.created_at)}
                 </div>
               </div>
             </div>

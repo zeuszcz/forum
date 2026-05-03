@@ -1,4 +1,4 @@
-import { ChevronRight, ScrollText, Settings, Shield, Users } from "lucide-react";
+import { ChevronRight, KeyRound, ScrollText, Settings, Shield, Users } from "lucide-react";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
@@ -14,8 +14,9 @@ export const metadata = {
 const NAV = [
   { href: "/admin", label: "Дашборд", icon: Shield },
   { href: "/admin/users", label: "Пользователи", icon: Users },
-  { href: "/admin/audit", label: "Аудит", icon: ScrollText },
+  { href: "/admin/roles", label: "Роли", icon: KeyRound },
   { href: "/admin/sections", label: "Разделы", icon: Settings },
+  { href: "/admin/audit", label: "Аудит", icon: ScrollText },
 ];
 
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {

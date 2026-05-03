@@ -18,6 +18,9 @@ from app.schemas.admin import (
     DeletePostRequest,
     ModerationLogRead,
     MuteRequest,
+    RoleAdminRead,
+    RoleCreate,
+    RoleUpdate,
     ThreadCreationRequest,
     ThreadLockRequest,
 )
@@ -253,6 +256,104 @@ async def delete_post(
 ) -> dict:
     post = await admin_service.delete_post(db, actor=actor, post_id=post_id, reason=payload.reason)
     return {"id": post.id, "is_deleted": post.is_deleted}
+
+
+# -----------------------------------------------------------------------------
+# Roles management
+# -----------------------------------------------------------------------------
+
+PROTECTED_ROLE_SLUGS = {"owner", "admin", "member"}
+
+
+def _serialize_role(role: Role, member_count: int) -> RoleAdminRead:
+    return RoleAdminRead(
+        id=role.id,
+        slug=role.slug,
+        title=role.title,
+        color=role.color,
+        display_order=role.display_order,
+        is_staff=role.is_staff,
+        member_count=member_count,
+    )
+
+
+@router.get("/roles", response_model=list[RoleAdminRead])
+async def list_roles(db: DbSession) -> list[RoleAdminRead]:
+    rows = await db.execute(select(Role).order_by(Role.display_order, Role.id))
+    roles = list(rows.scalars().all())
+    if not roles:
+        return []
+    cnt_rows = await db.execute(
+        select(UserRole.role_id, func.count())
+        .where(UserRole.role_id.in_([r.id for r in roles]))
+        .group_by(UserRole.role_id)
+    )
+    counts = {rid: int(c) for rid, c in cnt_rows.all()}
+    return [_serialize_role(r, counts.get(r.id, 0)) for r in roles]
+
+
+@router.post("/roles", response_model=RoleAdminRead, status_code=status.HTTP_201_CREATED)
+async def create_role(payload: RoleCreate, actor: StaffUser, db: DbSession) -> RoleAdminRead:
+    existing = await db.execute(select(Role).where(Role.slug == payload.slug))
+    if existing.scalar_one_or_none() is not None:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Slug уже занят")
+    role = Role(
+        slug=payload.slug,
+        title=payload.title,
+        color=payload.color,
+        display_order=payload.display_order,
+        is_staff=payload.is_staff,
+    )
+    db.add(role)
+    await db.commit()
+    await db.refresh(role)
+    return _serialize_role(role, 0)
+
+
+@router.patch("/roles/{slug}", response_model=RoleAdminRead)
+async def update_role(
+    slug: str, payload: RoleUpdate, actor: StaffUser, db: DbSession
+) -> RoleAdminRead:
+    result = await db.execute(select(Role).where(Role.slug == slug))
+    role = result.scalar_one_or_none()
+    if role is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Роль не найдена")
+    if payload.title is not None:
+        role.title = payload.title
+    if payload.color is not None:
+        role.color = payload.color
+    if payload.display_order is not None:
+        role.display_order = payload.display_order
+    if payload.is_staff is not None:
+        if slug in PROTECTED_ROLE_SLUGS and not payload.is_staff and role.is_staff:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Нельзя снять флаг staff с защищённой роли {slug}",
+            )
+        role.is_staff = payload.is_staff
+    await db.commit()
+    await db.refresh(role)
+    cnt_q = await db.execute(
+        select(func.count()).select_from(UserRole).where(UserRole.role_id == role.id)
+    )
+    return _serialize_role(role, int(cnt_q.scalar_one()))
+
+
+@router.delete("/roles/{slug}")
+async def delete_role(slug: str, actor: StaffUser, db: DbSession) -> dict:
+    if slug in PROTECTED_ROLE_SLUGS:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Нельзя удалить защищённую роль {slug}",
+        )
+    result = await db.execute(select(Role).where(Role.slug == slug))
+    role = result.scalar_one_or_none()
+    if role is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Роль не найдена")
+    # Cascade ondelete CASCADE on user_roles handles removing assignments
+    await db.delete(role)
+    await db.commit()
+    return {"slug": slug, "deleted": True}
 
 
 # -----------------------------------------------------------------------------

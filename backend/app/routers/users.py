@@ -39,6 +39,8 @@ async def list_online(db: DbSession) -> list[UserPublic]:
                 last_seen_at=u.last_seen_at,
                 created_at=u.created_at,
                 roles=[RoleRead.model_validate(r) for r in roles],
+                total_posts=u.total_posts,
+                total_reactions_received=u.total_reactions_received,
             )
         )
     return out
@@ -97,4 +99,6 @@ async def get_user(nickname: str, db: DbSession) -> UserPublic:
         last_seen_at=u.last_seen_at,
         created_at=u.created_at,
         roles=[RoleRead.model_validate(r) for r in roles],
+        total_posts=u.total_posts,
+        total_reactions_received=u.total_reactions_received,
     )

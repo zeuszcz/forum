@@ -27,6 +27,10 @@ class User(Base, TimestampMixin):
 
     last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
+    # ---- Cached stats (services maintain; migration backfills) ----
+    total_posts: Mapped[int] = mapped_column(default=0, nullable=False)
+    total_reactions_received: Mapped[int] = mapped_column(default=0, nullable=False)
+
     # ---- Moderation state ----
     is_banned: Mapped[bool] = mapped_column(default=False, nullable=False, index=True)
     ban_reason: Mapped[str | None] = mapped_column(String(500), nullable=True)

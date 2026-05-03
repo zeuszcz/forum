@@ -85,3 +85,30 @@ class AdminStats(BaseModel):
     threads_total: int
     posts_total: int
     sections_locked: int
+
+
+class RoleAdminRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    slug: str
+    title: str
+    color: str
+    display_order: int
+    is_staff: bool
+    member_count: int = 0
+
+
+class RoleCreate(BaseModel):
+    slug: str = Field(min_length=2, max_length=32, pattern=r"^[a-z0-9][a-z0-9_-]*$")
+    title: str = Field(min_length=1, max_length=64)
+    color: str = Field(default="#7c5cff", pattern=r"^#[0-9a-fA-F]{6}$")
+    display_order: int = Field(default=100, ge=0, le=9999)
+    is_staff: bool = False
+
+
+class RoleUpdate(BaseModel):
+    title: str | None = Field(default=None, min_length=1, max_length=64)
+    color: str | None = Field(default=None, pattern=r"^#[0-9a-fA-F]{6}$")
+    display_order: int | None = Field(default=None, ge=0, le=9999)
+    is_staff: bool | None = None

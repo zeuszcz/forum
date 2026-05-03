@@ -15,6 +15,8 @@ export interface UserPublic {
   last_seen_at: string | null;
   created_at: string;
   roles: Role[];
+  total_posts: number;
+  total_reactions_received: number;
 }
 
 export interface Section {
@@ -163,4 +165,14 @@ export interface ModerationLogRead {
   target_post_id: number | null;
   target_thread_id: number | null;
   target_section_id: number | null;
+}
+
+export interface RoleAdminRead {
+  id: number;
+  slug: string;
+  title: string;
+  color: string;
+  display_order: number;
+  is_staff: boolean;
+  member_count: number;
 }
