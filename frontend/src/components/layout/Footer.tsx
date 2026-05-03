@@ -16,8 +16,11 @@ export function Footer() {
           <Link href="/f/general" className="text-smoke transition-colors hover:text-ash">
             Форум
           </Link>
-          <Link href="/f/suggestions" className="text-smoke transition-colors hover:text-ash">
-            Предложения
+          <Link href="/banlist" className="text-smoke transition-colors hover:text-ash">
+            Banlist
+          </Link>
+          <Link href="/archive" className="text-smoke transition-colors hover:text-ash">
+            Архив
           </Link>
           <a
             href="https://github.com/zeuszcz/forum"

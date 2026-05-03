@@ -8,7 +8,17 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import settings
 from app.core.logging import configure_logging, get_logger
-from app.routers import admin, auth, forum, health, shoutbox, stats, users
+from app.routers import (
+    admin,
+    auth,
+    forum,
+    health,
+    notifications,
+    polls,
+    shoutbox,
+    stats,
+    users,
+)
 
 log = get_logger(__name__)
 
@@ -45,6 +55,8 @@ app.include_router(forum.router)
 app.include_router(shoutbox.router)
 app.include_router(stats.router)
 app.include_router(admin.router)
+app.include_router(polls.router)
+app.include_router(notifications.router)
 
 
 @app.get("/", include_in_schema=False)

@@ -16,6 +16,46 @@ from app.schemas.forum import PostCreate, ThreadCreate
 
 
 _RE_SLUG_STRIP = re.compile(r"[^a-z0-9]+")
+_RE_MENTION = re.compile(r"@([a-z0-9_\-\.]{3,32})", re.IGNORECASE)
+
+
+async def _create_mention_notifications(
+    db: AsyncSession,
+    *,
+    body: str,
+    actor: User,
+    thread_id: int,
+    post_id: int,
+    thread_title: str | None,
+) -> None:
+    """Scan post body for @nicknames and create Notification rows for each
+    mentioned user (excluding the actor themselves). Best-effort."""
+    try:
+        from sqlalchemy import func as _func
+
+        from app.models.notification import Notification
+
+        nicknames = {m.lower() for m in _RE_MENTION.findall(body)}
+        if not nicknames:
+            return
+        rows = await db.execute(
+            select(User).where(_func.lower(User.nickname).in_(list(nicknames)))
+        )
+        users = list(rows.scalars().all())
+        for u in users:
+            if u.id == actor.id:
+                continue
+            db.add(
+                Notification(
+                    user_id=u.id,
+                    kind="mention",
+                    title=f"{actor.nickname} упомянул тебя",
+                    body=(thread_title or "")[:500] or None,
+                    href=f"/t/{thread_id}#post-{post_id}",
+                )
+            )
+    except Exception:  # noqa: BLE001
+        pass
 
 
 def slugify(value: str) -> str:
@@ -136,25 +176,29 @@ async def get_thread_with_posts(
     )
     posts = list(posts_q.scalars().all())
 
-    # reactions counts and user's marks
+    # reactions counts and user's marks (per-kind aware)
     counts: dict[int, dict] = {}
     if posts:
         post_ids = [p.id for p in posts]
-        rcounts = await db.execute(
-            select(Reaction.post_id, func.count())
+        # Total per post + total per kind
+        rk_rows = await db.execute(
+            select(Reaction.post_id, Reaction.kind, func.count())
             .where(Reaction.post_id.in_(post_ids))
-            .group_by(Reaction.post_id)
+            .group_by(Reaction.post_id, Reaction.kind)
         )
-        for pid, cnt in rcounts.all():
-            counts[pid] = {"count": cnt, "reacted": False}
+        for pid, kind, cnt in rk_rows.all():
+            entry = counts.setdefault(pid, {"count": 0, "by_kind": {}, "my_kinds": []})
+            entry["count"] += int(cnt)
+            entry["by_kind"][kind] = int(cnt)
         if current_user_id is not None:
             mine = await db.execute(
-                select(Reaction.post_id).where(
+                select(Reaction.post_id, Reaction.kind).where(
                     Reaction.post_id.in_(post_ids), Reaction.user_id == current_user_id
                 )
             )
-            for (pid,) in mine.all():
-                counts.setdefault(pid, {"count": 0, "reacted": False})["reacted"] = True
+            for pid, kind in mine.all():
+                entry = counts.setdefault(pid, {"count": 0, "by_kind": {}, "my_kinds": []})
+                entry["my_kinds"].append(kind)
 
     if increment_views:
         thread.view_count += 1
@@ -220,6 +264,15 @@ async def create_thread(
     # Maintain cached author stats
     author.total_posts += 1
 
+    await _create_mention_notifications(
+        db,
+        body=payload.body,
+        actor=author,
+        thread_id=thread.id,
+        post_id=first_post.id,
+        thread_title=thread.title,
+    )
+
     await db.commit()
     await db.refresh(thread)
     return thread
@@ -275,14 +328,52 @@ async def create_post(
     # Maintain cached author stats
     author.total_posts += 1
 
+    # Notify thread author about a new reply (skip self-reply)
+    try:
+        if thread.author_id and thread.author_id != author.id:
+            from app.models.notification import Notification
+
+            db.add(
+                Notification(
+                    user_id=thread.author_id,
+                    kind="reply",
+                    title=f"{author.nickname} ответил в твоей теме",
+                    body=thread.title[:500],
+                    href=f"/t/{thread.id}#post-{post.id}",
+                )
+            )
+    except Exception:  # noqa: BLE001
+        pass
+
+    await _create_mention_notifications(
+        db,
+        body=payload.body,
+        actor=author,
+        thread_id=thread.id,
+        post_id=post.id,
+        thread_title=thread.title,
+    )
+
     await db.commit()
     await db.refresh(post)
     return post
 
 
+REACTION_KINDS: tuple[str, ...] = (
+    "like",
+    "fire",
+    "laugh",
+    "wow",
+    "sad",
+    "thinking",
+)
+
+
 async def toggle_reaction(
     db: AsyncSession, *, post_id: int, user_id: int, kind: str = "like"
 ) -> dict:
+    if kind not in REACTION_KINDS:
+        raise HTTPException(status_code=400, detail=f"Unknown reaction kind: {kind}")
     # ensure post exists; we also need its author to bump their cached counter
     p_q = await db.execute(select(Post).where(Post.id == post_id))
     post = p_q.scalar_one_or_none()

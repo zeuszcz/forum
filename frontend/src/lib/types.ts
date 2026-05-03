@@ -94,6 +94,88 @@ export interface SectionPulse {
   count: number;
 }
 
+export type ReactionKind =
+  | "like"
+  | "fire"
+  | "laugh"
+  | "wow"
+  | "sad"
+  | "thinking";
+
+export const REACTION_EMOJI: Record<ReactionKind, string> = {
+  like: "❤️",
+  fire: "🔥",
+  laugh: "😂",
+  wow: "🤯",
+  sad: "😢",
+  thinking: "🤔",
+};
+
+export interface ScandalThread {
+  id: number;
+  title: string;
+  slug: string;
+  section_slug: string | null;
+  section_title: string | null;
+  reply_count: number;
+  view_count: number;
+  score: number;
+  last_post_at: string | null;
+  created_at: string;
+  author_nickname: string | null;
+}
+
+export interface BanlistEntry {
+  id: number;
+  nickname: string;
+  avatar_url: string | null;
+  ban_reason: string | null;
+  banned_until: string | null;
+}
+
+export interface ArchiveEntry {
+  id: number;
+  title: string;
+  section_id: number;
+  reply_count: number;
+  view_count: number;
+  created_at: string;
+  deleted_at: string;
+}
+
+export interface PollOption {
+  id: number;
+  text: string;
+  display_order: number;
+  vote_count: number;
+}
+
+export interface Poll {
+  id: number;
+  thread_id: number;
+  question: string;
+  multi: boolean;
+  closed: boolean;
+  total_votes: number;
+  options: PollOption[];
+  my_votes: number[];
+}
+
+export interface NotificationItem {
+  id: number;
+  kind: string;
+  title: string;
+  body: string | null;
+  href: string | null;
+  read: boolean;
+  created_at: string;
+}
+
+export interface NotificationsResponse {
+  items: NotificationItem[];
+  unread: number;
+}
+
 export interface ThreadWithPosts {
   thread: Thread;
   posts: Post[];

@@ -54,6 +54,8 @@ class PostRead(BaseModel):
     author: UserPublic | None = None
     reaction_count: int = 0
     has_reacted: bool = False
+    reactions_by_kind: dict[str, int] = {}
+    my_reaction_kinds: list[str] = []
 
 
 class ThreadCreate(BaseModel):

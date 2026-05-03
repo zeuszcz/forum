@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 
-from sqlalchemy import BigInteger, DateTime, String
+from sqlalchemy import BigInteger, Date, DateTime, String
 from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -48,3 +48,9 @@ class User(Base, TimestampMixin):
     granted_perks: Mapped[list[str]] = mapped_column(
         ARRAY(String(32)), nullable=False, default=list, server_default="{}"
     )
+
+    # Profile extras (migration 20260503_1900)
+    birthday: Mapped[date | None] = mapped_column(Date, nullable=True, index=True)
+    streak_days: Mapped[int] = mapped_column(default=0, nullable=False)
+    last_active_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    karma: Mapped[int] = mapped_column(default=0, nullable=False)

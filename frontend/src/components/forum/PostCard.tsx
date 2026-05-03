@@ -1,21 +1,22 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { Heart, Quote } from "lucide-react";
+import { Check, Pencil, Quote, X } from "lucide-react";
 import { useEffect, useState } from "react";
+import { toast } from "sonner";
 
-import { HeartExplosion } from "@/components/effects/HeartExplosion";
+import { ReactionsBar } from "@/components/forum/ReactionsBar";
 import { SpotlightCard } from "@/components/effects/SpotlightCard";
 import { PostBody } from "@/components/forum/PostBody";
 import { UserHoverCard } from "@/components/forum/UserHoverCard";
 import { LetterAvatar } from "@/components/ui/avatar";
+import { Textarea } from "@/components/ui/textarea";
 import { api, ApiError } from "@/lib/api";
-import { sfx } from "@/lib/audio";
 import { useAuth } from "@/lib/auth-context";
 import { exactTime, relativeTime } from "@/lib/format";
-import { glowNickProps } from "@/lib/perks";
+import { glowNickProps, isStaff } from "@/lib/perks";
 import { computeRank } from "@/lib/rank";
-import type { Post } from "@/lib/types";
+import type { Post, ReactionKind } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 interface PostCardProps {
@@ -26,11 +27,19 @@ interface PostCardProps {
 
 export function PostCard({ post, index, onQuote }: PostCardProps) {
   const { user } = useAuth();
-  const [count, setCount] = useState(post.reaction_count);
-  const [reacted, setReacted] = useState(post.has_reacted);
-  const [pending, setPending] = useState(false);
-  const [burstKey, setBurstKey] = useState(0);
   const [highlight, setHighlight] = useState(false);
+
+  const [editing, setEditing] = useState(false);
+  const [editBody, setEditBody] = useState(post.body);
+  const [editPending, setEditPending] = useState(false);
+  const [body, setBody] = useState(post.body);
+  const [editedAt, setEditedAt] = useState(post.edited_at);
+
+  // Sync from props if parent re-fetches
+  useEffect(() => {
+    setBody(post.body);
+    setEditedAt(post.edited_at);
+  }, [post.body, post.edited_at]);
 
   // Highlight when this post is the URL hash target
   useEffect(() => {
@@ -48,31 +57,34 @@ export function PostCard({ post, index, onQuote }: PostCardProps) {
     : null;
   const glow = glowNickProps(post.author);
 
-  async function handleReact() {
-    if (!user || pending) return;
-    setPending(true);
-    const prevReacted = reacted;
-    const prevCount = count;
-    const isLiking = !prevReacted;
-    setReacted(isLiking);
-    setCount(prevCount + (isLiking ? 1 : -1));
-    if (isLiking) {
-      setBurstKey(Date.now());
-      sfx.like();
-    }
+  const canEdit =
+    !!user && post.author?.id === user.id;
+  const canStaffEdit = !!user && isStaff(user);
+  const showEditButton = canEdit || canStaffEdit;
+
+  async function saveEdit() {
+    const text = editBody.trim();
+    if (text.length < 1 || editPending) return;
+    setEditPending(true);
     try {
-      const r = await api<{ count: number; reacted: boolean }>(`/posts/${post.id}/react`, {
-        method: "POST",
+      const r = await api<Post>(`/posts/${post.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ body: text }),
       });
-      setCount(r.count);
-      setReacted(r.reacted);
+      setBody(r.body);
+      setEditedAt(r.edited_at);
+      setEditing(false);
+      toast.success("Пост обновлён");
     } catch (err) {
-      setReacted(prevReacted);
-      setCount(prevCount);
-      if (err instanceof ApiError) console.error(err);
+      toast.error(err instanceof ApiError ? err.detail : "Не удалось сохранить");
     } finally {
-      setPending(false);
+      setEditPending(false);
     }
+  }
+
+  function cancelEdit() {
+    setEditBody(body);
+    setEditing(false);
   }
 
   return (
@@ -95,7 +107,7 @@ export function PostCard({ post, index, onQuote }: PostCardProps) {
           highlight && "border-plasma shadow-glow-plasma",
         )}
       >
-        {/* === Author sidebar (LEFT on desktop, top on mobile) === */}
+        {/* === Author sidebar === */}
         <aside className="relative flex flex-row items-center gap-3 border-b border-border bg-void/50 p-3.5 md:flex-col md:items-center md:gap-2 md:border-b-0 md:border-r md:p-4">
           {post.author ? (
             <UserHoverCard user={post.author}>
@@ -149,35 +161,88 @@ export function PostCard({ post, index, onQuote }: PostCardProps) {
               <span className="text-sm text-smoke">удалён</span>
             </>
           )}
-
         </aside>
 
-        {/* === Body (RIGHT) === */}
+        {/* === Body === */}
         <div className="flex min-w-0 flex-col">
           <header className="flex items-center justify-between border-b border-border px-5 py-2.5 text-xs text-smoke">
             <span title={exactTime(post.created_at)}>
               {relativeTime(post.created_at)}
-              {post.edited_at && (
+              {editedAt && (
                 <span className="ml-2 italic">
-                  · отредактировано {relativeTime(post.edited_at)}
+                  · отредактировано {relativeTime(editedAt)}
                 </span>
               )}
             </span>
-            <a
-              href={`#post-${post.id}`}
-              className="font-mono text-smoke transition-colors hover:text-plasma"
-              title="Прямая ссылка"
-            >
-              #{index + 1}
-            </a>
+            <div className="flex items-center gap-2">
+              {showEditButton && !editing && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEditBody(body);
+                    setEditing(true);
+                  }}
+                  className="inline-flex items-center gap-1 rounded-md border border-transparent px-2 py-1 text-[11px] text-smoke transition-colors hover:border-border hover:bg-slate hover:text-bone"
+                  title={canStaffEdit && !canEdit ? "Редактировать (staff)" : "Редактировать"}
+                >
+                  <Pencil className="h-3 w-3" />
+                  ред.
+                </button>
+              )}
+              <a
+                href={`#post-${post.id}`}
+                className="font-mono text-smoke transition-colors hover:text-plasma"
+                title="Прямая ссылка"
+              >
+                #{index + 1}
+              </a>
+            </div>
           </header>
 
           <div className="min-w-0 px-5 py-5">
-            <PostBody body={post.body} />
+            {editing ? (
+              <div className="space-y-2">
+                <Textarea
+                  value={editBody}
+                  onChange={(e) => setEditBody(e.target.value)}
+                  rows={6}
+                  maxLength={20000}
+                  disabled={editPending}
+                  autoFocus
+                />
+                <div className="flex items-center justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={cancelEdit}
+                    disabled={editPending}
+                    className="inline-flex items-center gap-1 rounded-md px-3 py-1.5 text-xs text-ash transition-colors hover:bg-slate hover:text-bone"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                    Отмена
+                  </button>
+                  <button
+                    type="button"
+                    onClick={saveEdit}
+                    disabled={editPending || editBody.trim().length < 1}
+                    className="inline-flex items-center gap-1 rounded-md border border-plasma/40 bg-plasma/10 px-3 py-1.5 text-xs text-plasma transition-colors hover:bg-plasma/20 disabled:opacity-50"
+                  >
+                    <Check className="h-3.5 w-3.5" />
+                    {editPending ? "Сохраняем…" : "Сохранить"}
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <PostBody body={body} />
+            )}
           </div>
 
-          <footer className="mt-auto flex items-center justify-end gap-2 border-t border-border bg-void/30 px-3 py-2">
-            {onQuote && (
+          <footer className="mt-auto flex items-center justify-between gap-2 border-t border-border bg-void/30 px-3 py-2">
+            <ReactionsBar
+              postId={post.id}
+              initialCounts={post.reactions_by_kind ?? {}}
+              initialReacted={(post.my_reaction_kinds ?? []) as ReactionKind[]}
+            />
+            {onQuote && !editing && (
               <button
                 type="button"
                 onClick={() => onQuote(post)}
@@ -187,33 +252,9 @@ export function PostCard({ post, index, onQuote }: PostCardProps) {
                 Цитата
               </button>
             )}
-            <div className="relative">
-              <button
-                type="button"
-                onClick={handleReact}
-                disabled={!user || pending}
-                className={cn(
-                  "inline-flex items-center gap-1.5 rounded-md border border-transparent px-2.5 py-1.5 text-xs font-medium transition-all duration-150 ease-premium disabled:cursor-not-allowed disabled:opacity-50",
-                  reacted
-                    ? "border-flame/40 bg-flame/10 text-flame shadow-glow-flame"
-                    : "text-ash hover:border-border hover:bg-slate hover:text-bone",
-                )}
-                aria-pressed={reacted}
-              >
-                <Heart
-                  className={cn(
-                    "h-3.5 w-3.5 transition-transform",
-                    reacted && "fill-flame scale-110",
-                  )}
-                />
-                <span className="font-mono">{count}</span>
-              </button>
-              <HeartExplosion triggerKey={burstKey} />
-            </div>
           </footer>
         </div>
       </SpotlightCard>
     </motion.div>
   );
 }
-

@@ -146,6 +146,121 @@ async def get_user_stats(nickname: str, db: DbSession) -> dict:
     return {"posts": posts, "reactions": reactions}
 
 
+@router.get("/search", response_model=list[UserPublic])
+async def search_users(
+    db: DbSession,
+    q: str = Query(..., min_length=1, max_length=32),
+    limit: int = Query(8, ge=1, le=20),
+) -> list[UserPublic]:
+    """Prefix-match users by nickname for @mention autocomplete."""
+    like = f"{q.strip().lower()}%"
+    from sqlalchemy import func as _func
+
+    rows = await db.execute(
+        select(User)
+        .where(_func.lower(User.nickname).like(like), User.is_active.is_(True))
+        .order_by(desc(User.last_seen_at).nulls_last(), desc(User.total_posts))
+        .limit(limit)
+    )
+    users = list(rows.scalars().all())
+    out: list[UserPublic] = []
+    for u in users:
+        roles = await auth_service.get_user_roles(db, u.id)
+        out.append(
+            UserPublic(
+                id=u.id,
+                nickname=u.nickname,
+                avatar_url=u.avatar_url,
+                title=u.title,
+                bio=u.bio,
+                is_active=u.is_active,
+                last_seen_at=u.last_seen_at,
+                created_at=u.created_at,
+                roles=[RoleRead.model_validate(r) for r in roles],
+                total_posts=u.total_posts,
+                total_reactions_received=u.total_reactions_received,
+                granted_perks=list(u.granted_perks or []),
+            )
+        )
+    return out
+
+
+@router.get("/birthdays-today", response_model=list[UserPublic])
+async def birthdays_today(db: DbSession) -> list[UserPublic]:
+    """Users whose birthday is today (month + day match, year ignored)."""
+    today = datetime.now(UTC).date()
+    from sqlalchemy import extract as _extract
+
+    rows = await db.execute(
+        select(User)
+        .where(
+            User.is_active.is_(True),
+            User.birthday.is_not(None),
+            _extract("month", User.birthday) == today.month,
+            _extract("day", User.birthday) == today.day,
+        )
+        .order_by(User.nickname)
+    )
+    users = list(rows.scalars().all())
+    out: list[UserPublic] = []
+    for u in users:
+        roles = await auth_service.get_user_roles(db, u.id)
+        out.append(
+            UserPublic(
+                id=u.id,
+                nickname=u.nickname,
+                avatar_url=u.avatar_url,
+                title=u.title,
+                bio=u.bio,
+                is_active=u.is_active,
+                last_seen_at=u.last_seen_at,
+                created_at=u.created_at,
+                roles=[RoleRead.model_validate(r) for r in roles],
+                total_posts=u.total_posts,
+                total_reactions_received=u.total_reactions_received,
+                granted_perks=list(u.granted_perks or []),
+            )
+        )
+    return out
+
+
+@router.get("/recent-visitors", response_model=list[UserPublic])
+async def recent_visitors(db: DbSession, hours: int = Query(24, ge=1, le=168)) -> list[UserPublic]:
+    """Users seen within the last N hours, regardless of online-now status."""
+    cutoff = datetime.now(UTC) - timedelta(hours=hours)
+    rows = await db.execute(
+        select(User)
+        .where(
+            User.is_active.is_(True),
+            User.last_seen_at.is_not(None),
+            User.last_seen_at >= cutoff,
+        )
+        .order_by(desc(User.last_seen_at))
+        .limit(50)
+    )
+    users = list(rows.scalars().all())
+    out: list[UserPublic] = []
+    for u in users:
+        roles = await auth_service.get_user_roles(db, u.id)
+        out.append(
+            UserPublic(
+                id=u.id,
+                nickname=u.nickname,
+                avatar_url=u.avatar_url,
+                title=u.title,
+                bio=u.bio,
+                is_active=u.is_active,
+                last_seen_at=u.last_seen_at,
+                created_at=u.created_at,
+                roles=[RoleRead.model_validate(r) for r in roles],
+                total_posts=u.total_posts,
+                total_reactions_received=u.total_reactions_received,
+                granted_perks=list(u.granted_perks or []),
+            )
+        )
+    return out
+
+
 @router.get("/{nickname}/threads", response_model=list[ThreadRead])
 async def list_user_threads(
     nickname: str,

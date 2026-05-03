@@ -222,7 +222,7 @@ async def get_thread(
     post_reads: list[PostRead] = []
     for p in posts:
         author = users.get(p.author_id) if p.author_id else None
-        cnt = counts.get(p.id, {"count": 0, "reacted": False})
+        cnt = counts.get(p.id, {"count": 0, "by_kind": {}, "my_kinds": []})
         post_reads.append(
             PostRead(
                 id=p.id,
@@ -234,7 +234,9 @@ async def get_thread(
                 created_at=p.created_at,
                 author=await _user_to_public(db, author) if author else None,
                 reaction_count=cnt["count"],
-                has_reacted=cnt["reacted"],
+                has_reacted=len(cnt["my_kinds"]) > 0,
+                reactions_by_kind=cnt["by_kind"],
+                my_reaction_kinds=cnt["my_kinds"],
             )
         )
 
@@ -290,8 +292,15 @@ async def create_post(
 
 
 @router.post("/posts/{post_id}/react")
-async def toggle_reaction(post_id: int, user: CurrentUser, db: DbSession) -> dict:
-    return await forum_service.toggle_reaction(db, post_id=post_id, user_id=user.id)
+async def toggle_reaction(
+    post_id: int,
+    user: CurrentUser,
+    db: DbSession,
+    kind: str = Query("like"),
+) -> dict:
+    return await forum_service.toggle_reaction(
+        db, post_id=post_id, user_id=user.id, kind=kind
+    )
 
 
 @router.patch("/posts/{post_id}", response_model=PostRead)

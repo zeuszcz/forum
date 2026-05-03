@@ -4,7 +4,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Literal
 
 from fastapi import APIRouter, Query
-from sqlalchemy import text
+from sqlalchemy import select, text
 
 from app.core.deps import DbSession
 
@@ -138,6 +138,116 @@ async def all_sparklines(db: DbSession, hours: int = 24) -> list[dict]:
     for r in rows:
         grouped.setdefault(r["slug"], []).append(int(r["cnt"]))
     return [{"slug": slug, "values": values} for slug, values in grouped.items()]
+
+
+@router.get("/scandal-of-week")
+async def scandal_of_week(db: DbSession) -> dict | None:
+    """Find the most-discussed thread in the last 7 days. Score is a
+    rough engagement metric: replies × 2 + log-bounded views.
+    Returns null if no qualifying thread."""
+    from app.models.thread import Thread
+
+    sql = text(
+        """
+        SELECT t.id, t.title, t.slug, t.section_id, t.reply_count, t.view_count,
+               t.last_post_at, t.created_at, t.author_id,
+               (t.reply_count * 2 + LEAST(t.view_count, 200) * 0.05) AS score
+        FROM threads t
+        WHERE NOT t.is_deleted
+          AND t.created_at >= NOW() - INTERVAL '7 days'
+        ORDER BY score DESC, t.last_post_at DESC NULLS LAST
+        LIMIT 1
+        """
+    )
+    row = (await db.execute(sql)).mappings().first()
+    if row is None or row["reply_count"] == 0:
+        return None
+
+    # Resolve section + author for richer rendering
+    sec_q = await db.execute(
+        text("SELECT slug, title FROM sections WHERE id = :sid"),
+        {"sid": row["section_id"]},
+    )
+    sec = sec_q.mappings().first()
+    author_q = await db.execute(
+        text("SELECT id, nickname FROM users WHERE id = :uid"),
+        {"uid": row["author_id"]},
+    )
+    author = author_q.mappings().first()
+    return {
+        "id": int(row["id"]),
+        "title": row["title"],
+        "slug": row["slug"],
+        "section_slug": sec["slug"] if sec else None,
+        "section_title": sec["title"] if sec else None,
+        "reply_count": int(row["reply_count"]),
+        "view_count": int(row["view_count"]),
+        "score": float(row["score"]),
+        "last_post_at": row["last_post_at"].isoformat() if row["last_post_at"] else None,
+        "created_at": row["created_at"].isoformat(),
+        "author_nickname": author["nickname"] if author else None,
+    }
+
+
+@router.get("/banlist")
+async def banlist(
+    db: DbSession,
+    limit: int = Query(50, ge=1, le=200),
+    include_expired: bool = Query(False),
+) -> list[dict]:
+    """Public list of currently-banned users (and optionally expired bans).
+    Driven by users.is_banned + users.banned_until.
+    """
+    from app.models.user import User
+
+    q = select(User).where(User.is_banned.is_(True))
+    if not include_expired:
+        # Only currently-active bans
+        from datetime import UTC, datetime as _dt
+        from sqlalchemy import or_
+
+        q = q.where(or_(User.banned_until.is_(None), User.banned_until > _dt.now(UTC)))
+
+    rows = await db.execute(q.order_by(User.banned_until.is_(None).desc(), User.banned_until.desc()).limit(limit))
+    users = list(rows.scalars().all())
+    return [
+        {
+            "id": u.id,
+            "nickname": u.nickname,
+            "avatar_url": u.avatar_url,
+            "ban_reason": u.ban_reason,
+            "banned_until": u.banned_until.isoformat() if u.banned_until else None,
+        }
+        for u in users
+    ]
+
+
+@router.get("/archive")
+async def archive(
+    db: DbSession, limit: int = Query(30, ge=1, le=100)
+) -> list[dict]:
+    """Soft-deleted threads, newest first."""
+    from app.models.thread import Thread
+
+    rows = await db.execute(
+        select(Thread)
+        .where(Thread.is_deleted.is_(True))
+        .order_by(Thread.updated_at.desc())
+        .limit(limit)
+    )
+    threads = list(rows.scalars().all())
+    return [
+        {
+            "id": t.id,
+            "title": t.title,
+            "section_id": t.section_id,
+            "reply_count": t.reply_count,
+            "view_count": t.view_count,
+            "created_at": t.created_at.isoformat(),
+            "deleted_at": t.updated_at.isoformat(),
+        }
+        for t in threads
+    ]
 
 
 @router.get("/feed")

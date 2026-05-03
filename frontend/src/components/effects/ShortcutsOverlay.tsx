@@ -7,13 +7,11 @@ import * as React from "react";
 const SHORTCUTS = [
   { keys: ["⌘", "K"], label: "Открыть командную панель" },
   { keys: ["?"], label: "Показать эти подсказки" },
-  { keys: ["G", "H"], label: "На главную" },
-  { keys: ["G", "P"], label: "В профиль" },
-  { keys: ["N"], label: "Создать новую тему" },
-  { keys: ["L"], label: "Лайкнуть пост (в фокусе)" },
-  { keys: ["R"], label: "Ответить (в открытой теме)" },
-  { keys: ["/"], label: "Сфокусировать поиск" },
-  { keys: ["Esc"], label: "Закрыть всё" },
+  { keys: ["J"], label: "Следующий пост (в открытой теме)" },
+  { keys: ["K"], label: "Предыдущий пост" },
+  { keys: ["R"], label: "Ответить — фокус на форму ответа" },
+  { keys: ["T"], label: "Скролл к началу темы" },
+  { keys: ["Esc"], label: "Закрыть ввод / диалог" },
 ];
 
 export function ShortcutsOverlay() {

@@ -3,6 +3,7 @@
 import { MessageCircle } from "lucide-react";
 import { useRef } from "react";
 
+import { ThreadHotkeys } from "@/components/effects/ThreadHotkeys";
 import { OpPostCard } from "@/components/forum/OpPostCard";
 import { PostCard } from "@/components/forum/PostCard";
 import { ReplyForm, type ReplyFormHandle } from "@/components/forum/ReplyForm";
@@ -27,6 +28,7 @@ export function ThreadView({ thread, posts }: ThreadViewProps) {
 
   return (
     <div className="space-y-6">
+      <ThreadHotkeys threadId={thread.id} />
       {opPost && <OpPostCard post={opPost} thread={thread} onQuote={handleQuote} />}
 
       {/* Divider — only show if there are replies */}

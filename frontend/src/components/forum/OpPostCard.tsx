@@ -1,22 +1,19 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { Eye, Heart, MessageCircle, Quote, Sparkles } from "lucide-react";
+import { Eye, MessageCircle, Quote, Sparkles } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
-import { HeartExplosion } from "@/components/effects/HeartExplosion";
 import { MeshBackground } from "@/components/effects/MeshBackground";
 import { PostBody } from "@/components/forum/PostBody";
+import { ReactionsBar } from "@/components/forum/ReactionsBar";
 import { UserHoverCard } from "@/components/forum/UserHoverCard";
 import { LetterAvatar } from "@/components/ui/avatar";
-import { api, ApiError } from "@/lib/api";
-import { sfx } from "@/lib/audio";
-import { useAuth } from "@/lib/auth-context";
 import { exactTime, plural, relativeTime } from "@/lib/format";
 import { glowNickProps } from "@/lib/perks";
 import { computeRank } from "@/lib/rank";
-import type { Post, Thread } from "@/lib/types";
+import type { Post, ReactionKind, Thread } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 interface OpPostCardProps {
@@ -31,11 +28,6 @@ interface OpPostCardProps {
  * plasma border, author shown in a horizontal header strip.
  */
 export function OpPostCard({ post, thread, onQuote }: OpPostCardProps) {
-  const { user } = useAuth();
-  const [count, setCount] = useState(post.reaction_count);
-  const [reacted, setReacted] = useState(post.has_reacted);
-  const [pending, setPending] = useState(false);
-  const [burstKey, setBurstKey] = useState(0);
   const [highlight, setHighlight] = useState(false);
 
   useEffect(() => {
@@ -53,33 +45,6 @@ export function OpPostCard({ post, thread, onQuote }: OpPostCardProps) {
     ? computeRank(author.total_posts, author.total_reactions_received)
     : null;
   const glow = glowNickProps(author);
-
-  async function handleReact() {
-    if (!user || pending) return;
-    setPending(true);
-    const prevReacted = reacted;
-    const prevCount = count;
-    const isLiking = !prevReacted;
-    setReacted(isLiking);
-    setCount(prevCount + (isLiking ? 1 : -1));
-    if (isLiking) {
-      setBurstKey(Date.now());
-      sfx.like();
-    }
-    try {
-      const r = await api<{ count: number; reacted: boolean }>(`/posts/${post.id}/react`, {
-        method: "POST",
-      });
-      setCount(r.count);
-      setReacted(r.reacted);
-    } catch (err) {
-      setReacted(prevReacted);
-      setCount(prevCount);
-      if (err instanceof ApiError) console.error(err);
-    } finally {
-      setPending(false);
-    }
-  }
 
   return (
     <motion.div
@@ -236,6 +201,11 @@ export function OpPostCard({ post, thread, onQuote }: OpPostCardProps) {
           </div>
 
           <div className="flex items-center gap-2">
+            <ReactionsBar
+              postId={post.id}
+              initialCounts={post.reactions_by_kind ?? {}}
+              initialReacted={(post.my_reaction_kinds ?? []) as ReactionKind[]}
+            />
             {onQuote && (
               <button
                 type="button"
@@ -246,29 +216,6 @@ export function OpPostCard({ post, thread, onQuote }: OpPostCardProps) {
                 Цитата
               </button>
             )}
-            <div className="relative">
-              <button
-                type="button"
-                onClick={handleReact}
-                disabled={!user || pending}
-                className={cn(
-                  "inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-xs font-medium transition-all duration-150 ease-premium disabled:cursor-not-allowed disabled:opacity-50",
-                  reacted
-                    ? "border-flame/40 bg-flame/10 text-flame shadow-glow-flame"
-                    : "border-transparent text-ash hover:border-plasma/30 hover:bg-plasma/5 hover:text-bone",
-                )}
-                aria-pressed={reacted}
-              >
-                <Heart
-                  className={cn(
-                    "h-3.5 w-3.5 transition-transform",
-                    reacted && "fill-flame scale-110",
-                  )}
-                />
-                <span className="font-mono">{count}</span>
-              </button>
-              <HeartExplosion triggerKey={burstKey} />
-            </div>
           </div>
         </footer>
       </article>

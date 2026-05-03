@@ -1,5 +1,7 @@
 from app.models.base import Base, TimestampMixin
 from app.models.moderation import ModerationLog
+from app.models.notification import Notification
+from app.models.poll import Poll, PollOption, PollVote
 from app.models.role import Role, UserRole
 from app.models.section import Section
 from app.models.shoutbox import ShoutboxMessage
@@ -9,6 +11,10 @@ from app.models.user import User
 __all__ = [
     "Base",
     "ModerationLog",
+    "Notification",
+    "Poll",
+    "PollOption",
+    "PollVote",
     "Post",
     "Reaction",
     "Role",

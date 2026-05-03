@@ -9,6 +9,11 @@ import {
   StaggerList,
 } from "@/components/effects/ScrollReveal";
 import { ActivityPulse } from "@/components/forum/ActivityPulse";
+import {
+  BirthdaysWidget,
+  RecentVisitorsWidget,
+  ScandalOfWeekWidget,
+} from "@/components/forum/HomeMiniWidgets";
 import { HotThreads } from "@/components/forum/HotThreads";
 import { LiveActivityFeed } from "@/components/forum/LiveActivityFeed";
 import { OnlineList } from "@/components/forum/OnlineList";
@@ -23,6 +28,7 @@ import { relativeTime } from "@/lib/format";
 import type {
   ActivityResponse,
   FeedEvent,
+  ScandalThread,
   Section,
   SectionPulse,
   ShoutboxMessage,
@@ -45,6 +51,9 @@ async function loadHomeData() {
     activity,
     feed,
     pulse,
+    birthdays,
+    recentVisitors,
+    scandal,
   ] = await Promise.all([
     apiServer<Section[]>("/sections"),
     apiServer<Thread[]>("/threads/recent?limit=8"),
@@ -56,6 +65,9 @@ async function loadHomeData() {
     apiServer<ActivityResponse>("/stats/activity?hours=24"),
     apiServer<FeedEvent[]>("/stats/feed?limit=20"),
     apiServer<SectionPulse[]>("/stats/section-pulse?minutes=10"),
+    apiServer<UserPublic[]>("/users/birthdays-today"),
+    apiServer<UserPublic[]>("/users/recent-visitors?hours=24"),
+    apiServer<ScandalThread | null>("/stats/scandal-of-week"),
   ]);
   return {
     sections,
@@ -68,6 +80,9 @@ async function loadHomeData() {
     activity,
     feed,
     pulse,
+    birthdays,
+    recentVisitors,
+    scandal,
   };
 }
 
@@ -83,6 +98,9 @@ export default async function HomePage() {
     activity,
     feed,
     pulse,
+    birthdays,
+    recentVisitors,
+    scandal,
   } = await loadHomeData();
 
   const totalThreads = sections.reduce((s, x) => s + x.thread_count, 0);
@@ -194,6 +212,12 @@ export default async function HomePage() {
               )}
             </section>
 
+            {scandal && (
+              <ScrollReveal>
+                <ScandalOfWeekWidget thread={scandal} />
+              </ScrollReveal>
+            )}
+
             <ScrollReveal>
               <LiveActivityFeed initialEvents={feed} visible={12} />
             </ScrollReveal>
@@ -208,6 +232,11 @@ export default async function HomePage() {
             <ScrollReveal>
               <Shoutbox initialMessages={shoutbox} />
             </ScrollReveal>
+            {birthdays.length > 0 && (
+              <ScrollReveal delay={0.03}>
+                <BirthdaysWidget users={birthdays} />
+              </ScrollReveal>
+            )}
             <ScrollReveal delay={0.05}>
               <ServerStatusWidget />
             </ScrollReveal>
@@ -219,8 +248,11 @@ export default async function HomePage() {
                 <TopPodium users={top} />
               </ScrollReveal>
             )}
-            <ScrollReveal delay={0.2}>
+            <ScrollReveal delay={0.18}>
               <OnlineList users={online} />
+            </ScrollReveal>
+            <ScrollReveal delay={0.22}>
+              <RecentVisitorsWidget users={recentVisitors} hours={24} />
             </ScrollReveal>
           </aside>
         </div>
