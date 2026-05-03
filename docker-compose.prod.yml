@@ -29,7 +29,7 @@ services:
       dockerfile: Dockerfile
     image: endless-war-backend:prod
     volumes: !reset []
-    ports:
+    ports: !reset
       - "127.0.0.1:${FORUM_BACKEND_PORT:-8030}:8000"
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 2 --no-access-log
     restart: always
@@ -45,7 +45,7 @@ services:
       NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL}
       NODE_ENV: production
     volumes: !reset []
-    ports:
+    ports: !reset
       - "127.0.0.1:${FORUM_FRONTEND_PORT:-3030}:3000"
     command: npm run start
     restart: always
