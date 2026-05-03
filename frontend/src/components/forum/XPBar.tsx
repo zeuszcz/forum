@@ -1,11 +1,14 @@
 "use client";
 
+import * as HoverCardPrimitive from "@radix-ui/react-hover-card";
 import { motion, useInView } from "framer-motion";
 import { Check, Lock } from "lucide-react";
 import { useRef } from "react";
 
 import { NumberTicker } from "@/components/effects/NumberTicker";
+import { PerkPreview } from "@/components/forum/PerkPreview";
 import { computeRank, PERKS } from "@/lib/rank";
+import { cn } from "@/lib/utils";
 
 interface XPBarProps {
   posts: number;
@@ -79,40 +82,114 @@ export function XPBar({ posts, reactions }: XPBarProps) {
       </div>
 
       <div className="border-t border-border pt-4">
-        <h3 className="mb-2 text-[10px] font-semibold uppercase tracking-widest text-smoke">
-          Привилегии
-        </h3>
+        <div className="mb-2 flex items-center justify-between">
+          <h3 className="text-[10px] font-semibold uppercase tracking-widest text-smoke">
+            Привилегии
+          </h3>
+          <span className="text-[10px] text-smoke">наведи для превью</span>
+        </div>
         <ul className="space-y-1">
           {PERKS.map((perk) => {
             const unlocked = rank.level >= perk.level;
             return (
-              <li
-                key={perk.level}
-                className={
-                  "flex items-start gap-2 rounded-md px-2 py-1.5 text-xs transition-colors " +
-                  (unlocked ? "bg-plasma/5 text-bone" : "text-smoke")
-                }
-              >
-                <span
-                  className={
-                    "mt-0.5 inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-sm " +
-                    (unlocked
-                      ? "bg-plasma/20 text-plasma"
-                      : "border border-border text-smoke")
-                  }
-                >
-                  {unlocked ? <Check className="h-3 w-3" /> : <Lock className="h-3 w-3" />}
-                </span>
-                <span className="flex-1">
-                  <span className={unlocked ? "font-medium" : ""}>{perk.name}</span>
-                  <span className="ml-2 text-smoke">{perk.description}</span>
-                </span>
-                <span className="font-mono text-[10px] text-smoke">lvl {perk.level}</span>
-              </li>
+              <PerkRow
+                key={perk.slug}
+                slug={perk.slug}
+                level={perk.level}
+                name={perk.name}
+                description={perk.description}
+                unlocked={unlocked}
+              />
             );
           })}
         </ul>
       </div>
     </div>
+  );
+}
+
+interface PerkRowProps {
+  slug: string;
+  level: number;
+  name: string;
+  description: string;
+  unlocked: boolean;
+}
+
+function PerkRow({ slug, level, name, description, unlocked }: PerkRowProps) {
+  return (
+    <HoverCardPrimitive.Root openDelay={150} closeDelay={120}>
+      <HoverCardPrimitive.Trigger asChild>
+        <li
+          className={cn(
+            "group flex cursor-pointer items-start gap-2 rounded-md px-2 py-1.5 text-xs transition-all duration-150 ease-premium",
+            unlocked
+              ? "bg-plasma/5 text-bone hover:bg-plasma/10"
+              : "text-smoke hover:bg-slate hover:text-ash",
+          )}
+          tabIndex={0}
+        >
+          <span
+            className={cn(
+              "mt-0.5 inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-sm",
+              unlocked
+                ? "bg-plasma/20 text-plasma"
+                : "border border-border text-smoke",
+            )}
+          >
+            {unlocked ? (
+              <Check className="h-3 w-3" />
+            ) : (
+              <Lock className="h-3 w-3" />
+            )}
+          </span>
+          <span className="flex-1">
+            <span
+              className={cn(
+                "transition-colors group-hover:text-bone",
+                unlocked && "font-medium",
+              )}
+            >
+              {name}
+            </span>
+            <span className="ml-2 text-smoke">{description}</span>
+          </span>
+          <span
+            className={cn(
+              "shrink-0 font-mono text-[10px]",
+              unlocked ? "text-plasma" : "text-smoke",
+            )}
+          >
+            lvl {level}
+          </span>
+        </li>
+      </HoverCardPrimitive.Trigger>
+      <HoverCardPrimitive.Portal>
+        <HoverCardPrimitive.Content
+          side="right"
+          align="start"
+          sideOffset={12}
+          collisionPadding={16}
+          className="z-50"
+          asChild
+        >
+          <motion.div
+            initial={{ opacity: 0, x: -8, scale: 0.96 }}
+            animate={{ opacity: 1, x: 0, scale: 1 }}
+            exit={{ opacity: 0, x: -8, scale: 0.96 }}
+            transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
+          >
+            <PerkPreview
+              slug={slug}
+              unlocked={unlocked}
+              level={level}
+              name={name}
+              description={description}
+            />
+            <HoverCardPrimitive.Arrow className="fill-[hsl(var(--popover))]" />
+          </motion.div>
+        </HoverCardPrimitive.Content>
+      </HoverCardPrimitive.Portal>
+    </HoverCardPrimitive.Root>
   );
 }

@@ -60,14 +60,56 @@ export function computeRank(posts: number, reactions: number): RankInfo {
 }
 
 /** Per-level perk gates for client-side checks + tooltip messaging. */
-export const PERKS: { level: number; name: string; description: string }[] = [
-  { level: 0, name: "Базовый постинг", description: "Создавать темы и отвечать в темах" },
-  { level: 3, name: "Embed картинок", description: "Прикреплять изображения к постам" },
-  { level: 5, name: "Голосование в опросах", description: "Участвовать в опросах внутри тем" },
-  { level: 10, name: "Создание опросов", description: "Создавать опросы в своих темах" },
-  { level: 15, name: "Анимированная рамка аватара", description: "Раздел уровня в профиле" },
-  { level: 25, name: "Кастомный титул", description: "Свободный текст под ником" },
-  { level: 50, name: "Glow-ник", description: "Светящийся ник в шоутбоксе и постах" },
+export interface Perk {
+  level: number;
+  slug: string;
+  name: string;
+  description: string;
+}
+
+export const PERKS: Perk[] = [
+  {
+    level: 0,
+    slug: "basic_post",
+    name: "Базовый постинг",
+    description: "Создавать темы и отвечать в темах",
+  },
+  {
+    level: 3,
+    slug: "embed_images",
+    name: "Embed картинок",
+    description: "Прикреплять изображения к постам",
+  },
+  {
+    level: 5,
+    slug: "vote_polls",
+    name: "Голосование в опросах",
+    description: "Участвовать в опросах внутри тем",
+  },
+  {
+    level: 10,
+    slug: "create_polls",
+    name: "Создание опросов",
+    description: "Создавать опросы в своих темах",
+  },
+  {
+    level: 15,
+    slug: "animated_frame",
+    name: "Анимированная рамка аватара",
+    description: "Плазма-кольцо вокруг твоего аватара везде",
+  },
+  {
+    level: 25,
+    slug: "custom_title",
+    name: "Кастомный титул",
+    description: "Свободный текст под ником (1 строка, 80 символов)",
+  },
+  {
+    level: 50,
+    slug: "glow_nick",
+    name: "Glow-ник",
+    description: "Светящийся ник в шоутбоксе, постах, профиле",
+  },
 ];
 
 export function isUnlocked(level: number, perkLevel: number): boolean {
