@@ -169,8 +169,9 @@ function RoleRow({
     if (isStaff !== role.is_staff) patch.is_staff = isStaff;
     if (order !== role.display_order) patch.display_order = order;
     for (const p of PERMISSIONS) {
-      if (perms[p.key] !== (role as Record<string, unknown>)[p.key]) {
-        (patch as Record<string, unknown>)[p.key] = perms[p.key];
+      const current = (role as unknown as Record<string, boolean>)[p.key];
+      if (perms[p.key] !== current) {
+        (patch as unknown as Record<string, boolean>)[p.key] = perms[p.key];
       }
     }
     if (Object.keys(patch).length > 0) await onUpdate(patch);
