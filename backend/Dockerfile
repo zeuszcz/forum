@@ -13,14 +13,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 COPY pyproject.toml ./
-RUN pip install --upgrade pip && pip install --user .
+RUN pip install --upgrade pip && pip wheel --wheel-dir=/wheels .
 
 # ---- runtime ----
 FROM python:3.12-slim AS runtime
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
-    PATH=/root/.local/bin:$PATH
+    PIP_NO_CACHE_DIR=1
 
 WORKDIR /app
 
@@ -30,7 +30,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/* \
     && useradd --create-home --uid 1000 app
 
-COPY --from=builder /root/.local /root/.local
+# Install wheels system-wide so the non-root `app` user can read them
+COPY --from=builder /wheels /wheels
+COPY pyproject.toml ./
+RUN pip install --no-index --find-links=/wheels . && rm -rf /wheels
+
 COPY --chown=app:app . .
 
 USER app
