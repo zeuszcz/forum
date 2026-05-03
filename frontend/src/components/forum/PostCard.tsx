@@ -1,7 +1,7 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { Heart, Quote, Sparkles } from "lucide-react";
+import { Heart, Quote } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { HeartExplosion } from "@/components/effects/HeartExplosion";
@@ -88,29 +88,20 @@ export function PostCard({ post, index, onQuote }: PostCardProps) {
       <SpotlightCard
         as="article"
         className={cn(
-          "grid grid-cols-1 overflow-hidden rounded-xl border bg-card transition-all duration-300 ease-premium md:grid-cols-[200px_1fr]",
-          post.is_first ? "border-plasma/30" : "border-border",
+          "grid grid-cols-1 overflow-hidden rounded-xl border bg-card transition-all duration-300 ease-premium md:grid-cols-[180px_1fr]",
+          "border-border",
           highlight && "border-plasma shadow-glow-plasma",
         )}
       >
         {/* === Author sidebar (LEFT on desktop, top on mobile) === */}
-        <aside className="relative flex flex-row items-center gap-3 border-b border-border bg-void/50 p-4 md:flex-col md:items-center md:gap-2 md:border-b-0 md:border-r">
-          {post.is_first && (
-            <span
-              className="absolute -top-px right-3 inline-flex items-center gap-1 rounded-b-md border border-t-0 border-plasma/40 bg-plasma/10 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-widest text-plasma md:left-1/2 md:right-auto md:-translate-x-1/2"
-              aria-label="первый пост"
-            >
-              <Sparkles className="h-2.5 w-2.5" />
-              OP
-            </span>
-          )}
+        <aside className="relative flex flex-row items-center gap-3 border-b border-border bg-void/50 p-3.5 md:flex-col md:items-center md:gap-2 md:border-b-0 md:border-r md:p-4">
           {post.author ? (
             <UserHoverCard user={post.author}>
               <a
                 href={`/u/${post.author.nickname}`}
                 className="flex flex-row items-center gap-3 md:flex-col md:gap-2 md:text-center"
               >
-                <LetterAvatar nickname={post.author.nickname} size={64} />
+                <LetterAvatar nickname={post.author.nickname} size={48} />
                 <div className="flex flex-col gap-0.5 md:items-center">
                   <span
                     className="text-base font-semibold leading-none transition-opacity hover:opacity-80"
@@ -154,12 +145,6 @@ export function PostCard({ post, index, onQuote }: PostCardProps) {
             </>
           )}
 
-          {post.author && (
-            <div className="hidden w-full grid-cols-2 gap-1 border-t border-border/60 pt-3 text-center md:grid">
-              <SidebarStat label="постов" value={post.author.total_posts} />
-              <SidebarStat label="реакций" value={post.author.total_reactions_received} />
-            </div>
-          )}
         </aside>
 
         {/* === Body (RIGHT) === */}
@@ -227,11 +212,3 @@ export function PostCard({ post, index, onQuote }: PostCardProps) {
   );
 }
 
-function SidebarStat({ label, value }: { label: string; value: number }) {
-  return (
-    <div className="flex flex-col">
-      <span className="font-mono text-sm font-semibold text-bone">{value}</span>
-      <span className="text-[9px] uppercase tracking-widest text-smoke">{label}</span>
-    </div>
-  );
-}
