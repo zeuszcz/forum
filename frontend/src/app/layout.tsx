@@ -2,6 +2,9 @@ import type { Metadata, Viewport } from "next";
 
 import { Footer } from "@/components/layout/Footer";
 import { Header } from "@/components/layout/Header";
+import { apiServerOptional } from "@/lib/api";
+import { AuthProvider } from "@/lib/auth-context";
+import type { UserPublic } from "@/lib/types";
 
 import "./globals.css";
 
@@ -26,19 +29,23 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  themeColor: "#0a0a0d",
+  themeColor: "#0a0b14",
   colorScheme: "dark",
   width: "device-width",
   initialScale: 1,
 };
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  const user = await apiServerOptional<UserPublic>("/auth/me");
+
   return (
     <html lang="ru" className="dark">
       <body className="flex min-h-screen flex-col">
-        <Header />
-        <main className="flex-1">{children}</main>
-        <Footer />
+        <AuthProvider initialUser={user}>
+          <Header />
+          <main className="flex-1">{children}</main>
+          <Footer />
+        </AuthProvider>
       </body>
     </html>
   );

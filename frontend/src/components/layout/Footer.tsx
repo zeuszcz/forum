@@ -12,11 +12,11 @@ export function Footer() {
           </span>
         </div>
         <div className="flex items-center gap-6 text-xs">
-          <Link href="/rules" className="text-smoke transition-colors hover:text-ash">
-            Правила
+          <Link href="/f/general" className="text-smoke transition-colors hover:text-ash">
+            Форум
           </Link>
-          <Link href="/privacy" className="text-smoke transition-colors hover:text-ash">
-            Приватность
+          <Link href="/f/suggestions" className="text-smoke transition-colors hover:text-ash">
+            Предложения
           </Link>
           <a
             href="https://github.com/zeuszcz/forum"
