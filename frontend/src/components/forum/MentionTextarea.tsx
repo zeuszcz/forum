@@ -6,6 +6,7 @@ import * as React from "react";
 import { LetterAvatar } from "@/components/ui/avatar";
 import { Textarea, type TextareaProps } from "@/components/ui/textarea";
 import { api } from "@/lib/api";
+import { nickColor } from "@/lib/perks";
 import type { UserPublic } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -139,6 +140,7 @@ export const MentionTextarea = React.forwardRef<
           </div>
           {suggestions.map((u, i) => {
             const role = u.roles?.[0];
+            const color = nickColor(u);
             return (
               <li
                 key={u.id}
@@ -152,7 +154,7 @@ export const MentionTextarea = React.forwardRef<
                 <LetterAvatar nickname={u.nickname} size={20} />
                 <span
                   className="flex-1 truncate font-semibold"
-                  style={{ color: role?.color ?? "#e8e9f3" }}
+                  style={{ color }}
                 >
                   {u.nickname}
                 </span>

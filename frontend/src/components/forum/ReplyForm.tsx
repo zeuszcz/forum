@@ -9,6 +9,7 @@ import { MentionTextarea } from "@/components/forum/MentionTextarea";
 import { LetterAvatar } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { api, ApiError } from "@/lib/api";
+import { nickColor } from "@/lib/perks";
 import { useAuth } from "@/lib/auth-context";
 import type { Post } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -54,7 +55,7 @@ export const ReplyForm = forwardRef<ReplyFormHandle, ReplyFormProps>(
               uid: `${post.id}-${Date.now()}`,
               postId: post.id,
               author: post.author?.nickname ?? null,
-              authorColor: post.author?.roles?.[0]?.color ?? null,
+              authorColor: post.author ? nickColor(post.author) : null,
               body: post.body,
             },
           ];

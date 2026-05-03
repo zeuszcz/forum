@@ -14,7 +14,7 @@ import { useCallback, useEffect, useState } from "react";
 import { LetterAvatar } from "@/components/ui/avatar";
 import { api } from "@/lib/api";
 import { relativeTime } from "@/lib/format";
-import { glowNickProps } from "@/lib/perks";
+import { glowNickProps, nickColor } from "@/lib/perks";
 import type { FeedEvent, FeedEventKind } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -120,8 +120,8 @@ function FeedRow({ event }: { event: FeedEvent }) {
   const meta = KIND_META[event.kind];
   const Icon = meta.icon;
   const actor = event.actor;
-  const role = actor?.roles?.[0];
   const glow = glowNickProps(actor);
+  const actorColor = nickColor(actor);
 
   // Build the URL the row links to
   const href =
@@ -161,7 +161,7 @@ function FeedRow({ event }: { event: FeedEvent }) {
                 <LetterAvatar nickname={actor.nickname} size={14} />
                 <span
                   className="font-semibold"
-                  style={{ color: role?.color ?? "#e8e9f3" }}
+                  style={{ color: actorColor }}
                 >
                   {actor.nickname}
                 </span>

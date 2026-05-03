@@ -39,11 +39,17 @@ function ProfileEditDialog({
   const [bio, setBio] = useState(user.bio ?? "");
   const [title, setTitle] = useState(user.title ?? "");
   const [birthday, setBirthday] = useState(user.birthday ?? "");
+  const [nickColor, setNickColor] = useState(user.nick_color ?? "");
+  const [glowColor, setGlowColor] = useState(user.avatar_glow_color ?? "");
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const rank = computeRank(user.total_posts, user.total_reactions_received);
   const titleUnlocked = isStaff(user) || rank.level >= 25 || hasPerk(user, "custom_title");
+  const nickColorUnlocked =
+    isStaff(user) || rank.level >= 50 || hasPerk(user, "glow_nick");
+  const glowColorUnlocked =
+    isStaff(user) || rank.level >= 15 || hasPerk(user, "animated_frame");
 
   async function save() {
     setPending(true);
@@ -54,6 +60,8 @@ function ProfileEditDialog({
         birthday: birthday.trim() || "",
       };
       if (titleUnlocked) body.title = title.trim() || null;
+      if (nickColorUnlocked) body.nick_color = nickColor.trim() || "";
+      if (glowColorUnlocked) body.avatar_glow_color = glowColor.trim() || "";
       await api<UserPublic>("/users/me", {
         method: "PATCH",
         body: JSON.stringify(body),
@@ -163,6 +171,49 @@ function ProfileEditDialog({
             </p>
           </div>
 
+          <ColorPickerRow
+            label="Цвет ника"
+            value={nickColor}
+            onChange={setNickColor}
+            unlocked={nickColorUnlocked}
+            unlockHint={`Откроется на lvl 50 (glow_nick) — сейчас ${rank.level}`}
+            preview={(c) => (
+              <span
+                className="font-bold"
+                style={{ color: c || (user.roles?.[0]?.color ?? "#e8e9f3") }}
+              >
+                {user.nickname}
+              </span>
+            )}
+          />
+
+          <ColorPickerRow
+            label="Цвет свечения аватара"
+            value={glowColor}
+            onChange={setGlowColor}
+            unlocked={glowColorUnlocked}
+            unlockHint={`Откроется на lvl 15 (animated_frame) — сейчас ${rank.level}`}
+            preview={(c) => (
+              <div className="flex items-center gap-2">
+                <div className="relative">
+                  <div className="h-7 w-7 rounded-full bg-slate text-center text-[10px] font-bold leading-7 text-bone">
+                    {user.nickname[0]?.toUpperCase()}
+                  </div>
+                  {c && (
+                    <div
+                      aria-hidden="true"
+                      className="absolute -inset-0.5 -z-10 rounded-full opacity-70 blur-md"
+                      style={{ backgroundColor: c }}
+                    />
+                  )}
+                </div>
+                <span className="text-[11px] text-smoke">
+                  {c ? "свечение активно" : "без свечения"}
+                </span>
+              </div>
+            )}
+          />
+
           {error && (
             <p className="rounded-md border border-ember/40 bg-ember/10 px-3 py-2 text-xs text-ember">
               {error}
@@ -179,6 +230,84 @@ function ProfileEditDialog({
           </div>
         </div>
       </motion.div>
+    </div>
+  );
+}
+
+function ColorPickerRow({
+  label,
+  value,
+  onChange,
+  unlocked,
+  unlockHint,
+  preview,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  unlocked: boolean;
+  unlockHint: string;
+  preview: (color: string) => React.ReactNode;
+}) {
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between">
+        <label className="text-[10px] font-semibold uppercase tracking-widest text-smoke">
+          {label}
+        </label>
+        {unlocked ? (
+          <span className="inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-widest text-plasma">
+            <Sparkles className="h-3 w-3" />
+            доступно
+          </span>
+        ) : (
+          <span className="inline-flex items-center gap-1 text-[10px] uppercase tracking-widest text-smoke">
+            <Lock className="h-3 w-3" />
+            закрыто
+          </span>
+        )}
+      </div>
+      <div className="flex items-center gap-2">
+        <input
+          type="color"
+          value={value || "#7c5cff"}
+          onChange={(e) => onChange(e.target.value)}
+          disabled={!unlocked}
+          className={cn(
+            "h-10 w-14 cursor-pointer rounded-md border border-border bg-void [color-scheme:dark]",
+            !unlocked && "cursor-not-allowed opacity-40",
+          )}
+        />
+        <Input
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder="#7c5cff"
+          maxLength={9}
+          disabled={!unlocked}
+          className={cn(
+            "h-10 font-mono",
+            !unlocked && "cursor-not-allowed opacity-50",
+          )}
+        />
+        {value && unlocked && (
+          <button
+            type="button"
+            onClick={() => onChange("")}
+            className="rounded-md border border-border bg-void px-2 py-1 text-[10px] uppercase tracking-widest text-smoke transition-colors hover:bg-slate hover:text-bone"
+          >
+            сбросить
+          </button>
+        )}
+      </div>
+      <div className="flex items-center justify-between gap-2 rounded-md border border-border bg-void/40 px-3 py-2">
+        <span className="text-[10px] uppercase tracking-widest text-smoke">
+          превью
+        </span>
+        {preview(value)}
+      </div>
+      {!unlocked && (
+        <p className="text-[10px] text-smoke">{unlockHint}</p>
+      )}
     </div>
   );
 }

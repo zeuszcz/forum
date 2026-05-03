@@ -5,7 +5,7 @@ import Link from "next/link";
 
 import { AvatarRing } from "@/components/forum/AvatarRing";
 import { useAuth } from "@/lib/auth-context";
-import { glowNickProps } from "@/lib/perks";
+import { avatarGlowColor, glowNickProps, nickColor } from "@/lib/perks";
 import { computeRank } from "@/lib/rank";
 
 /**
@@ -21,8 +21,9 @@ export function PersonalCard() {
   if (!user) return null;
 
   const rank = computeRank(user.total_posts, user.total_reactions_received);
-  const role = user.roles?.[0];
   const glow = glowNickProps(user);
+  const userColor = nickColor(user);
+  const glowColor = avatarGlowColor(user);
 
   return (
     <section className="relative overflow-hidden rounded-lg border border-plasma/30 bg-card">
@@ -41,6 +42,7 @@ export function PersonalCard() {
           level={rank.level}
           percent={rank.percent}
           color={rank.color}
+          glowColor={glowColor}
         />
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1 text-[10px] uppercase tracking-widest text-smoke">
@@ -51,7 +53,7 @@ export function PersonalCard() {
             href={`/u/${user.nickname}`}
             className={`text-base font-bold transition-opacity hover:opacity-80 ${glow.className}`}
             style={{
-              color: role?.color ?? "#e8e9f3",
+              color: userColor,
               ...glow.style,
             }}
           >

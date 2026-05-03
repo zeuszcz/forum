@@ -5,6 +5,7 @@ import { UserActions } from "@/components/admin/UserActions";
 import { LetterAvatar } from "@/components/ui/avatar";
 import { apiServer } from "@/lib/api";
 import { plural, relativeTime } from "@/lib/format";
+import { nickColor } from "@/lib/perks";
 import type { AdminUsersResponse } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -96,7 +97,7 @@ export default async function UsersAdminPage({
                         <LetterAvatar nickname={u.nickname} size={28} />
                         <span
                           className="font-semibold"
-                          style={{ color: topRole?.color ?? "#e8e9f3" }}
+                          style={{ color: nickColor(u) }}
                         >
                           {u.nickname}
                         </span>

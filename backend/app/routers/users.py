@@ -44,6 +44,8 @@ async def list_online(db: DbSession) -> list[UserPublic]:
                 total_reactions_received=u.total_reactions_received,
                 granted_perks=list(u.granted_perks or []),
                 birthday=u.birthday.isoformat() if u.birthday else None,
+                nick_color=u.nick_color,
+                avatar_glow_color=u.avatar_glow_color,
             )
         )
     return out
@@ -126,6 +128,40 @@ async def update_me(payload: UserProfileUpdate, user: CurrentUser, db: DbSession
                 )
             user.birthday = bd
 
+    def _validate_hex(raw: str, label: str) -> str:
+        import re
+
+        if not re.fullmatch(r"#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?", raw):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"{label}: ожидается hex #RRGGBB или #RRGGBBAA",
+            )
+        return raw.lower()
+
+    if payload.nick_color is not None:
+        s = payload.nick_color.strip()
+        if s == "":
+            user.nick_color = None
+        else:
+            if not is_staff and "glow_nick" not in granted and level < 50:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail=f"Цвет ника доступен с lvl 50 (glow_nick perk) или от админа (сейчас {level})",
+                )
+            user.nick_color = _validate_hex(s, "nick_color")
+
+    if payload.avatar_glow_color is not None:
+        s = payload.avatar_glow_color.strip()
+        if s == "":
+            user.avatar_glow_color = None
+        else:
+            if not is_staff and "animated_frame" not in granted and level < 15:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail=f"Цвет свечения аватара доступен с lvl 15 (animated_frame perk) или от админа (сейчас {level})",
+                )
+            user.avatar_glow_color = _validate_hex(s, "avatar_glow_color")
+
     await db.commit()
     await db.refresh(user)
 
@@ -143,6 +179,8 @@ async def update_me(payload: UserProfileUpdate, user: CurrentUser, db: DbSession
         total_reactions_received=user.total_reactions_received,
         granted_perks=list(user.granted_perks or []),
         birthday=user.birthday.isoformat() if user.birthday else None,
+        nick_color=user.nick_color,
+        avatar_glow_color=user.avatar_glow_color,
     )
 
 
@@ -210,6 +248,8 @@ async def search_users(
                 total_reactions_received=u.total_reactions_received,
                 granted_perks=list(u.granted_perks or []),
                 birthday=u.birthday.isoformat() if u.birthday else None,
+                nick_color=u.nick_color,
+                avatar_glow_color=u.avatar_glow_color,
             )
         )
     return out
@@ -250,6 +290,8 @@ async def birthdays_today(db: DbSession) -> list[UserPublic]:
                 total_reactions_received=u.total_reactions_received,
                 granted_perks=list(u.granted_perks or []),
                 birthday=u.birthday.isoformat() if u.birthday else None,
+                nick_color=u.nick_color,
+                avatar_glow_color=u.avatar_glow_color,
             )
         )
     return out
@@ -288,6 +330,8 @@ async def recent_visitors(db: DbSession, hours: int = Query(24, ge=1, le=168)) -
                 total_reactions_received=u.total_reactions_received,
                 granted_perks=list(u.granted_perks or []),
                 birthday=u.birthday.isoformat() if u.birthday else None,
+                nick_color=u.nick_color,
+                avatar_glow_color=u.avatar_glow_color,
             )
         )
     return out
@@ -332,6 +376,8 @@ async def list_user_threads(
         total_reactions_received=u.total_reactions_received,
         granted_perks=list(u.granted_perks or []),
         birthday=u.birthday.isoformat() if u.birthday else None,
+        nick_color=u.nick_color,
+        avatar_glow_color=u.avatar_glow_color,
     )
     return [
         ThreadRead(
@@ -411,6 +457,8 @@ async def list_user_posts(
         total_reactions_received=u.total_reactions_received,
         granted_perks=list(u.granted_perks or []),
         birthday=u.birthday.isoformat() if u.birthday else None,
+        nick_color=u.nick_color,
+        avatar_glow_color=u.avatar_glow_color,
     )
     return [
         PostRead(
@@ -516,4 +564,6 @@ async def get_user(nickname: str, db: DbSession) -> UserPublic:
         total_reactions_received=u.total_reactions_received,
         granted_perks=list(u.granted_perks or []),
         birthday=u.birthday.isoformat() if u.birthday else None,
+        nick_color=u.nick_color,
+        avatar_glow_color=u.avatar_glow_color,
     )

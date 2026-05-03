@@ -25,6 +25,7 @@ import { PostBody } from "@/components/forum/PostBody";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { api, ApiError } from "@/lib/api";
+import { nickColor } from "@/lib/perks";
 import { useAuth } from "@/lib/auth-context";
 import type { Section, Thread } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -154,7 +155,7 @@ export function NewThreadForm({ section }: { section: Section }) {
               автор —{" "}
               <span
                 className="font-semibold"
-                style={{ color: user.roles?.[0]?.color ?? "#e8e9f3" }}
+                style={{ color: nickColor(user) }}
               >
                 {user.nickname}
               </span>

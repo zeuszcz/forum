@@ -19,6 +19,8 @@ export interface UserPublic {
   total_reactions_received: number;
   granted_perks: string[];
   birthday?: string | null;
+  nick_color?: string | null;
+  avatar_glow_color?: string | null;
 }
 
 export interface Section {

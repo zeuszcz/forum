@@ -12,12 +12,14 @@ interface AvatarRingProps {
   color: string;
   /** Show the level bubble in the corner. Default true. */
   showLevel?: boolean;
+  /** Custom outer glow halo color (e.g. user's avatar_glow_color). Null = no halo. */
+  glowColor?: string | null;
 }
 
 /**
  * Letter avatar wrapped with a circular SVG progress arc that visualises
  * the user's XP toward the next level. Tier-coloured stroke + bottom-right
- * level bubble.
+ * level bubble. Optional outer glow halo when `glowColor` is provided.
  */
 export function AvatarRing({
   nickname,
@@ -26,6 +28,7 @@ export function AvatarRing({
   percent,
   color,
   showLevel = true,
+  glowColor = null,
 }: AvatarRingProps) {
   const stroke = Math.max(2, Math.round(size * 0.04));
   const ringSize = size + stroke * 4;
@@ -40,6 +43,13 @@ export function AvatarRing({
       className="relative shrink-0"
       style={{ width: ringSize, height: ringSize }}
     >
+      {glowColor && (
+        <div
+          aria-hidden="true"
+          className="absolute -inset-1 -z-10 rounded-full opacity-70 blur-lg"
+          style={{ backgroundColor: glowColor }}
+        />
+      )}
       <svg
         viewBox={`0 0 ${ringSize} ${ringSize}`}
         width={ringSize}

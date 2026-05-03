@@ -10,6 +10,7 @@ import { ThemePicker } from "@/components/effects/ThemePicker";
 import { LetterAvatar } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/lib/auth-context";
+import { glowNickProps, nickColor } from "@/lib/perks";
 import { cn } from "@/lib/utils";
 
 const NAV = [
@@ -108,12 +109,20 @@ export function Header() {
               >
                 <LetterAvatar nickname={user.nickname} size={26} />
                 <span className="hidden flex-col leading-tight sm:flex">
-                  <span
-                    className="text-xs font-semibold tracking-tight"
-                    style={{ color: topRole?.color ?? "#e8e9f3" }}
-                  >
-                    {user.nickname}
-                  </span>
+                  {(() => {
+                    const glow = glowNickProps(user);
+                    return (
+                      <span
+                        className={cn(
+                          "text-xs font-semibold tracking-tight",
+                          glow.className,
+                        )}
+                        style={{ color: nickColor(user), ...glow.style }}
+                      >
+                        {user.nickname}
+                      </span>
+                    );
+                  })()}
                   {topRole && (
                     <span className="text-[10px] uppercase tracking-wider text-smoke">
                       {topRole.title}

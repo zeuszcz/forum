@@ -10,7 +10,7 @@ import { RoleBadges } from "@/components/forum/UserBadge";
 import { XPBar } from "@/components/forum/XPBar";
 import { apiServer, ApiError, apiServerOptional } from "@/lib/api";
 import { exactTime, relativeTime } from "@/lib/format";
-import { glowNickProps, hasPerk } from "@/lib/perks";
+import { avatarGlowColor, glowNickProps, hasPerk, nickColor } from "@/lib/perks";
 import { computeKarma, computeRank } from "@/lib/rank";
 import type {
   Post,
@@ -53,7 +53,6 @@ export default async function UserProfilePage({
   const me = await apiServerOptional<UserPublic>("/auth/me");
   const isMe = Boolean(me && me.id === user.id);
 
-  const topRole = user.roles?.[0];
   const rank = computeRank(user.total_posts, user.total_reactions_received);
   const karma = computeKarma(user.total_posts, user.total_reactions_received);
   const isOnline =
@@ -61,6 +60,8 @@ export default async function UserProfilePage({
     Date.now() - new Date(user.last_seen_at).getTime() < 10 * 60 * 1000;
 
   const glow = glowNickProps(user);
+  const heroNickColor = nickColor(user);
+  const heroGlowColor = avatarGlowColor(user);
   const hasAnimatedFrame = hasPerk(user, "animated_frame");
 
   return (
@@ -80,6 +81,7 @@ export default async function UserProfilePage({
               level={rank.level}
               percent={rank.percent}
               color={rank.color}
+              glowColor={heroGlowColor}
             />
           </div>
 
@@ -88,7 +90,7 @@ export default async function UserProfilePage({
               <h1
                 className={`text-2xl font-bold tracking-tight md:text-3xl ${glow.className}`}
                 style={{
-                  color: topRole?.color ?? "#e8e9f3",
+                  color: heroNickColor,
                   ...glow.style,
                 }}
               >

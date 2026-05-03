@@ -10,7 +10,7 @@ import { api, ApiError } from "@/lib/api";
 import { sfx } from "@/lib/audio";
 import { useAuth } from "@/lib/auth-context";
 import { relativeTime } from "@/lib/format";
-import { glowNickProps } from "@/lib/perks";
+import { glowNickProps, nickColor } from "@/lib/perks";
 import type { ShoutboxMessage } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -84,7 +84,8 @@ export function Shoutbox({ initialMessages }: { initialMessages: ShoutboxMessage
           </p>
         )}
         {messages.map((m) => {
-          const role = m.author?.roles?.[0];
+          const authorColor = nickColor(m.author);
+          const glow = glowNickProps(m.author);
           return (
             <div key={m.id} className="flex items-start gap-2">
               {m.author && <LetterAvatar nickname={m.author.nickname} size={24} />}
@@ -95,11 +96,11 @@ export function Shoutbox({ initialMessages }: { initialMessages: ShoutboxMessage
                       href={`/u/${m.author.nickname}`}
                       className={cn(
                         "text-xs font-semibold transition-opacity hover:opacity-80",
-                        glowNickProps(m.author).className,
+                        glow.className,
                       )}
                       style={{
-                        color: role?.color ?? "#e8e9f3",
-                        ...glowNickProps(m.author).style,
+                        color: authorColor,
+                        ...glow.style,
                       }}
                     >
                       {m.author.nickname}

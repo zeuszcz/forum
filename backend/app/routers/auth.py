@@ -39,6 +39,8 @@ async def _serialize_user(db, user) -> UserPublic:
         total_reactions_received=user.total_reactions_received,
         granted_perks=list(user.granted_perks or []),
         birthday=user.birthday.isoformat() if user.birthday else None,
+        nick_color=user.nick_color,
+        avatar_glow_color=user.avatar_glow_color,
     )
 
 

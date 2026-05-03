@@ -7,7 +7,7 @@ import Link from "next/link";
 import { LetterAvatar } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { exactTime, relativeTime } from "@/lib/format";
-import { glowNickProps } from "@/lib/perks";
+import { glowNickProps, nickColor } from "@/lib/perks";
 import { computeKarma, computeRank } from "@/lib/rank";
 import type { UserPublic } from "@/lib/types";
 
@@ -17,11 +17,11 @@ interface UserHoverCardProps {
 }
 
 export function UserHoverCard({ user, children }: UserHoverCardProps) {
-  const topRole = user.roles?.[0];
   const isOnline =
     user.last_seen_at &&
     Date.now() - new Date(user.last_seen_at).getTime() < 10 * 60 * 1000;
   const glow = glowNickProps(user);
+  const color = nickColor(user);
 
   return (
     <HoverCardPrimitive.Root openDelay={250} closeDelay={120}>
@@ -49,7 +49,7 @@ export function UserHoverCard({ user, children }: UserHoverCardProps) {
                     href={`/u/${user.nickname}`}
                     className={`block truncate text-base font-semibold transition-opacity hover:opacity-80 ${glow.className}`}
                     style={{
-                      color: topRole?.color ?? "#e8e9f3",
+                      color,
                       ...glow.style,
                     }}
                   >

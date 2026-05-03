@@ -14,7 +14,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { api, ApiError } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import { exactTime, relativeTime } from "@/lib/format";
-import { glowNickProps, isStaff } from "@/lib/perks";
+import { glowNickProps, isStaff, nickColor } from "@/lib/perks";
 import { computeRank } from "@/lib/rank";
 import type { Post, ReactionKind } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -51,11 +51,12 @@ export function PostCard({ post, index, onQuote }: PostCardProps) {
     }
   }, [post.id]);
 
-  const topRole = post.author?.roles?.[0];
+  const roles = post.author?.roles ?? [];
   const rank = post.author
     ? computeRank(post.author.total_posts, post.author.total_reactions_received)
     : null;
   const glow = glowNickProps(post.author);
+  const authorColor = nickColor(post.author);
 
   const canEdit =
     !!user && post.author?.id === user.id;
@@ -122,21 +123,26 @@ export function PostCard({ post, index, onQuote }: PostCardProps) {
                       "text-base font-semibold leading-none transition-opacity hover:opacity-80",
                       glow.className,
                     )}
-                    style={{ color: topRole?.color ?? "#e8e9f3", ...glow.style }}
+                    style={{ color: authorColor, ...glow.style }}
                   >
                     {post.author.nickname}
                   </span>
-                  {topRole && (
-                    <span
-                      className="inline-flex items-center self-start rounded-sm border px-1.5 py-px text-[9px] font-semibold uppercase tracking-widest md:self-center"
-                      style={{
-                        borderColor: `${topRole.color}40`,
-                        color: topRole.color,
-                        backgroundColor: `${topRole.color}1a`,
-                      }}
-                    >
-                      {topRole.title}
-                    </span>
+                  {roles.length > 0 && (
+                    <div className="flex flex-wrap gap-1 md:justify-center">
+                      {roles.map((r) => (
+                        <span
+                          key={r.slug}
+                          className="inline-flex items-center self-start rounded-sm border px-1.5 py-px text-[9px] font-semibold uppercase tracking-widest"
+                          style={{
+                            borderColor: `${r.color}40`,
+                            color: r.color,
+                            backgroundColor: `${r.color}1a`,
+                          }}
+                        >
+                          {r.title}
+                        </span>
+                      ))}
+                    </div>
                   )}
                   {rank && (
                     <span className="inline-flex items-center gap-1.5 text-[10px] text-smoke">

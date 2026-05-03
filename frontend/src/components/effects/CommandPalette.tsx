@@ -18,6 +18,7 @@ import * as React from "react";
 
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
+import { nickColor } from "@/lib/perks";
 import type { Section, Thread, UserPublic } from "@/lib/types";
 
 interface SearchState {
@@ -187,7 +188,7 @@ export function CommandPalette() {
                   hint={u.roles?.[0]?.title ?? ""}
                   keywords={[u.nickname, u.title ?? ""]}
                 >
-                  <span style={{ color: u.roles?.[0]?.color ?? "#e8e9f3" }}>{u.nickname}</span>
+                  <span style={{ color: nickColor(u) }}>{u.nickname}</span>
                 </Item>
               ))}
             </Group>

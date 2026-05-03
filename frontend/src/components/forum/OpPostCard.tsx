@@ -11,7 +11,7 @@ import { ReactionsBar } from "@/components/forum/ReactionsBar";
 import { UserHoverCard } from "@/components/forum/UserHoverCard";
 import { LetterAvatar } from "@/components/ui/avatar";
 import { exactTime, plural, relativeTime } from "@/lib/format";
-import { glowNickProps } from "@/lib/perks";
+import { avatarGlowColor, glowNickProps, nickColor } from "@/lib/perks";
 import { computeRank } from "@/lib/rank";
 import type { Post, ReactionKind, Thread } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -40,11 +40,13 @@ export function OpPostCard({ post, thread, onQuote }: OpPostCardProps) {
   }, [post.id]);
 
   const author = post.author;
-  const topRole = author?.roles?.[0];
+  const roles = author?.roles ?? [];
   const rank = author
     ? computeRank(author.total_posts, author.total_reactions_received)
     : null;
   const glow = glowNickProps(author);
+  const authorColor = nickColor(author);
+  const glowColor = avatarGlowColor(author);
 
   return (
     <motion.div
@@ -85,14 +87,18 @@ export function OpPostCard({ post, thread, onQuote }: OpPostCardProps) {
               >
                 <div className="relative">
                   <LetterAvatar nickname={author.nickname} size={56} />
-                  {/* Plasma ring around avatar */}
+                  {/* Personalised glow halo (or plasma fallback) */}
                   <div
                     aria-hidden="true"
                     className="absolute -inset-1 -z-10 rounded-full opacity-50 blur-md"
-                    style={{
-                      background:
-                        "conic-gradient(from 0deg, rgb(var(--plasma-rgb)), rgb(var(--flame-rgb)), rgb(var(--plasma-rgb)))",
-                    }}
+                    style={
+                      glowColor
+                        ? { backgroundColor: glowColor }
+                        : {
+                            background:
+                              "conic-gradient(from 0deg, rgb(var(--plasma-rgb)), rgb(var(--flame-rgb)), rgb(var(--plasma-rgb)))",
+                          }
+                    }
                   />
                 </div>
                 <div className="min-w-0">
@@ -103,24 +109,25 @@ export function OpPostCard({ post, thread, onQuote }: OpPostCardProps) {
                         glow.className,
                       )}
                       style={{
-                        color: topRole?.color ?? "#e8e9f3",
+                        color: authorColor,
                         ...glow.style,
                       }}
                     >
                       {author.nickname}
                     </span>
-                    {topRole && (
+                    {roles.map((r) => (
                       <span
+                        key={r.slug}
                         className="inline-flex items-center rounded-md border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-widest"
                         style={{
-                          borderColor: `${topRole.color}55`,
-                          color: topRole.color,
-                          backgroundColor: `${topRole.color}1f`,
+                          borderColor: `${r.color}55`,
+                          color: r.color,
+                          backgroundColor: `${r.color}1f`,
                         }}
                       >
-                        {topRole.title}
+                        {r.title}
                       </span>
-                    )}
+                    ))}
                     {rank && (
                       <span className="inline-flex items-center gap-1 text-xs">
                         <span
