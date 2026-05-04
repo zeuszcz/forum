@@ -38,6 +38,7 @@ async def _user_to_public(db: AsyncSession, user: User | None) -> UserPublic | N
         roles=[RoleRead.model_validate(r) for r in roles],
         total_posts=user.total_posts,
         total_reactions_received=user.total_reactions_received,
+        thanks_received=user.thanks_received,
         granted_perks=list(user.granted_perks or []),
         birthday=user.birthday.isoformat() if user.birthday else None,
         nick_color=user.nick_color,
@@ -58,8 +59,25 @@ async def _users_by_ids(db: AsyncSession, ids: set[int]) -> dict[int, User]:
 
 @router.get("/sections", response_model=list[SectionRead])
 async def list_sections(db: DbSession) -> list[SectionRead]:
+    """Return forum sections grouped into a two-level tree.
+
+    Top-level sections (parent_id IS NULL) are returned with their direct
+    children attached via the `children` field. Leaf-only sections are also
+    returned at the top level for backwards compatibility — clients that
+    don't render hierarchies just iterate flat and ignore `children`.
+    """
     sections = await forum_service.list_sections(db)
-    return [SectionRead.model_validate(s) for s in sections]
+    by_parent: dict[int | None, list[SectionRead]] = {}
+    for s in sections:
+        node = SectionRead.model_validate(s)
+        node.children = []
+        by_parent.setdefault(s.parent_id, []).append(node)
+    # Attach children
+    out: list[SectionRead] = []
+    for node in by_parent.get(None, []):
+        node.children = by_parent.get(node.id, [])
+        out.append(node)
+    return out
 
 
 @router.get("/sections/{slug}", response_model=SectionRead)
@@ -216,15 +234,35 @@ async def get_thread(
         db, thread_id, current_user_id=current_user.id if current_user else None
     )
     user_ids = {p.author_id for p in posts if p.author_id}
+    user_ids.update(p.edited_by_id for p in posts if p.edited_by_id)
     if thread.author_id:
         user_ids.add(thread.author_id)
     if thread.last_post_author_id:
         user_ids.add(thread.last_post_author_id)
     users = await _users_by_ids(db, user_ids)
 
+    # Per-post "thanked_by" — users who reacted with kind='thanks'.
+    thanked_by_post: dict[int, list[str]] = {}
+    if posts:
+        from sqlalchemy import select as _select
+
+        from app.models.thread import Reaction
+        from app.models.user import User
+
+        post_ids = [p.id for p in posts]
+        rows = await db.execute(
+            _select(Reaction.post_id, User.nickname)
+            .join(User, User.id == Reaction.user_id)
+            .where(Reaction.post_id.in_(post_ids), Reaction.kind == "thanks")
+            .order_by(Reaction.created_at.desc())
+        )
+        for pid, nick in rows.all():
+            thanked_by_post.setdefault(pid, []).append(nick)
+
     post_reads: list[PostRead] = []
     for p in posts:
         author = users.get(p.author_id) if p.author_id else None
+        editor = users.get(p.edited_by_id) if p.edited_by_id else None
         cnt = counts.get(p.id, {"count": 0, "by_kind": {}, "my_kinds": []})
         post_reads.append(
             PostRead(
@@ -234,12 +272,14 @@ async def get_thread(
                 is_first=p.is_first,
                 parent_post_id=p.parent_post_id,
                 edited_at=p.edited_at,
+                edited_by=await _user_to_public(db, editor) if editor else None,
                 created_at=p.created_at,
                 author=await _user_to_public(db, author) if author else None,
                 reaction_count=cnt["count"],
                 has_reacted=len(cnt["my_kinds"]) > 0,
                 reactions_by_kind=cnt["by_kind"],
                 my_reaction_kinds=cnt["my_kinds"],
+                thanked_by=thanked_by_post.get(p.id, []),
             )
         )
 
@@ -322,7 +362,9 @@ async def edit_post_endpoint(
         roles = await auth_service.get_user_roles(db, user.id)
         if not any(r.is_staff for r in roles):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Нет прав на правку")
-    edited = await forum_service.edit_post(db, post=post, new_body=payload.body)
+    edited = await forum_service.edit_post(
+        db, post=post, new_body=payload.body, editor_id=user.id
+    )
     return PostRead(
         id=edited.id,
         thread_id=edited.thread_id,

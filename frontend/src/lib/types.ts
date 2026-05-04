@@ -3,6 +3,7 @@ export interface Role {
   title: string;
   color: string;
   is_staff: boolean;
+  affiliation_tag?: string | null;
 }
 
 export interface UserPublic {
@@ -21,10 +22,12 @@ export interface UserPublic {
   birthday?: string | null;
   nick_color?: string | null;
   avatar_glow_color?: string | null;
+  thanks_received?: number;
 }
 
 export interface Section {
   id: number;
+  parent_id?: number | null;
   slug: string;
   title: string;
   description: string;
@@ -35,6 +38,8 @@ export interface Section {
   thread_count: number;
   post_count: number;
   last_thread_id: number | null;
+  /** Direct children when this is a top-level (group) section. */
+  children?: Section[];
 }
 
 export interface Thread {
@@ -60,12 +65,14 @@ export interface Post {
   is_first: boolean;
   parent_post_id: number | null;
   edited_at: string | null;
+  edited_by?: UserPublic | null;
   created_at: string;
   author: UserPublic | null;
   reaction_count: number;
   has_reacted: boolean;
   reactions_by_kind?: Record<string, number>;
   my_reaction_kinds?: string[];
+  thanked_by?: string[];
 }
 
 export interface ActivityDay {
@@ -105,7 +112,8 @@ export type ReactionKind =
   | "laugh"
   | "wow"
   | "sad"
-  | "thinking";
+  | "thinking"
+  | "thanks";
 
 export const REACTION_EMOJI: Record<ReactionKind, string> = {
   like: "❤️",
@@ -114,6 +122,7 @@ export const REACTION_EMOJI: Record<ReactionKind, string> = {
   wow: "🤯",
   sad: "😢",
   thinking: "🤔",
+  thanks: "🙏",
 };
 
 export interface ScandalThread {

@@ -15,6 +15,9 @@ class Role(Base, TimestampMixin):
     color: Mapped[str] = mapped_column(String(16), nullable=False, default="#7c5cff")
     display_order: Mapped[int] = mapped_column(Integer, nullable=False, default=100)
     is_staff: Mapped[bool] = mapped_column(default=False, nullable=False)
+    # Affiliation suffix shown after role title, e.g. role "Admin" + tag "JB"
+    # renders as "Admin ► JB" in badges. Null = plain role name.
+    affiliation_tag: Mapped[str | None] = mapped_column(String(32), nullable=True)
 
     # Granular permissions (added in migration 20260503_1700)
     can_ban: Mapped[bool] = mapped_column(default=False, nullable=False)

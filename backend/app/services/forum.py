@@ -144,11 +144,13 @@ async def list_hot_threads(db: AsyncSession, *, limit: int = 5, hours: int = 24)
 
 
 async def edit_post(
-    db: AsyncSession, *, post: Post, new_body: str
+    db: AsyncSession, *, post: Post, new_body: str, editor_id: int | None = None
 ) -> Post:
     from datetime import UTC, datetime
     post.body = new_body
     post.edited_at = datetime.now(UTC)
+    if editor_id is not None:
+        post.edited_by_id = editor_id
     await db.commit()
     await db.refresh(post)
     return post
@@ -366,6 +368,7 @@ REACTION_KINDS: tuple[str, ...] = (
     "wow",
     "sad",
     "thinking",
+    "thanks",
 )
 
 
@@ -395,7 +398,8 @@ async def toggle_reaction(
         delta = 1
         reacted = True
 
-    # Maintain cached author counter (received reactions)
+    # Maintain cached author counters (received reactions, plus thanks_received
+    # as a dedicated reputation metric).
     if post.author_id is not None and post.author_id != user_id:
         author_q = await db.execute(select(User).where(User.id == post.author_id))
         author_user = author_q.scalar_one_or_none()
@@ -403,6 +407,10 @@ async def toggle_reaction(
             author_user.total_reactions_received = max(
                 0, author_user.total_reactions_received + delta
             )
+            if kind == "thanks":
+                author_user.thanks_received = max(
+                    0, author_user.thanks_received + delta
+                )
 
     await db.commit()
 

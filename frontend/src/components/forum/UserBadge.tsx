@@ -91,7 +91,7 @@ export function RoleBadges({ roles }: { roles: UserPublic["roles"] }) {
     <div className="flex flex-wrap gap-1.5">
       {roles.map((r) => (
         <Badge key={r.slug} color={r.color}>
-          {r.title}
+          {r.affiliation_tag ? `${r.title} ► ${r.affiliation_tag}` : r.title}
         </Badge>
       ))}
     </div>

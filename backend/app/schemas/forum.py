@@ -11,6 +11,7 @@ class SectionRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
+    parent_id: int | None = None
     slug: str
     title: str
     description: str
@@ -21,6 +22,9 @@ class SectionRead(BaseModel):
     thread_count: int
     post_count: int
     last_thread_id: int | None = None
+    # Populated by /sections endpoint when fetching the index — top-level
+    # sections carry their direct children here for grouped rendering.
+    children: list["SectionRead"] = []
 
 
 class ThreadRead(BaseModel):
@@ -50,12 +54,16 @@ class PostRead(BaseModel):
     is_first: bool
     parent_post_id: int | None = None
     edited_at: datetime | None = None
+    edited_by: UserPublic | None = None
     created_at: datetime
     author: UserPublic | None = None
     reaction_count: int = 0
     has_reacted: bool = False
     reactions_by_kind: dict[str, int] = {}
     my_reaction_kinds: list[str] = []
+    # Nicknames of users who reacted with kind='thanks' — small list shown
+    # under each post as a "Сказали спасибо" line.
+    thanked_by: list[str] = []
 
 
 class ThreadCreate(BaseModel):

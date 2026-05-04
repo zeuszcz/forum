@@ -51,6 +51,9 @@ class Post(Base, TimestampMixin):
     is_first: Mapped[bool] = mapped_column(default=False, nullable=False)
     is_deleted: Mapped[bool] = mapped_column(default=False, nullable=False, index=True)
     edited_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    edited_by_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
 
 
 class Reaction(Base, TimestampMixin):

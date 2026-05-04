@@ -180,7 +180,20 @@ export function PostCard({ post, index, onQuote }: PostCardProps) {
               {relativeTime(post.created_at)}
               {editedAt && (
                 <span className="ml-2 italic">
-                  · отредактировано {relativeTime(editedAt)}
+                  · ред. {relativeTime(editedAt)}
+                  {post.edited_by &&
+                    post.edited_by.id !== post.author?.id && (
+                      <>
+                        {" "}
+                        <span className="not-italic text-flame">
+                          ({post.edited_by.nickname}
+                          {post.edited_by.roles?.some((r) => r.is_staff)
+                            ? " · staff"
+                            : ""}
+                          )
+                        </span>
+                      </>
+                    )}
                 </span>
               )}
             </span>
@@ -245,6 +258,21 @@ export function PostCard({ post, index, onQuote }: PostCardProps) {
               <PostBody body={body} />
             )}
           </div>
+
+          {post.thanked_by && post.thanked_by.length > 0 && (
+            <div className="border-t border-border bg-plasma/5 px-5 py-2 text-[11px] text-smoke">
+              <span className="font-semibold text-plasma">
+                Сказали спасибо ({post.thanked_by.length}):
+              </span>{" "}
+              {post.thanked_by.slice(0, 8).join(", ")}
+              {post.thanked_by.length > 8 && (
+                <span className="text-smoke">
+                  {" "}
+                  и ещё {post.thanked_by.length - 8}
+                </span>
+              )}
+            </div>
+          )}
 
           <footer className="mt-auto flex items-center justify-between gap-2 border-t border-border bg-void/30 px-3 py-2">
             <ReactionsBar

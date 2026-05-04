@@ -36,6 +36,7 @@ async def _user_to_public(db: AsyncSession, user: User | None) -> UserPublic | N
         roles=[RoleRead.model_validate(r) for r in roles],
         total_posts=user.total_posts,
         total_reactions_received=user.total_reactions_received,
+        thanks_received=user.thanks_received,
         granted_perks=list(user.granted_perks or []),
         birthday=user.birthday.isoformat() if user.birthday else None,
         nick_color=user.nick_color,

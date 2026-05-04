@@ -198,17 +198,46 @@ export default async function HomePage() {
                   <code className="font-mono text-ash">scripts/seed.py</code>.
                 </div>
               ) : (
-                <StaggerList stagger={0.05} className="grid gap-4 sm:grid-cols-2">
+                <div className="space-y-6">
                   {sections.map((s) => (
-                    <StaggerItem key={s.id}>
-                      <SectionCard
-                        section={s}
-                        sparkline={sparkBySlug[s.slug]}
-                        pulseCount={pulseBySection[s.id] ?? 0}
-                      />
-                    </StaggerItem>
+                    <div key={s.id} className="space-y-3">
+                      {s.children && s.children.length > 0 ? (
+                        <>
+                          <div className="flex items-center gap-3">
+                            <h3 className="text-[11px] font-bold uppercase tracking-widest text-plasma">
+                              {s.title}
+                            </h3>
+                            <div className="h-px flex-1 bg-gradient-to-r from-plasma/30 to-transparent" />
+                          </div>
+                          <StaggerList stagger={0.04} className="grid gap-4 sm:grid-cols-2">
+                            {s.children.map((c) => (
+                              <StaggerItem key={c.id}>
+                                <SectionCard
+                                  section={c}
+                                  sparkline={sparkBySlug[c.slug]}
+                                  pulseCount={pulseBySection[c.id] ?? 0}
+                                />
+                              </StaggerItem>
+                            ))}
+                          </StaggerList>
+                        </>
+                      ) : (
+                        <StaggerList
+                          stagger={0.04}
+                          className="grid gap-4 sm:grid-cols-2"
+                        >
+                          <StaggerItem key={s.id}>
+                            <SectionCard
+                              section={s}
+                              sparkline={sparkBySlug[s.slug]}
+                              pulseCount={pulseBySection[s.id] ?? 0}
+                            />
+                          </StaggerItem>
+                        </StaggerList>
+                      )}
+                    </div>
                   ))}
-                </StaggerList>
+                </div>
               )}
             </section>
 

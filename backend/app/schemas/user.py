@@ -12,6 +12,9 @@ class RoleRead(BaseModel):
     title: str
     color: str
     is_staff: bool
+    # Optional affiliation suffix (e.g. "JB", "PUB") rendered as
+    # "{title} ► {affiliation_tag}" in role badges across the site.
+    affiliation_tag: str | None = None
 
 
 class UserPublic(BaseModel):
@@ -30,6 +33,9 @@ class UserPublic(BaseModel):
     # Cached stats — used by frontend to compute level + rank locally
     total_posts: int = 0
     total_reactions_received: int = 0
+    # Subset of total_reactions_received counting only kind='thanks' — shown
+    # as a separate reputation metric in profile/post sidebars.
+    thanks_received: int = 0
 
     # Manually-granted perks that bypass level requirements
     granted_perks: list[str] = []

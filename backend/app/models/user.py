@@ -31,6 +31,9 @@ class User(Base, TimestampMixin):
     # ---- Cached stats (services maintain; migration backfills) ----
     total_posts: Mapped[int] = mapped_column(default=0, nullable=False)
     total_reactions_received: Mapped[int] = mapped_column(default=0, nullable=False)
+    # Subset of total_reactions_received counting only kind='thanks' — used
+    # as a separate "reputation" metric in profile + post sidebars.
+    thanks_received: Mapped[int] = mapped_column(default=0, nullable=False)
 
     # ---- Moderation state ----
     is_banned: Mapped[bool] = mapped_column(default=False, nullable=False, index=True)

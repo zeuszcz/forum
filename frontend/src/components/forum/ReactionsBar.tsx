@@ -20,7 +20,7 @@ interface ReactionsBarProps {
   initialReacted: ReactionKind[];
 }
 
-const KINDS: ReactionKind[] = ["like", "fire", "laugh", "wow", "sad", "thinking"];
+const KINDS: ReactionKind[] = ["like", "fire", "laugh", "wow", "sad", "thinking", "thanks"];
 
 export function ReactionsBar({
   postId,
@@ -35,6 +35,7 @@ export function ReactionsBar({
     wow: initialCounts.wow ?? 0,
     sad: initialCounts.sad ?? 0,
     thinking: initialCounts.thinking ?? 0,
+    thanks: initialCounts.thanks ?? 0,
   });
   const [reacted, setReacted] = useState<Set<ReactionKind>>(
     new Set(initialReacted),
