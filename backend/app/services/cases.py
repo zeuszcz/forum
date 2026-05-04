@@ -113,6 +113,11 @@ async def open_case(db: AsyncSession, user: User, case_id: int) -> dict:
                 )
             )
         user.case_keys = (user.case_keys or 0) + (item.reward_value or 0)
+    elif item.reward_kind == "title" and item.reward_payload:
+        # Pre-made vanity title — overwrite user's current title with the
+        # payload string. Bypasses the lvl-25 custom_title gate since it's
+        # an admin-curated cosmetic, not free-text input.
+        user.title = item.reward_payload[:80]
 
     # Log
     db.add(

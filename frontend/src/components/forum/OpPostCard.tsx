@@ -42,7 +42,7 @@ export function OpPostCard({ post, thread, onQuote }: OpPostCardProps) {
   const author = post.author;
   const roles = author?.roles ?? [];
   const rank = author
-    ? computeRank(author.total_posts, author.total_reactions_received)
+    ? computeRank(author.total_posts, author.total_reactions_received, author.bonus_xp ?? 0)
     : null;
   const glow = glowNickProps(author);
   const authorColor = nickColor(author);

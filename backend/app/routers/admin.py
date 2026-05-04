@@ -57,8 +57,10 @@ RolesActor = Annotated[User, Depends(require_permission("can_manage_roles"))]
 PerksActor = Annotated[User, Depends(require_permission("can_grant_perks"))]
 AuditActor = Annotated[User, Depends(require_permission("can_view_audit"))]
 
-# Whitelist of perks that can be granted manually (mirrors lib/rank.ts)
-ALLOWED_PERKS = {"custom_title", "glow_nick", "animated_frame", "embed_images", "create_polls", "vote_polls"}
+# Whitelist of perks that can be granted manually (mirrors lib/rank.ts).
+# embed_images / create_polls / vote_polls used to be here but are now
+# baseline for everyone — granting them is a no-op so we drop them.
+ALLOWED_PERKS = {"custom_title", "glow_nick", "animated_frame"}
 
 router = APIRouter(prefix="/admin", tags=["admin"], dependencies=[Depends(require_staff)])
 

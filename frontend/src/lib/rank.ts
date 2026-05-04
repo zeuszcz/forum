@@ -1,7 +1,10 @@
 /**
  * Level / rank computation. Mirrors backend formula.
- *   xp    = posts * 10 + reactions_received * 4
+ *   xp    = posts * 10 + reactions_received * 4 + bonus_xp
  *   level = floor(sqrt(xp / 8))
+ *
+ * `bonus_xp` accumulates from completed daily quests + case openings —
+ * adding it here means rewards visibly bump the user's level.
  *
  * Rank titles are visual-only and shared by frontend; backend stays neutral.
  */
@@ -27,8 +30,12 @@ const RANKS: { min: number; title: string; color: string }[] = [
   { min: 70, title: "Легенда", color: "#ec4899" },
 ];
 
-export function computeRank(posts: number, reactions: number): RankInfo {
-  const xp = Math.max(0, posts * 10 + reactions * 4);
+export function computeRank(
+  posts: number,
+  reactions: number,
+  bonusXp: number = 0,
+): RankInfo {
+  const xp = Math.max(0, posts * 10 + reactions * 4 + bonusXp);
   const level = Math.floor(Math.sqrt(xp / 8));
   const xpForLevel = level * level * 8;
   const xpForNext = (level + 1) * (level + 1) * 8;
@@ -72,25 +79,13 @@ export const PERKS: Perk[] = [
     level: 0,
     slug: "basic_post",
     name: "Базовый постинг",
-    description: "Создавать темы и отвечать в темах",
+    description: "Создавать темы, отвечать, прикреплять картинки",
   },
   {
-    level: 3,
-    slug: "embed_images",
-    name: "Embed картинок",
-    description: "Прикреплять изображения к постам",
-  },
-  {
-    level: 5,
-    slug: "vote_polls",
-    name: "Голосование в опросах",
-    description: "Участвовать в опросах внутри тем",
-  },
-  {
-    level: 10,
-    slug: "create_polls",
-    name: "Создание опросов",
-    description: "Создавать опросы в своих темах",
+    level: 0,
+    slug: "polls",
+    name: "Опросы",
+    description: "Создавать опросы и голосовать в них (доступно всем)",
   },
   {
     level: 15,

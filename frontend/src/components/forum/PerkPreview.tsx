@@ -4,7 +4,6 @@ import { motion } from "framer-motion";
 import {
   Check,
   Heart,
-  Image as ImageIcon,
   MessageSquare,
   Plus,
   Sparkles,
@@ -97,11 +96,7 @@ function PreviewBody({ slug }: { slug: string }) {
   switch (slug) {
     case "basic_post":
       return <BasicPostPreview />;
-    case "embed_images":
-      return <EmbedImagesPreview />;
-    case "vote_polls":
-      return <VotePollsPreview />;
-    case "create_polls":
+    case "polls":
       return <CreatePollsPreview />;
     case "animated_frame":
       return <AnimatedFramePreview />;
@@ -129,71 +124,6 @@ function BasicPostPreview() {
       <p className="mt-2 text-xs leading-relaxed text-ash">
         Привет всем — это мой первый пост 👋
       </p>
-    </div>
-  );
-}
-
-function EmbedImagesPreview() {
-  return (
-    <div className="rounded-md border border-border bg-card p-3">
-      <p className="text-xs leading-relaxed text-ash">
-        Смотрите что я нашёл на de_jail:
-      </p>
-      <div
-        className="mt-2 flex h-20 items-center justify-center rounded border border-border"
-        style={{
-          background:
-            "linear-gradient(135deg, rgb(var(--plasma-rgb) / 0.2), rgb(var(--flame-rgb) / 0.15))",
-        }}
-      >
-        <ImageIcon className="h-7 w-7 text-plasma" />
-      </div>
-      <p className="mt-1 text-[10px] text-smoke">screenshot.png · 480 KB</p>
-    </div>
-  );
-}
-
-function VotePollsPreview() {
-  const options = [
-    { label: "de_jail", percent: 62, leading: true },
-    { label: "de_alcatraz", percent: 24 },
-    { label: "ze_*", percent: 14 },
-  ];
-  return (
-    <div className="rounded-md border border-border bg-card p-3">
-      <div className="text-[10px] font-semibold uppercase tracking-widest text-smoke">
-        Карта на сегодня?
-      </div>
-      <div className="mt-2 space-y-1.5">
-        {options.map((o, i) => (
-          <div
-            key={o.label}
-            className={cn(
-              "relative overflow-hidden rounded border px-2 py-1.5 text-xs",
-              i === 0
-                ? "border-plasma/40 bg-plasma/10 text-bone"
-                : "border-border text-ash",
-            )}
-          >
-            <motion.div
-              initial={{ width: 0 }}
-              animate={{ width: `${o.percent}%` }}
-              transition={{ duration: 0.8, delay: 0.1 + i * 0.08 }}
-              className="absolute inset-y-0 left-0 -z-10"
-              style={{
-                background: o.leading
-                  ? "rgb(var(--plasma-rgb) / 0.18)"
-                  : "rgb(var(--plasma-rgb) / 0.08)",
-              }}
-            />
-            <div className="flex items-center justify-between">
-              <span>{o.label}</span>
-              <span className="font-mono">{o.percent}%</span>
-            </div>
-          </div>
-        ))}
-      </div>
-      <div className="mt-2 text-[10px] text-smoke">131 голос · твой засчитан</div>
     </div>
   );
 }
@@ -323,16 +253,14 @@ function GlowNickPreview() {
  *  Picks an icon based on the perk slug. */
 export function PerkIcon({ slug, className }: { slug: string; className?: string }) {
   const Icon =
-    slug === "embed_images"
-      ? ImageIcon
-      : slug === "vote_polls" || slug === "create_polls"
-        ? MessageSquare
-        : slug === "animated_frame"
+    slug === "polls"
+      ? MessageSquare
+      : slug === "animated_frame"
+        ? Sparkles
+        : slug === "glow_nick"
           ? Sparkles
-          : slug === "glow_nick"
-            ? Sparkles
-            : slug === "custom_title"
-              ? Heart
-              : Check;
+          : slug === "custom_title"
+            ? Heart
+            : Check;
   return <Icon className={className} aria-hidden="true" />;
 }

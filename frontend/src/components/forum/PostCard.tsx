@@ -53,7 +53,11 @@ export function PostCard({ post, index, onQuote }: PostCardProps) {
 
   const roles = post.author?.roles ?? [];
   const rank = post.author
-    ? computeRank(post.author.total_posts, post.author.total_reactions_received)
+    ? computeRank(
+        post.author.total_posts,
+        post.author.total_reactions_received,
+        post.author.bonus_xp ?? 0,
+      )
     : null;
   const glow = glowNickProps(post.author);
   const authorColor = nickColor(post.author);

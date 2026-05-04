@@ -334,8 +334,5 @@ export const GRANTABLE_PERKS = [
   { slug: "custom_title", label: "Кастомный титул", description: "Свободный текст под ником (lvl 25)" },
   { slug: "glow_nick", label: "Свечение ника", description: "Цветной ник со свечением в шоутбоксе и постах (lvl 50)" },
   { slug: "animated_frame", label: "Свечение аватара", description: "Цветное свечение вокруг аватара везде (lvl 15)" },
-  { slug: "embed_images", label: "Картинки в постах", description: "Прикреплять изображения (lvl 3)" },
-  { slug: "create_polls", label: "Создание опросов", description: "Опросы в своих темах (lvl 10)" },
-  { slug: "vote_polls", label: "Голосование в опросах", description: "Голосовать в опросах (lvl 5)" },
 ] as const;
 

@@ -20,7 +20,11 @@ export function PersonalCard() {
   const { user } = useAuth();
   if (!user) return null;
 
-  const rank = computeRank(user.total_posts, user.total_reactions_received);
+  const rank = computeRank(
+    user.total_posts,
+    user.total_reactions_received,
+    user.bonus_xp ?? 0,
+  );
   const glow = glowNickProps(user);
   const userColor = nickColor(user);
   const glowColor = avatarGlowColor(user);

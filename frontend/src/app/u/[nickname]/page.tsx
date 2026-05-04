@@ -53,7 +53,11 @@ export default async function UserProfilePage({
   const me = await apiServerOptional<UserPublic>("/auth/me");
   const isMe = Boolean(me && me.id === user.id);
 
-  const rank = computeRank(user.total_posts, user.total_reactions_received);
+  const rank = computeRank(
+    user.total_posts,
+    user.total_reactions_received,
+    user.bonus_xp ?? 0,
+  );
   const karma = computeKarma(user.total_posts, user.total_reactions_received);
   const isOnline =
     user.last_seen_at &&
@@ -229,7 +233,11 @@ export default async function UserProfilePage({
 
       {/* === Level + perks card === */}
       <section className="mt-4">
-        <XPBar posts={user.total_posts} reactions={user.total_reactions_received} />
+        <XPBar
+          posts={user.total_posts}
+          reactions={user.total_reactions_received}
+          bonusXp={user.bonus_xp ?? 0}
+        />
       </section>
 
       {/* === Activity heatmap === */}

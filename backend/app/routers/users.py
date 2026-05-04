@@ -62,11 +62,15 @@ async def heartbeat(user: CurrentUser, db: DbSession) -> dict[str, str]:
     return {"status": "ok"}
 
 
-def _compute_level(posts: int, reactions: int) -> int:
-    """Mirrors lib/rank.ts on the frontend."""
+def _compute_level(posts: int, reactions: int, bonus_xp: int = 0) -> int:
+    """Mirrors lib/rank.ts on the frontend.
+
+    bonus_xp accumulates from completed daily quests + case openings —
+    it must be added so reward XP visibly bumps the level gate.
+    """
     import math
 
-    xp = max(0, posts * 10 + reactions * 4)
+    xp = max(0, posts * 10 + reactions * 4 + bonus_xp)
     return int(math.sqrt(xp / 8))
 
 
@@ -87,7 +91,7 @@ async def update_me(payload: UserProfileUpdate, user: CurrentUser, db: DbSession
     """
     roles = await auth_service.get_user_roles(db, user.id)
     is_staff = any(r.is_staff for r in roles)
-    level = _compute_level(user.total_posts, user.total_reactions_received)
+    level = _compute_level(user.total_posts, user.total_reactions_received, user.bonus_xp or 0)
 
     if payload.bio is not None:
         user.bio = payload.bio.strip() or None

@@ -19,23 +19,6 @@ router = APIRouter(tags=["polls"])
 
 # ---- helpers --------------------------------------------------------------
 
-def _level(posts: int, reacts: int) -> int:
-    """Mirror lib/rank.ts."""
-    import math
-
-    xp = max(0, posts * 10 + reacts * 4)
-    return int(math.sqrt(xp / 8))
-
-
-async def _user_has_perk(db, user, perk: str, min_level: int) -> bool:
-    """User can use the perk if level >= min_level OR perk is granted OR staff."""
-    if perk in (user.granted_perks or []):
-        return True
-    if _level(user.total_posts, user.total_reactions_received) >= min_level:
-        return True
-    roles = await auth_service.get_user_roles(db, user.id)
-    return any(r.is_staff for r in roles)
-
 
 async def _serialize_poll(
     db, poll: Poll, current_user_id: int | None
@@ -110,12 +93,8 @@ async def create_thread_poll(
     if thread.author_id != user.id and not is_staff:
         raise HTTPException(status_code=403, detail="Опрос может создать только автор темы")
 
-    # Perk gate: create_polls (lvl 10)
-    if not await _user_has_perk(db, user, "create_polls", 10):
-        raise HTTPException(
-            status_code=403,
-            detail="Создание опросов открывается на lvl 10 (или выдаст админ)",
-        )
+    # Polls (create + vote) used to be perk-gated (lvl 5/10) — now baseline
+    # for everyone. Authorship + staff-bypass above is the only gate.
 
     # One poll per thread
     existing_q = await db.execute(select(Poll).where(Poll.thread_id == thread_id))
@@ -150,12 +129,8 @@ async def vote(
     if poll.closed:
         raise HTTPException(status_code=403, detail="Опрос закрыт")
 
-    # Perk gate: vote_polls (lvl 5)
-    if not await _user_has_perk(db, user, "vote_polls", 5):
-        raise HTTPException(
-            status_code=403,
-            detail="Голосование открывается на lvl 5 (или выдаст админ)",
-        )
+    # Voting in polls is open to all logged-in users (was perk-gated at
+    # lvl 5; removed since it gatekept basic forum participation).
 
     if not poll.multi and len(payload.option_ids) != 1:
         raise HTTPException(status_code=400, detail="В этом опросе можно выбрать только один вариант")

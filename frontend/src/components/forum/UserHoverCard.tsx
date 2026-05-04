@@ -79,6 +79,7 @@ export function UserHoverCard({ user, children }: UserHoverCardProps) {
               const rank = computeRank(
                 user.total_posts,
                 user.total_reactions_received,
+                user.bonus_xp ?? 0,
               );
               return (
                 <div className="border-t border-white/5 bg-void/60 px-4 py-3">

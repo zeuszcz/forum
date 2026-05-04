@@ -70,7 +70,7 @@ function ProfileEditDialog({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const rank = computeRank(me.total_posts, me.total_reactions_received);
+  const rank = computeRank(me.total_posts, me.total_reactions_received, me.bonus_xp ?? 0);
   // Gates are perk-honest: only granted_perks or unlocked level qualify.
   // Staff role does NOT auto-bypass — admins must grant themselves the
   // perk explicitly (or hit the level) to use these visual customisations.

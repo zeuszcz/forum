@@ -13,12 +13,13 @@ import { cn } from "@/lib/utils";
 interface XPBarProps {
   posts: number;
   reactions: number;
+  bonusXp?: number;
 }
 
-export function XPBar({ posts, reactions }: XPBarProps) {
+export function XPBar({ posts, reactions, bonusXp = 0 }: XPBarProps) {
   const ref = useRef<HTMLDivElement | null>(null);
   const inView = useInView(ref, { once: true, margin: "-20px" });
-  const rank = computeRank(posts, reactions);
+  const rank = computeRank(posts, reactions, bonusXp);
 
   return (
     <div ref={ref} className="rounded-lg border border-border bg-card p-5 space-y-4">

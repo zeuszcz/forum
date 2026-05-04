@@ -20,20 +20,27 @@ export type ColorableUser = {
 };
 
 const PERK_LEVEL: Record<string, number> = {
-  embed_images: 3,
-  vote_polls: 5,
-  create_polls: 10,
   animated_frame: 15,
   custom_title: 25,
   glow_nick: 50,
 };
 
+// Perks that are now baseline for everyone — historically gated, kept here
+// so legacy granted_perks lists don't break existing checks.
+const ALWAYS_GRANTED = new Set(["embed_images", "vote_polls", "create_polls"]);
+
 export function hasPerk(user: ColorableUser | null | undefined, perk: string): boolean {
+  if (ALWAYS_GRANTED.has(perk)) return true;
   if (!user) return false;
   if (user.granted_perks?.includes(perk)) return true;
   const required = PERK_LEVEL[perk];
   if (required === undefined) return false;
-  const { level } = computeRank(user.total_posts ?? 0, user.total_reactions_received ?? 0);
+  const { level } = computeRank(
+    user.total_posts ?? 0,
+    user.total_reactions_received ?? 0,
+    // Bonus XP from quests/cases counts toward the level gate
+    (user as { bonus_xp?: number | null }).bonus_xp ?? 0,
+  );
   return level >= required;
 }
 
