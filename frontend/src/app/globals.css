@@ -35,6 +35,16 @@
     --flame-rgb: 236 72 153;
     --cyan-rgb: 34 211 238;
     --ember-rgb: 244 63 94;
+
+    /* Brand-named neutrals (RGB triplets so opacity utilities — bg-void/40,
+       text-smoke/70 — flip cleanly when a theme overrides these vars) */
+    --bone-rgb: 232 233 243;
+    --ash-rgb: 160 163 184;
+    --smoke-rgb: 107 110 133;
+    --ink-rgb: 10 11 20;
+    --void-rgb: 19 20 29;
+    --slate-rgb: 26 28 39;
+    --border-strong-rgb: 56 59 84;
   }
 
   /* === THEME: Neon Arcade === */
@@ -92,6 +102,7 @@
 
   /* === THEME: Daylight (light mode) === */
   [data-theme="daylight"] {
+    /* shadcn semantic tokens */
     --background: 240 25% 97%;
     --foreground: 240 30% 12%;
     --card: 0 0% 100%;
@@ -111,31 +122,44 @@
     --border: 240 18% 88%;
     --input: 0 0% 100%;
     --ring: 252 88% 56%;
-    /* Brand RGBs slightly darker for legibility on light surfaces */
+    /* Brand accent RGBs slightly darker for AA contrast on light surfaces */
     --plasma-rgb: 108 75 230;
     --plasma-bright-rgb: 124 92 255;
     --flame-rgb: 222 50 130;
     --cyan-rgb: 14 165 200;
     --ember-rgb: 230 40 70;
+    /* Brand-named neutrals — invert so semantic role is preserved
+       (bone=primary text=darkest, smoke=tertiary=lightest readable;
+        void/slate=elevated surfaces, slightly grayer than the white card so
+        bg-void/50 stays visible against bg-card on daylight). */
+    --bone-rgb: 26 20 36;
+    --ash-rgb: 74 77 99;
+    --smoke-rgb: 138 141 160;
+    --ink-rgb: 255 255 255;
+    --void-rgb: 230 232 242;
+    --slate-rgb: 216 220 234;
+    --border-strong-rgb: 201 204 217;
   }
 
-  /* Brand-named raw hex Tailwind classes are not CSS-var driven, so we need
-     selector overrides for the light theme. Mirror their semantic role
-     (bone=primary text, ash=secondary, smoke=tertiary, void/slate=surfaces). */
-  [data-theme="daylight"] .text-bone { color: #1a1424; }
-  [data-theme="daylight"] .text-ash { color: #4a4d63; }
-  [data-theme="daylight"] .text-smoke { color: #8a8da0; }
-  [data-theme="daylight"] .bg-void { background-color: #f4f5fa; }
-  [data-theme="daylight"] .bg-void\/30 { background-color: rgba(244, 245, 250, 0.6); }
-  [data-theme="daylight"] .bg-void\/40 { background-color: rgba(244, 245, 250, 0.7); }
-  [data-theme="daylight"] .bg-void\/50 { background-color: rgba(244, 245, 250, 0.8); }
-  [data-theme="daylight"] .bg-void\/60 { background-color: rgba(244, 245, 250, 0.85); }
-  [data-theme="daylight"] .bg-slate { background-color: #eef0f6; }
-  [data-theme="daylight"] .bg-ink { background-color: #ffffff; }
-  [data-theme="daylight"] .border-border-strong { border-color: #c9ccd9; }
-  /* Hover affordances that previously brightened a dark surface — invert to subtle dim */
-  [data-theme="daylight"] .hover\:bg-slate:hover { background-color: #e6e8f0; }
-  [data-theme="daylight"] .hover\:text-bone:hover { color: #0f0a18; }
+  /* Hardcoded literal-white scrim utilities (border-white/N, bg-white/N) are
+     used as subtle dividers inside dark glass panels. On daylight they'd
+     dissolve into the white background — flip to ink-tinted equivalents. */
+  [data-theme="daylight"] .border-white\/5 { border-color: rgba(20, 20, 30, 0.06); }
+  [data-theme="daylight"] .border-white\/8 { border-color: rgba(20, 20, 30, 0.09); }
+  [data-theme="daylight"] .border-white\/10 { border-color: rgba(20, 20, 30, 0.10); }
+  [data-theme="daylight"] .bg-white\/5 { background-color: rgba(20, 20, 30, 0.05); }
+  [data-theme="daylight"] .bg-white\/8 { background-color: rgba(20, 20, 30, 0.07); }
+  [data-theme="daylight"] .bg-white\/10 { background-color: rgba(20, 20, 30, 0.08); }
+
+  /* Translucent card overlays (bg-card/40..85) are used as subtle elevation
+     against a darker page bg in dark themes. On daylight the card token is
+     pure white, so 60% white over a near-white page = invisible. Flip these
+     to faint ink overlays so the elevation is still legible. */
+  [data-theme="daylight"] .bg-card\/40 { background-color: rgba(20, 20, 40, 0.03); }
+  [data-theme="daylight"] .bg-card\/55 { background-color: rgba(20, 20, 40, 0.04); }
+  [data-theme="daylight"] .bg-card\/60 { background-color: rgba(20, 20, 40, 0.04); }
+  [data-theme="daylight"] .bg-card\/70 { background-color: rgba(20, 20, 40, 0.05); }
+  [data-theme="daylight"] .bg-card\/85 { background-color: rgba(20, 20, 40, 0.06); }
 
   * {
     @apply border-border;
@@ -328,6 +352,15 @@
   .spotlight:hover::before {
     opacity: 1;
   }
+  /* Light theme: spotlight uses ink-tinted radial so it reads on white cards */
+  [data-theme="daylight"] .spotlight::before {
+    background: radial-gradient(
+      400px circle at var(--mx, 50%) var(--my, 50%),
+      rgb(var(--plasma-rgb) / 0.10),
+      rgba(20, 20, 40, 0.03) 30%,
+      transparent 50%
+    );
+  }
 
   /* ==========================================================
    * Mesh gradient hero background — slow drifting blobs
@@ -506,6 +539,14 @@
       transparent
     );
     animation: shimmer 1.4s ease-in-out infinite;
+  }
+  [data-theme="daylight"] .skeleton::after {
+    background: linear-gradient(
+      90deg,
+      transparent,
+      rgb(var(--plasma-rgb) / 0.14),
+      transparent
+    );
   }
   @keyframes shimmer {
     0% { transform: translateX(-100%); }

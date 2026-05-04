@@ -69,6 +69,9 @@ const LIGHT_THEMES: ReadonlySet<ThemeId> = new Set<ThemeId>(["daylight"]);
 interface ThemeContextValue {
   theme: ThemeId;
   setTheme: (t: ThemeId) => void;
+  /** Quick toggle: dark theme ⇄ daylight, remembering previous dark choice. */
+  toggleDayNight: () => void;
+  isLight: boolean;
   /** auto day-night gentle saturation shift */
   autoDimEnabled: boolean;
   toggleAutoDim: () => void;
@@ -77,10 +80,12 @@ interface ThemeContextValue {
 const ThemeContext = createContext<ThemeContextValue | null>(null);
 
 const STORAGE_KEY = "ew_theme";
+const LAST_DARK_KEY = "ew_last_dark_theme";
 const AUTO_DIM_KEY = "ew_auto_dim";
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const [theme, setThemeState] = useState<ThemeId>("plasma");
+  const [lastDarkTheme, setLastDarkTheme] = useState<ThemeId>("plasma");
   const [autoDimEnabled, setAutoDimEnabled] = useState(true);
 
   // Hydrate from localStorage / temporarily-applied attribute
@@ -90,6 +95,9 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     setThemeState(saved);
     document.documentElement.setAttribute("data-theme", saved);
     document.documentElement.style.colorScheme = LIGHT_THEMES.has(saved) ? "light" : "dark";
+    const savedLastDark =
+      (localStorage.getItem(LAST_DARK_KEY) as ThemeId | null) ?? "plasma";
+    setLastDarkTheme(LIGHT_THEMES.has(savedLastDark) ? "plasma" : savedLastDark);
     const dim = localStorage.getItem(AUTO_DIM_KEY);
     setAutoDimEnabled(dim !== "0");
   }, []);
@@ -99,7 +107,21 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     localStorage.setItem(STORAGE_KEY, t);
     document.documentElement.setAttribute("data-theme", t);
     document.documentElement.style.colorScheme = LIGHT_THEMES.has(t) ? "light" : "dark";
+    if (!LIGHT_THEMES.has(t)) {
+      setLastDarkTheme(t);
+      localStorage.setItem(LAST_DARK_KEY, t);
+    }
   }, []);
+
+  const toggleDayNight = useCallback(() => {
+    setThemeState((current) => {
+      const next: ThemeId = LIGHT_THEMES.has(current) ? lastDarkTheme : "daylight";
+      localStorage.setItem(STORAGE_KEY, next);
+      document.documentElement.setAttribute("data-theme", next);
+      document.documentElement.style.colorScheme = LIGHT_THEMES.has(next) ? "light" : "dark";
+      return next;
+    });
+  }, [lastDarkTheme]);
 
   const toggleAutoDim = useCallback(() => {
     setAutoDimEnabled((v) => {
@@ -138,8 +160,15 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   }, [autoDimEnabled, theme]);
 
   const value = useMemo(
-    () => ({ theme, setTheme, autoDimEnabled, toggleAutoDim }),
-    [theme, setTheme, autoDimEnabled, toggleAutoDim],
+    () => ({
+      theme,
+      setTheme,
+      toggleDayNight,
+      isLight: LIGHT_THEMES.has(theme),
+      autoDimEnabled,
+      toggleAutoDim,
+    }),
+    [theme, setTheme, toggleDayNight, autoDimEnabled, toggleAutoDim],
   );
 
   return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;

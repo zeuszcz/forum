@@ -4,6 +4,7 @@ import { Command, LogOut, Plus, Shield, User as UserIcon } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
+import { DayNightToggle } from "@/components/effects/DayNightToggle";
 import { MagneticButton } from "@/components/effects/MagneticButton";
 import { NotificationCenter } from "@/components/effects/NotificationCenter";
 import { ThemePicker } from "@/components/effects/ThemePicker";
@@ -90,6 +91,7 @@ export function Header() {
             </Link>
           )}
 
+          <DayNightToggle />
           <ThemePicker />
 
           {user ? (

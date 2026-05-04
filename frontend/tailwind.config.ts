@@ -53,25 +53,25 @@ const config: Config = {
         input: "hsl(var(--input))",
         ring: "hsl(var(--ring))",
 
-        // --- brand-named (raw access) ---
-        ink: "#0a0b14",
-        void: "#13141d",
-        slate: "#1a1c27",
-        "border-strong": "#383b54",
+        // --- brand-named (CSS-var driven so they flip with light/dark themes) ---
+        ink: "rgb(var(--ink-rgb) / <alpha-value>)",
+        void: "rgb(var(--void-rgb) / <alpha-value>)",
+        slate: "rgb(var(--slate-rgb) / <alpha-value>)",
+        "border-strong": "rgb(var(--border-strong-rgb) / <alpha-value>)",
         plasma: {
-          DEFAULT: "#7c5cff",
-          bright: "#9a7dff",
+          DEFAULT: "rgb(var(--plasma-rgb) / <alpha-value>)",
+          bright: "rgb(var(--plasma-bright-rgb) / <alpha-value>)",
           dim: "#5b3fcc",
         },
         flame: {
-          DEFAULT: "#ec4899",
+          DEFAULT: "rgb(var(--flame-rgb) / <alpha-value>)",
           bright: "#f472b6",
         },
-        ember: "#f43f5e",
-        cyan: "#22d3ee",
-        bone: "#e8e9f3",
-        ash: "#a0a3b8",
-        smoke: "#6b6e85",
+        ember: "rgb(var(--ember-rgb) / <alpha-value>)",
+        cyan: "rgb(var(--cyan-rgb) / <alpha-value>)",
+        bone: "rgb(var(--bone-rgb) / <alpha-value>)",
+        ash: "rgb(var(--ash-rgb) / <alpha-value>)",
+        smoke: "rgb(var(--smoke-rgb) / <alpha-value>)",
       },
       fontFamily: {
         sans: ["Inter", "system-ui", "-apple-system", "sans-serif"],
