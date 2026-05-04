@@ -11,7 +11,7 @@ import { ThemePicker } from "@/components/effects/ThemePicker";
 import { LetterAvatar } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/lib/auth-context";
-import { glowNickProps, nickColor } from "@/lib/perks";
+import { avatarGlowColor, glowNickProps, nickColor } from "@/lib/perks";
 import { cn } from "@/lib/utils";
 
 const NAV = [
@@ -109,7 +109,7 @@ export function Header() {
                 href={`/u/${user.nickname}`}
                 className="group inline-flex items-center gap-2 rounded-md border border-transparent px-2 py-1.5 transition-colors hover:border-border hover:bg-slate"
               >
-                <LetterAvatar nickname={user.nickname} size={26} />
+                <LetterAvatar nickname={user.nickname} size={26} glowColor={avatarGlowColor(user)} />
                 <span className="hidden flex-col leading-tight sm:flex">
                   {(() => {
                     const glow = glowNickProps(user);

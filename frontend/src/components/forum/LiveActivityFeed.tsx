@@ -14,7 +14,7 @@ import { useCallback, useEffect, useState } from "react";
 import { LetterAvatar } from "@/components/ui/avatar";
 import { api } from "@/lib/api";
 import { relativeTime } from "@/lib/format";
-import { glowNickProps, nickColor } from "@/lib/perks";
+import { avatarGlowColor, glowNickProps, nickColor } from "@/lib/perks";
 import type { FeedEvent, FeedEventKind } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -158,7 +158,11 @@ function FeedRow({ event }: { event: FeedEvent }) {
                 className={cn("inline-flex items-center gap-1.5", glow.className)}
                 style={glow.style}
               >
-                <LetterAvatar nickname={actor.nickname} size={14} />
+                <LetterAvatar
+                  nickname={actor.nickname}
+                  size={14}
+                  glowColor={avatarGlowColor(actor)}
+                />
                 <span
                   className="font-semibold"
                   style={{ color: actorColor }}

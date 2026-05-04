@@ -7,7 +7,7 @@ import Link from "next/link";
 import { LetterAvatar } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { exactTime, relativeTime } from "@/lib/format";
-import { glowNickProps, nickColor } from "@/lib/perks";
+import { avatarGlowColor, glowNickProps, nickColor } from "@/lib/perks";
 import { computeKarma, computeRank } from "@/lib/rank";
 import type { UserPublic } from "@/lib/types";
 
@@ -43,7 +43,7 @@ export function UserHoverCard({ user, children }: UserHoverCardProps) {
           >
             <div className="hero-mesh relative px-4 pb-3 pt-4">
               <div className="flex items-start gap-3">
-                <LetterAvatar nickname={user.nickname} size={48} />
+                <LetterAvatar nickname={user.nickname} size={48} glowColor={avatarGlowColor(user)} />
                 <div className="min-w-0 flex-1">
                   <Link
                     href={`/u/${user.nickname}`}

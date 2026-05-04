@@ -6,7 +6,7 @@ import * as React from "react";
 import { LetterAvatar } from "@/components/ui/avatar";
 import { Textarea, type TextareaProps } from "@/components/ui/textarea";
 import { api } from "@/lib/api";
-import { nickColor } from "@/lib/perks";
+import { avatarGlowColor, nickColor } from "@/lib/perks";
 import type { UserPublic } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -151,7 +151,7 @@ export const MentionTextarea = React.forwardRef<
                   i === active ? "bg-plasma/15 text-bone" : "text-ash hover:bg-slate",
                 )}
               >
-                <LetterAvatar nickname={u.nickname} size={20} />
+                <LetterAvatar nickname={u.nickname} size={20} glowColor={avatarGlowColor(u)} />
                 <span
                   className="flex-1 truncate font-semibold"
                   style={{ color }}

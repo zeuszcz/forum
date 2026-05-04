@@ -7,19 +7,27 @@ interface LetterAvatarProps {
   nickname: string;
   size?: number;
   className?: string;
+  /** Custom outer glow halo (typically `avatarGlowColor(user)`). Null = no halo. */
+  glowColor?: string | null;
 }
 
 /**
  * Deterministic letter avatar — generates a consistent HSL background per nickname.
- * Used until users upload a real avatar.
+ * Used until users upload a real avatar. When `glowColor` is provided the avatar
+ * gets a soft outer halo (used by users with the animated_frame perk).
  */
-export function LetterAvatar({ nickname, size = 40, className }: LetterAvatarProps) {
+export function LetterAvatar({
+  nickname,
+  size = 40,
+  className,
+  glowColor = null,
+}: LetterAvatarProps) {
   const letter = (nickname[0] ?? "?").toUpperCase();
   const hue = nicknameHue(nickname);
-  return (
+  const avatar = (
     <div
       className={cn(
-        "flex shrink-0 items-center justify-center rounded-full font-semibold text-white shadow-inner",
+        "relative flex shrink-0 items-center justify-center rounded-full font-semibold text-white shadow-inner",
         className,
       )}
       style={{
@@ -32,6 +40,25 @@ export function LetterAvatar({ nickname, size = 40, className }: LetterAvatarPro
       aria-hidden="true"
     >
       {letter}
+    </div>
+  );
+  if (!glowColor) return avatar;
+  // Wrapping div carries the same footprint so layout doesn't shift.
+  return (
+    <div
+      className="relative shrink-0"
+      style={{ width: size, height: size }}
+      aria-hidden="true"
+    >
+      <div
+        className="absolute inset-0 -z-10 rounded-full opacity-75 blur-md"
+        style={{
+          backgroundColor: glowColor,
+          // halo extends slightly beyond avatar
+          transform: "scale(1.18)",
+        }}
+      />
+      {avatar}
     </div>
   );
 }

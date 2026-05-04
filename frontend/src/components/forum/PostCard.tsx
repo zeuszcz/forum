@@ -14,7 +14,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { api, ApiError } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import { exactTime, relativeTime } from "@/lib/format";
-import { glowNickProps, isStaff, nickColor } from "@/lib/perks";
+import { avatarGlowColor, glowNickProps, isStaff, nickColor } from "@/lib/perks";
 import { computeRank } from "@/lib/rank";
 import type { Post, ReactionKind } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -116,7 +116,11 @@ export function PostCard({ post, index, onQuote }: PostCardProps) {
                 href={`/u/${post.author.nickname}`}
                 className="flex flex-row items-center gap-3 md:flex-col md:gap-2 md:text-center"
               >
-                <LetterAvatar nickname={post.author.nickname} size={48} />
+                <LetterAvatar
+                  nickname={post.author.nickname}
+                  size={48}
+                  glowColor={avatarGlowColor(post.author)}
+                />
                 <div className="flex flex-col gap-0.5 md:items-center">
                   <span
                     className={cn(

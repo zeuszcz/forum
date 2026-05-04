@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { api, ApiError } from "@/lib/api";
+import { useAuth } from "@/lib/auth-context";
 import { hasPerk, isStaff } from "@/lib/perks";
 import { computeRank } from "@/lib/rank";
 import type { UserPublic } from "@/lib/types";
@@ -36,6 +37,7 @@ function ProfileEditDialog({
   onClose: () => void;
 }) {
   const router = useRouter();
+  const { refresh: refreshAuth } = useAuth();
   const [bio, setBio] = useState(user.bio ?? "");
   const [title, setTitle] = useState(user.title ?? "");
   const [birthday, setBirthday] = useState(user.birthday ?? "");
@@ -66,8 +68,11 @@ function ProfileEditDialog({
         method: "PATCH",
         body: JSON.stringify(body),
       });
-      toast.success("Профиль обновлён");
+      // Refresh both the RSC tree (server data) AND auth-context so client-side
+      // components like PersonalCard pick up the new nick/glow color immediately.
+      await refreshAuth().catch(() => {});
       router.refresh();
+      toast.success("Профиль обновлён");
       onClose();
     } catch (err) {
       setError(err instanceof ApiError ? err.detail : "Не удалось сохранить");

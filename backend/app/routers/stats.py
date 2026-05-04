@@ -329,14 +329,35 @@ async def activity_feed(db: DbSession, limit: int = Query(30, ge=1, le=100)) -> 
         ures = await db.execute(_select(User).where(User.id.in_(user_ids)))
         users_map = {u.id: u for u in ures.scalars().all()}
 
+    # Batch-fetch top role per user so feed nicknames render with role color.
+    # Single query joins user_roles + roles, ordered so the lowest display_order
+    # wins per user — first row per user_id is their "top" role.
+    user_top_role: dict[int, dict] = {}
+    if user_ids:
+        from app.models.role import Role, UserRole
+
+        rr = await db.execute(
+            _select(UserRole.user_id, Role.slug, Role.title, Role.color, Role.is_staff)
+            .join(Role, Role.id == UserRole.role_id)
+            .where(UserRole.user_id.in_(user_ids))
+            .order_by(UserRole.user_id, Role.display_order)
+        )
+        for uid_, slug, title, color, is_staff in rr.all():
+            if uid_ not in user_top_role:
+                user_top_role[uid_] = {
+                    "slug": slug,
+                    "title": title,
+                    "color": color,
+                    "is_staff": is_staff,
+                }
+
     def _user_dict(uid: int | None) -> dict | None:
         if uid is None:
             return None
         u = users_map.get(uid)
         if u is None:
             return None
-        topRole = None
-        # Avoid additional N+1 — just return minimal payload (no roles list)
+        top = user_top_role.get(u.id)
         return {
             "id": u.id,
             "nickname": u.nickname,
@@ -345,11 +366,13 @@ async def activity_feed(db: DbSession, limit: int = Query(30, ge=1, le=100)) -> 
             "is_active": u.is_active,
             "last_seen_at": u.last_seen_at.isoformat() if u.last_seen_at else None,
             "created_at": u.created_at.isoformat(),
-            "roles": [],
+            "roles": [top] if top else [],
             "total_posts": u.total_posts,
             "total_reactions_received": u.total_reactions_received,
             "granted_perks": list(u.granted_perks or []),
             "birthday": u.birthday.isoformat() if u.birthday else None,
+            "nick_color": u.nick_color,
+            "avatar_glow_color": u.avatar_glow_color,
         }
 
     events: list[dict] = []
@@ -452,6 +475,8 @@ async def top_users(
         )
         SELECT
             u.id, u.nickname, u.avatar_url, u.title,
+            u.nick_color, u.avatar_glow_color, u.granted_perks,
+            u.total_posts, u.total_reactions_received,
             COALESCE(wp.post_cnt, 0) AS posts,
             COALESCE(wr.react_cnt, 0) AS reactions,
             (COALESCE(wp.post_cnt, 0) * 2 + COALESCE(wr.react_cnt, 0) * 3) AS score
@@ -475,6 +500,11 @@ async def top_users(
             "reactions": int(r["reactions"]),
             "score": int(r["score"]),
             "rank": idx + 1,
+            "nick_color": r["nick_color"],
+            "avatar_glow_color": r["avatar_glow_color"],
+            "granted_perks": list(r["granted_perks"] or []),
+            "total_posts": int(r["total_posts"]),
+            "total_reactions_received": int(r["total_reactions_received"]),
         }
         for idx, r in enumerate(rows)
     ]

@@ -3,6 +3,7 @@ import { Crown, Medal } from "lucide-react";
 
 import { LetterAvatar } from "@/components/ui/avatar";
 import { plural } from "@/lib/format";
+import { avatarGlowColor, nickColor } from "@/lib/perks";
 
 export interface TopUser {
   id: number;
@@ -13,6 +14,12 @@ export interface TopUser {
   posts: number;
   reactions: number;
   score: number;
+  /** Optional fields for nick color + halo (populated by /stats/top-users) */
+  nick_color?: string | null;
+  avatar_glow_color?: string | null;
+  granted_perks?: string[] | null;
+  total_posts?: number;
+  total_reactions_received?: number;
 }
 
 const RANK_STYLE = {
@@ -79,10 +86,14 @@ export function TopPodium({ users }: { users: TopUser[] }) {
                     className="absolute -top-2.5 h-5 w-5"
                     style={{ color: style.color }}
                   />
-                  <LetterAvatar nickname={u.nickname} size={style.avatarSize} />
+                  <LetterAvatar
+                    nickname={u.nickname}
+                    size={style.avatarSize}
+                    glowColor={avatarGlowColor(u)}
+                  />
                   <span
                     className="line-clamp-1 text-xs font-semibold"
-                    style={{ color: style.color }}
+                    style={{ color: nickColor(u) || style.color }}
                     title={u.nickname}
                   >
                     {u.nickname}

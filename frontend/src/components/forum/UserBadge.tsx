@@ -5,7 +5,7 @@ import Link from "next/link";
 import { UserHoverCard } from "@/components/forum/UserHoverCard";
 import { Badge } from "@/components/ui/badge";
 import { LetterAvatar } from "@/components/ui/avatar";
-import { glowNickProps, nickColor } from "@/lib/perks";
+import { avatarGlowColor, glowNickProps, nickColor } from "@/lib/perks";
 import type { UserPublic } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -34,12 +34,13 @@ export function UserBadge({ user, size = 28, showRole = true, className, noHover
   const topRole = user.roles?.[0];
   const glow = glowNickProps(user);
   const color = nickColor(user);
+  const aGlow = avatarGlowColor(user);
   const inner = (
     <Link
       href={`/u/${user.nickname}`}
       className={cn("group inline-flex items-center gap-2", className)}
     >
-      <LetterAvatar nickname={user.nickname} size={size} />
+      <LetterAvatar nickname={user.nickname} size={size} glowColor={aGlow} />
       <span className="flex flex-col leading-tight">
         <span
           className={cn(
@@ -66,6 +67,7 @@ export function UserPill({ user, noHover }: { user: UserPublic | null; noHover?:
   if (!user) return <span className="text-xs text-smoke">удалён</span>;
   const glow = glowNickProps(user);
   const color = nickColor(user);
+  const aGlow = avatarGlowColor(user);
   const inner = (
     <Link
       href={`/u/${user.nickname}`}
@@ -75,7 +77,7 @@ export function UserPill({ user, noHover }: { user: UserPublic | null; noHover?:
       )}
       style={{ color, ...glow.style }}
     >
-      <LetterAvatar nickname={user.nickname} size={18} />
+      <LetterAvatar nickname={user.nickname} size={18} glowColor={aGlow} />
       {user.nickname}
     </Link>
   );

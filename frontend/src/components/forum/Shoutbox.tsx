@@ -10,7 +10,7 @@ import { api, ApiError } from "@/lib/api";
 import { sfx } from "@/lib/audio";
 import { useAuth } from "@/lib/auth-context";
 import { relativeTime } from "@/lib/format";
-import { glowNickProps, nickColor } from "@/lib/perks";
+import { avatarGlowColor, glowNickProps, nickColor } from "@/lib/perks";
 import type { ShoutboxMessage } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -88,7 +88,13 @@ export function Shoutbox({ initialMessages }: { initialMessages: ShoutboxMessage
           const glow = glowNickProps(m.author);
           return (
             <div key={m.id} className="flex items-start gap-2">
-              {m.author && <LetterAvatar nickname={m.author.nickname} size={24} />}
+              {m.author && (
+                <LetterAvatar
+                  nickname={m.author.nickname}
+                  size={24}
+                  glowColor={avatarGlowColor(m.author)}
+                />
+              )}
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-baseline gap-x-2">
                   {m.author ? (

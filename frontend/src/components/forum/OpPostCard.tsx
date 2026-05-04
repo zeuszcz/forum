@@ -86,20 +86,23 @@ export function OpPostCard({ post, thread, onQuote }: OpPostCardProps) {
                 className="flex items-center gap-4"
               >
                 <div className="relative">
-                  <LetterAvatar nickname={author.nickname} size={56} />
-                  {/* Personalised glow halo (or plasma fallback) */}
-                  <div
-                    aria-hidden="true"
-                    className="absolute -inset-1 -z-10 rounded-full opacity-50 blur-md"
-                    style={
-                      glowColor
-                        ? { backgroundColor: glowColor }
-                        : {
-                            background:
-                              "conic-gradient(from 0deg, rgb(var(--plasma-rgb)), rgb(var(--flame-rgb)), rgb(var(--plasma-rgb)))",
-                          }
-                    }
+                  <LetterAvatar
+                    nickname={author.nickname}
+                    size={56}
+                    glowColor={glowColor}
                   />
+                  {/* OP-specific plasma→flame ring (only when user has no
+                      personal glow override). */}
+                  {!glowColor && (
+                    <div
+                      aria-hidden="true"
+                      className="absolute -inset-1 -z-10 rounded-full opacity-50 blur-md"
+                      style={{
+                        background:
+                          "conic-gradient(from 0deg, rgb(var(--plasma-rgb)), rgb(var(--flame-rgb)), rgb(var(--plasma-rgb)))",
+                      }}
+                    />
+                  )}
                 </div>
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
