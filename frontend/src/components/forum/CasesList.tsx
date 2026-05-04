@@ -2,12 +2,12 @@
 
 import { AnimatePresence, motion } from "framer-motion";
 import { Key, Package, Sparkles, X } from "lucide-react";
+import Link from "next/link";
 import * as React from "react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { api, ApiError } from "@/lib/api";
-import { cn } from "@/lib/utils";
 
 interface CaseItemDef {
   id: number;
@@ -82,12 +82,12 @@ export function CasesList({
           <span className="text-sm text-ash">Твои ключи:</span>
           <span className="font-mono text-2xl font-bold text-flame">{keys}</span>
         </div>
-        <a
+        <Link
           href="/"
           className="text-[11px] uppercase tracking-widest text-smoke hover:text-ash"
         >
           ← на главную
-        </a>
+        </Link>
       </header>
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
