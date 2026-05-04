@@ -1,5 +1,6 @@
 "use client";
 
+import { Extension } from "@tiptap/core";
 import { Color } from "@tiptap/extension-color";
 import Image from "@tiptap/extension-image";
 import Link from "@tiptap/extension-link";
@@ -57,6 +58,41 @@ const PRESET_COLORS = [
   "#f43f5e", // ember
 ];
 
+/** Captures Tab inside the editor: nests list items when in a list (delegate
+ *  to the default ListItem keymap), otherwise inserts an actual tab character
+ *  so paragraphs can have indentation. Without this, browsers move focus out
+ *  of the editor on Tab. */
+const TabIndent = Extension.create({
+  name: "tabIndent",
+  addKeyboardShortcuts() {
+    return {
+      Tab: ({ editor }) => {
+        if (
+          editor.isActive("listItem") ||
+          editor.isActive("taskItem") ||
+          editor.isActive("table")
+        ) {
+          // Let ListItem.sinkListItem / Table tab navigation own this.
+          return false;
+        }
+        editor.chain().focus().insertContent("\t").run();
+        return true;
+      },
+      "Shift-Tab": ({ editor }) => {
+        if (
+          editor.isActive("listItem") ||
+          editor.isActive("taskItem") ||
+          editor.isActive("table")
+        ) {
+          return false;
+        }
+        // Outside lists, Shift-Tab is a no-op (don't lose focus to browser).
+        return true;
+      },
+    };
+  },
+});
+
 /** Wrapper that exposes a single `value/onChange` API on top of TipTap. The
  *  parent stores HTML; rendering pipeline (PostBody → MarkdownRenderer with
  *  rehype-raw) handles HTML safely on display. */
@@ -73,6 +109,7 @@ export function RichEditor({
         heading: { levels: [1, 2, 3] },
         codeBlock: { HTMLAttributes: { class: "rich-codeblock" } },
       }),
+      TabIndent,
       Underline,
       Link.configure({
         openOnClick: false,

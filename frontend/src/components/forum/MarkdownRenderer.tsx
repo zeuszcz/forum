@@ -133,7 +133,7 @@ export function MarkdownRenderer({
   return (
     <div
       className={cn(
-        "prose-forum text-sm leading-relaxed text-bone [overflow-wrap:anywhere]",
+        "prose-forum text-sm leading-relaxed text-bone [overflow-wrap:anywhere] [tab-size:4]",
         className,
       )}
     >
