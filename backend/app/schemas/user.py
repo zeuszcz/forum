@@ -42,6 +42,8 @@ class UserPublic(BaseModel):
 
     # ISO date string YYYY-MM-DD if user has set their birthday
     birthday: str | None = None
+    # 17-digit steamid64 if the user has linked their Steam account
+    steam_id: str | None = None
 
     # Custom hex colors set by the user (gated by perks)
     # nick_color overrides top-role color when rendering nicknames

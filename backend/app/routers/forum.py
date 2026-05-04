@@ -41,6 +41,7 @@ async def _user_to_public(db: AsyncSession, user: User | None) -> UserPublic | N
         thanks_received=user.thanks_received,
         granted_perks=list(user.granted_perks or []),
         birthday=user.birthday.isoformat() if user.birthday else None,
+        steam_id=user.steam_id,
         nick_color=user.nick_color,
         avatar_glow_color=user.avatar_glow_color,
     )

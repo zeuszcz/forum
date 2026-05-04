@@ -18,6 +18,7 @@ from app.routers import (
     polls,
     shoutbox,
     stats,
+    steam,
     users,
 )
 
@@ -59,6 +60,7 @@ app.include_router(admin.router)
 app.include_router(polls.router)
 app.include_router(notifications.router)
 app.include_router(attachments.router)
+app.include_router(steam.router)
 
 
 @app.get("/", include_in_schema=False)

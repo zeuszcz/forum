@@ -45,6 +45,7 @@ async def list_online(db: DbSession) -> list[UserPublic]:
                 thanks_received=u.thanks_received,
                 granted_perks=list(u.granted_perks or []),
                 birthday=u.birthday.isoformat() if u.birthday else None,
+                steam_id=u.steam_id,
                 nick_color=u.nick_color,
                 avatar_glow_color=u.avatar_glow_color,
             )
@@ -186,6 +187,7 @@ async def update_me(payload: UserProfileUpdate, user: CurrentUser, db: DbSession
         thanks_received=user.thanks_received,
         granted_perks=list(user.granted_perks or []),
         birthday=user.birthday.isoformat() if user.birthday else None,
+        steam_id=user.steam_id,
         nick_color=user.nick_color,
         avatar_glow_color=user.avatar_glow_color,
     )
@@ -256,6 +258,7 @@ async def search_users(
                 thanks_received=u.thanks_received,
                 granted_perks=list(u.granted_perks or []),
                 birthday=u.birthday.isoformat() if u.birthday else None,
+                steam_id=u.steam_id,
                 nick_color=u.nick_color,
                 avatar_glow_color=u.avatar_glow_color,
             )
@@ -299,6 +302,7 @@ async def birthdays_today(db: DbSession) -> list[UserPublic]:
                 thanks_received=u.thanks_received,
                 granted_perks=list(u.granted_perks or []),
                 birthday=u.birthday.isoformat() if u.birthday else None,
+                steam_id=u.steam_id,
                 nick_color=u.nick_color,
                 avatar_glow_color=u.avatar_glow_color,
             )
@@ -340,6 +344,7 @@ async def recent_visitors(db: DbSession, hours: int = Query(24, ge=1, le=168)) -
                 thanks_received=u.thanks_received,
                 granted_perks=list(u.granted_perks or []),
                 birthday=u.birthday.isoformat() if u.birthday else None,
+                steam_id=u.steam_id,
                 nick_color=u.nick_color,
                 avatar_glow_color=u.avatar_glow_color,
             )
@@ -387,6 +392,7 @@ async def list_user_threads(
         thanks_received=u.thanks_received,
         granted_perks=list(u.granted_perks or []),
         birthday=u.birthday.isoformat() if u.birthday else None,
+        steam_id=u.steam_id,
         nick_color=u.nick_color,
         avatar_glow_color=u.avatar_glow_color,
     )
@@ -469,6 +475,7 @@ async def list_user_posts(
         thanks_received=u.thanks_received,
         granted_perks=list(u.granted_perks or []),
         birthday=u.birthday.isoformat() if u.birthday else None,
+        steam_id=u.steam_id,
         nick_color=u.nick_color,
         avatar_glow_color=u.avatar_glow_color,
     )
@@ -577,6 +584,7 @@ async def get_user(nickname: str, db: DbSession) -> UserPublic:
         thanks_received=u.thanks_received,
         granted_perks=list(u.granted_perks or []),
         birthday=u.birthday.isoformat() if u.birthday else None,
+        steam_id=u.steam_id,
         nick_color=u.nick_color,
         avatar_glow_color=u.avatar_glow_color,
     )

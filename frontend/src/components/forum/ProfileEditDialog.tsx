@@ -1,7 +1,7 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { Lock, Pencil, Sparkles, X } from "lucide-react";
+import { Check, Lock, Pencil, Sparkles, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
@@ -201,6 +201,8 @@ function ProfileEditDialog({
             </p>
           </div>
 
+          <SteamRow user={me} onUnlink={() => setMe({ ...me, steam_id: null })} />
+
           <ColorPickerRow
             label="Цвет свечения ника"
             value={nickColor}
@@ -338,6 +340,89 @@ function ColorPickerRow({
       {!unlocked && (
         <p className="text-[10px] text-smoke">{unlockHint}</p>
       )}
+    </div>
+  );
+}
+
+function SteamRow({
+  user,
+  onUnlink,
+}: {
+  user: UserPublic;
+  onUnlink: () => void;
+}) {
+  const [pending, setPending] = useState(false);
+  const apiBase = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+
+  async function unlink() {
+    setPending(true);
+    try {
+      await api("/auth/steam/unlink", { method: "POST" });
+      toast.success("Steam отвязан");
+      onUnlink();
+    } catch {
+      toast.error("Не удалось отвязать");
+    } finally {
+      setPending(false);
+    }
+  }
+
+  return (
+    <div className="space-y-2 md:col-span-2">
+      <div className="flex items-center justify-between">
+        <label className="text-[10px] font-semibold uppercase tracking-widest text-smoke">
+          Steam
+        </label>
+        {user.steam_id ? (
+          <span className="inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-widest text-success">
+            <Check className="h-3 w-3" />
+            привязан
+          </span>
+        ) : null}
+      </div>
+      <div className="flex items-center gap-2 rounded-md border border-border bg-void/40 px-3 py-2">
+        {user.steam_id ? (
+          <>
+            <span className="font-mono text-xs text-bone">{user.steam_id}</span>
+            <a
+              href={`https://steamcommunity.com/profiles/${user.steam_id}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="ml-auto text-[11px] text-cyan hover:underline"
+            >
+              профиль ↗
+            </a>
+            <button
+              type="button"
+              onClick={unlink}
+              disabled={pending}
+              className="rounded-md border border-border bg-void px-2 py-1 text-[10px] uppercase tracking-widest text-smoke transition-colors hover:bg-slate hover:text-bone"
+            >
+              отвязать
+            </button>
+          </>
+        ) : (
+          <>
+            <span className="flex-1 text-xs text-smoke">
+              Привяжи Steam, чтобы получить бейдж и доступ к ежедневным заданиям.
+            </span>
+            <a
+              href={`${apiBase}/auth/steam/init`}
+              className="inline-flex items-center gap-1.5 rounded-md border border-cyan/40 bg-cyan/10 px-3 py-1.5 text-xs font-semibold text-cyan transition-colors hover:bg-cyan/20"
+            >
+              <svg
+                viewBox="0 0 32 32"
+                className="h-4 w-4"
+                fill="currentColor"
+                aria-hidden="true"
+              >
+                <path d="M16 0C7.18 0 0 7.18 0 16s7.18 16 16 16 16-7.18 16-16S24.82 0 16 0zm-1.5 12l-4.62 4.65 4.34 1.85a4 4 0 0 1 4.5-1.5l5.78-4.31A4.93 4.93 0 1 1 23.43 18l-5.27 3.78a3.6 3.6 0 0 1-3.69 4.27 3.66 3.66 0 0 1-3.55-2.69l-3.4-1.45a8 8 0 0 0 1.27 1.95 8.5 8.5 0 1 0 5.71-11.86z" />
+              </svg>
+              Привязать Steam
+            </a>
+          </>
+        )}
+      </div>
     </div>
   );
 }

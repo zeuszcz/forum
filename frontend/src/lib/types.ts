@@ -23,6 +23,7 @@ export interface UserPublic {
   nick_color?: string | null;
   avatar_glow_color?: string | null;
   thanks_received?: number;
+  steam_id?: string | null;
 }
 
 export interface Section {

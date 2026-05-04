@@ -111,6 +111,25 @@ export default async function UserProfilePage({
                   {relativeTime(user.last_seen_at)}
                 </span>
               )}
+              {user.steam_id && (
+                <a
+                  href={`https://steamcommunity.com/profiles/${user.steam_id}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 rounded-full border border-cyan/40 bg-cyan/10 px-2.5 py-0.5 text-xs font-semibold text-cyan transition-colors hover:bg-cyan/20"
+                  title={`Steam ID ${user.steam_id} — открыть профиль`}
+                >
+                  <svg
+                    viewBox="0 0 32 32"
+                    className="h-3 w-3"
+                    fill="currentColor"
+                    aria-hidden="true"
+                  >
+                    <path d="M16 0C7.18 0 0 7.18 0 16s7.18 16 16 16 16-7.18 16-16S24.82 0 16 0zm-1.5 12l-4.62 4.65 4.34 1.85a4 4 0 0 1 4.5-1.5l5.78-4.31A4.93 4.93 0 1 1 23.43 18l-5.27 3.78a3.6 3.6 0 0 1-3.69 4.27 3.66 3.66 0 0 1-3.55-2.69l-3.4-1.45a8 8 0 0 0 1.27 1.95 8.5 8.5 0 1 0 5.71-11.86z" />
+                  </svg>
+                  Steam
+                </a>
+              )}
             </div>
 
             {user.title && (
