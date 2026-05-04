@@ -58,6 +58,10 @@ class User(Base, TimestampMixin):
     last_active_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     karma: Mapped[int] = mapped_column(default=0, nullable=False)
 
+    # Bonus XP earned from quest/case completions (migration 20260504_1100).
+    # Added to the level computation alongside post/reaction-derived XP.
+    bonus_xp: Mapped[int] = mapped_column(default=0, nullable=False)
+
     # Custom personal colors (migration 20260503_2200) — gated by perks at API level
     # nick_color requires `glow_nick`; avatar_glow_color requires `animated_frame`
     nick_color: Mapped[str | None] = mapped_column(String(9), nullable=True)

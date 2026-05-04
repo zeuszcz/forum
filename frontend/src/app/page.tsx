@@ -17,6 +17,7 @@ import {
 import { HotThreads } from "@/components/forum/HotThreads";
 import { LiveActivityFeed } from "@/components/forum/LiveActivityFeed";
 import { OnlineList } from "@/components/forum/OnlineList";
+import { DailyQuestsWidget } from "@/components/forum/DailyQuestsWidget";
 import { PersonalCard } from "@/components/forum/PersonalCard";
 import { RecentThreads } from "@/components/forum/RecentThreads";
 import { SectionCard } from "@/components/forum/SectionCard";
@@ -167,9 +168,10 @@ export default async function HomePage() {
         </div>
       </section>
 
-      {/* === Personal greeting (logged-in only) === */}
-      <div className="container pt-6">
+      {/* === Personal greeting + daily quests (logged-in only) === */}
+      <div className="container space-y-4 pt-6">
         <PersonalCard />
+        <DailyQuestsWidget />
       </div>
 
       {/* === Main grid === */}

@@ -275,6 +275,16 @@ async def create_thread(
         thread_title=thread.title,
     )
 
+    # Quest progression: thread creation also counts as a post for the
+    # "post_count" daily quest (consistency with how the user thinks).
+    try:
+        from app.services import quests as quest_service
+
+        await quest_service.bump_thread_count(db, author)
+        await quest_service.bump_post_count(db, author)
+    except Exception:  # noqa: BLE001
+        pass
+
     await db.commit()
     await db.refresh(thread)
     return thread
@@ -356,6 +366,14 @@ async def create_post(
         thread_title=thread.title,
     )
 
+    # Quest progression
+    try:
+        from app.services import quests as quest_service
+
+        await quest_service.bump_post_count(db, author)
+    except Exception:  # noqa: BLE001
+        pass
+
     await db.commit()
     await db.refresh(post)
     return post
@@ -400,6 +418,7 @@ async def toggle_reaction(
 
     # Maintain cached author counters (received reactions, plus thanks_received
     # as a dedicated reputation metric).
+    author_user: User | None = None
     if post.author_id is not None and post.author_id != user_id:
         author_q = await db.execute(select(User).where(User.id == post.author_id))
         author_user = author_q.scalar_one_or_none()
@@ -411,6 +430,20 @@ async def toggle_reaction(
                 author_user.thanks_received = max(
                     0, author_user.thanks_received + delta
                 )
+
+    # Quest progression: only on positive reaction events (delta=+1).
+    if delta > 0:
+        try:
+            from app.services import quests as quest_service
+
+            actor_q = await db.execute(select(User).where(User.id == user_id))
+            actor = actor_q.scalar_one_or_none()
+            if actor is not None:
+                await quest_service.bump_react_given(db, actor)
+            if author_user is not None:
+                await quest_service.bump_react_received(db, author_user)
+        except Exception:  # noqa: BLE001
+            pass
 
     await db.commit()
 
