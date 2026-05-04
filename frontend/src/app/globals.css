@@ -224,6 +224,14 @@
       cursor: text;
     }
   }
+
+  /* PlasmaCursor uses mix-blend-screen which goes invisible against white
+     surfaces. On daylight, switch its blend to multiply so the plasma ink
+     shows up against light backgrounds. (mix-blend-screen is only used by
+     PlasmaCursor in this codebase, so the broad override is safe.) */
+  [data-theme="daylight"] .mix-blend-screen {
+    mix-blend-mode: multiply;
+  }
 }
 
 @layer components {
