@@ -200,19 +200,47 @@ export default async function HomePage() {
                   <code className="font-mono text-ash">scripts/seed.py</code>.
                 </div>
               ) : (
-                <div className="space-y-6">
-                  {sections.map((s) => (
-                    <div key={s.id} className="space-y-3">
-                      {s.children && s.children.length > 0 ? (
-                        <>
+                (() => {
+                  // Split into "leaf" top-level sections (no children) and
+                  // "group" sections (with children). Leaves all share one
+                  // 2-col grid; groups each get a header + their own grid.
+                  const groups = sections.filter(
+                    (s) => s.children && s.children.length > 0,
+                  );
+                  const leaves = sections.filter(
+                    (s) => !s.children || s.children.length === 0,
+                  );
+                  return (
+                    <div className="space-y-6">
+                      {leaves.length > 0 && (
+                        <StaggerList
+                          stagger={0.04}
+                          className="grid gap-4 sm:grid-cols-2"
+                        >
+                          {leaves.map((s) => (
+                            <StaggerItem key={s.id}>
+                              <SectionCard
+                                section={s}
+                                sparkline={sparkBySlug[s.slug]}
+                                pulseCount={pulseBySection[s.id] ?? 0}
+                              />
+                            </StaggerItem>
+                          ))}
+                        </StaggerList>
+                      )}
+                      {groups.map((g) => (
+                        <div key={g.id} className="space-y-3">
                           <div className="flex items-center gap-3">
                             <h3 className="text-[11px] font-bold uppercase tracking-widest text-plasma">
-                              {s.title}
+                              {g.title}
                             </h3>
                             <div className="h-px flex-1 bg-gradient-to-r from-plasma/30 to-transparent" />
                           </div>
-                          <StaggerList stagger={0.04} className="grid gap-4 sm:grid-cols-2">
-                            {s.children.map((c) => (
+                          <StaggerList
+                            stagger={0.04}
+                            className="grid gap-4 sm:grid-cols-2"
+                          >
+                            {g.children!.map((c) => (
                               <StaggerItem key={c.id}>
                                 <SectionCard
                                   section={c}
@@ -222,24 +250,11 @@ export default async function HomePage() {
                               </StaggerItem>
                             ))}
                           </StaggerList>
-                        </>
-                      ) : (
-                        <StaggerList
-                          stagger={0.04}
-                          className="grid gap-4 sm:grid-cols-2"
-                        >
-                          <StaggerItem key={s.id}>
-                            <SectionCard
-                              section={s}
-                              sparkline={sparkBySlug[s.slug]}
-                              pulseCount={pulseBySection[s.id] ?? 0}
-                            />
-                          </StaggerItem>
-                        </StaggerList>
-                      )}
+                        </div>
+                      ))}
                     </div>
-                  ))}
-                </div>
+                  );
+                })()
               )}
             </section>
 

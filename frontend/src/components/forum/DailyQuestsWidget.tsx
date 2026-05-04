@@ -1,7 +1,8 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { CheckCircle2, Sparkles, Target, Zap } from "lucide-react";
+import { CheckCircle2, Key, Sparkles, Target, Zap } from "lucide-react";
+import Link from "next/link";
 import * as React from "react";
 
 import { api } from "@/lib/api";
@@ -97,14 +98,70 @@ export function DailyQuestsWidget() {
             На сегодня квестов нет
           </div>
         ) : (
-          <ul className="divide-y divide-border/60">
-            {data.quests.map((q) => (
-              <QuestRow key={q.id} quest={q} />
-            ))}
-          </ul>
+          <>
+            {/* Bonus reward callout — explicit so users know why they're doing this */}
+            <KeyBonusBanner
+              done={data.completed_count}
+              total={data.total_count}
+            />
+            <ul className="divide-y divide-border/60">
+              {data.quests.map((q) => (
+                <QuestRow key={q.id} quest={q} />
+              ))}
+            </ul>
+          </>
         )}
       </div>
     </section>
+  );
+}
+
+function KeyBonusBanner({ done, total }: { done: number; total: number }) {
+  const allDone = total > 0 && done >= total;
+  return (
+    <Link
+      href="/cases"
+      className={cn(
+        "relative flex items-center gap-3 border-b border-border/60 px-4 py-2.5 transition-colors",
+        allDone
+          ? "bg-gradient-to-r from-flame/15 via-flame/10 to-cyan/10 hover:from-flame/25"
+          : "bg-flame/5 hover:bg-flame/10",
+      )}
+    >
+      <div
+        className={cn(
+          "flex h-8 w-8 shrink-0 items-center justify-center rounded-full",
+          allDone ? "bg-flame/30 text-flame" : "bg-flame/15 text-flame",
+        )}
+      >
+        <Key className="h-4 w-4" />
+      </div>
+      <div className="min-w-0 flex-1">
+        {allDone ? (
+          <>
+            <div className="text-xs font-bold text-flame">
+              Все квесты выполнены — забери ключ от кейса
+            </div>
+            <div className="text-[10px] text-smoke">
+              открой стартовый кейс → шанс на свечение, перки, XP
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="text-xs font-semibold text-bone">
+              Выполни <span className="font-mono text-flame">все {total}</span> сегодня
+              — получи <span className="text-flame">+1 ключ</span> от кейса
+            </div>
+            <div className="text-[10px] text-smoke">
+              осталось {total - done} · открой кейс на странице «Кейсы»
+            </div>
+          </>
+        )}
+      </div>
+      <span className="font-mono text-[10px] uppercase tracking-widest text-flame">
+        →
+      </span>
+    </Link>
   );
 }
 
