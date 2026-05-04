@@ -45,6 +45,10 @@ class UserPublic(BaseModel):
     # 17-digit steamid64 if the user has linked their Steam account
     steam_id: str | None = None
 
+    # Quest/case rewards economy
+    bonus_xp: int = 0
+    case_keys: int = 0
+
     # Custom hex colors set by the user (gated by perks)
     # nick_color overrides top-role color when rendering nicknames
     # avatar_glow_color tints the avatar ring/halo

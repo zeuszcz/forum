@@ -24,6 +24,8 @@ export interface UserPublic {
   avatar_glow_color?: string | null;
   thanks_received?: number;
   steam_id?: string | null;
+  bonus_xp?: number;
+  case_keys?: number;
 }
 
 export interface Section {

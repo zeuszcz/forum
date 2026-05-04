@@ -46,6 +46,8 @@ async def list_online(db: DbSession) -> list[UserPublic]:
                 granted_perks=list(u.granted_perks or []),
                 birthday=u.birthday.isoformat() if u.birthday else None,
                 steam_id=u.steam_id,
+                bonus_xp=u.bonus_xp,
+                case_keys=u.case_keys,
                 nick_color=u.nick_color,
                 avatar_glow_color=u.avatar_glow_color,
             )
@@ -188,6 +190,8 @@ async def update_me(payload: UserProfileUpdate, user: CurrentUser, db: DbSession
         granted_perks=list(user.granted_perks or []),
         birthday=user.birthday.isoformat() if user.birthday else None,
         steam_id=user.steam_id,
+        bonus_xp=user.bonus_xp,
+        case_keys=user.case_keys,
         nick_color=user.nick_color,
         avatar_glow_color=user.avatar_glow_color,
     )
@@ -259,6 +263,8 @@ async def search_users(
                 granted_perks=list(u.granted_perks or []),
                 birthday=u.birthday.isoformat() if u.birthday else None,
                 steam_id=u.steam_id,
+                bonus_xp=u.bonus_xp,
+                case_keys=u.case_keys,
                 nick_color=u.nick_color,
                 avatar_glow_color=u.avatar_glow_color,
             )
@@ -303,6 +309,8 @@ async def birthdays_today(db: DbSession) -> list[UserPublic]:
                 granted_perks=list(u.granted_perks or []),
                 birthday=u.birthday.isoformat() if u.birthday else None,
                 steam_id=u.steam_id,
+                bonus_xp=u.bonus_xp,
+                case_keys=u.case_keys,
                 nick_color=u.nick_color,
                 avatar_glow_color=u.avatar_glow_color,
             )
@@ -345,6 +353,8 @@ async def recent_visitors(db: DbSession, hours: int = Query(24, ge=1, le=168)) -
                 granted_perks=list(u.granted_perks or []),
                 birthday=u.birthday.isoformat() if u.birthday else None,
                 steam_id=u.steam_id,
+                bonus_xp=u.bonus_xp,
+                case_keys=u.case_keys,
                 nick_color=u.nick_color,
                 avatar_glow_color=u.avatar_glow_color,
             )
@@ -393,6 +403,8 @@ async def list_user_threads(
         granted_perks=list(u.granted_perks or []),
         birthday=u.birthday.isoformat() if u.birthday else None,
         steam_id=u.steam_id,
+        bonus_xp=u.bonus_xp,
+        case_keys=u.case_keys,
         nick_color=u.nick_color,
         avatar_glow_color=u.avatar_glow_color,
     )
@@ -476,6 +488,8 @@ async def list_user_posts(
         granted_perks=list(u.granted_perks or []),
         birthday=u.birthday.isoformat() if u.birthday else None,
         steam_id=u.steam_id,
+        bonus_xp=u.bonus_xp,
+        case_keys=u.case_keys,
         nick_color=u.nick_color,
         avatar_glow_color=u.avatar_glow_color,
     )
@@ -585,6 +599,8 @@ async def get_user(nickname: str, db: DbSession) -> UserPublic:
         granted_perks=list(u.granted_perks or []),
         birthday=u.birthday.isoformat() if u.birthday else None,
         steam_id=u.steam_id,
+        bonus_xp=u.bonus_xp,
+        case_keys=u.case_keys,
         nick_color=u.nick_color,
         avatar_glow_color=u.avatar_glow_color,
     )

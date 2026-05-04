@@ -12,6 +12,7 @@ from app.routers import (
     admin,
     attachments,
     auth,
+    cases,
     forum,
     health,
     notifications,
@@ -63,6 +64,7 @@ app.include_router(notifications.router)
 app.include_router(attachments.router)
 app.include_router(steam.router)
 app.include_router(quests.router)
+app.include_router(cases.router)
 
 
 @app.get("/", include_in_schema=False)

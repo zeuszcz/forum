@@ -1,6 +1,6 @@
 "use client";
 
-import { Command, LogOut, Plus, Shield, User as UserIcon } from "lucide-react";
+import { Command, Key, LogOut, Plus, Shield, User as UserIcon } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
@@ -17,6 +17,7 @@ import { cn } from "@/lib/utils";
 const NAV = [
   { href: "/", label: "Главная" },
   { href: "/f/general", label: "Общение" },
+  { href: "/cases", label: "Кейсы" },
   { href: "/f/ban-appeals", label: "Бан-апелляции" },
   { href: "/f/player-reports", label: "Жалобы" },
 ];
@@ -104,6 +105,16 @@ export function Header() {
                   </Link>
                 </Button>
               </MagneticButton>
+              {(user.case_keys ?? 0) > 0 && (
+                <Link
+                  href="/cases"
+                  title="Ключи от кейсов"
+                  className="hidden h-9 items-center gap-1.5 rounded-md border border-flame/40 bg-flame/10 px-2.5 font-mono text-xs font-bold text-flame transition-colors hover:bg-flame/20 sm:inline-flex"
+                >
+                  <Key className="h-3.5 w-3.5" />
+                  {user.case_keys}
+                </Link>
+              )}
               <NotificationCenter />
               <Link
                 href={`/u/${user.nickname}`}

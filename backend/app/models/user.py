@@ -62,6 +62,10 @@ class User(Base, TimestampMixin):
     # Added to the level computation alongside post/reaction-derived XP.
     bonus_xp: Mapped[int] = mapped_column(default=0, nullable=False)
 
+    # Cached counter of unspent case keys (migration 20260504_1300).
+    # Authoritative source is the `user_keys` table; this is just a fast count.
+    case_keys: Mapped[int] = mapped_column(default=0, nullable=False)
+
     # Custom personal colors (migration 20260503_2200) — gated by perks at API level
     # nick_color requires `glow_nick`; avatar_glow_color requires `animated_frame`
     nick_color: Mapped[str | None] = mapped_column(String(9), nullable=True)

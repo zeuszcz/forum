@@ -94,11 +94,23 @@ async def _bump_kind(
             DailyQuest.requirement_kind == kind,
         )
     )
+    completed_any = False
     for uq, q in rows.all():
         uq.progress = min(q.requirement_value, uq.progress + delta)
         if uq.progress >= q.requirement_value:
             uq.completed_at = datetime.now(UTC)
             user.bonus_xp = (user.bonus_xp or 0) + (q.reward_xp or 0)
+            completed_any = True
+
+    # If we just completed a quest, check if ALL today's quests are done
+    # and grant a case key (once per day).
+    if completed_any:
+        try:
+            from app.services import cases as case_service
+
+            await case_service.maybe_grant_key_for_quest_completion(db, user)
+        except Exception:  # noqa: BLE001
+            pass
 
 
 async def bump_post_count(db: AsyncSession, user: User) -> None:
