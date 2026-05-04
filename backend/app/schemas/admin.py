@@ -33,6 +33,10 @@ class AdminUserRead(BaseModel):
     roles: list[RoleRead] = []
     granted_perks: list[str] = []
 
+    # Quest/case economy — visible in admin panel for inspection / grants
+    case_keys: int = 0
+    bonus_xp: int = 0
+
 
 class AdminUsersResponse(BaseModel):
     users: list[AdminUserRead]
@@ -67,6 +71,12 @@ class DeletePostRequest(BaseModel):
 class PerksUpdate(BaseModel):
     """Replace user's granted_perks with this list. Whitelist enforced server-side."""
     perks: list[str] = Field(default_factory=list)
+
+
+class KeysGrantRequest(BaseModel):
+    """Grant N case keys to a user. Negative = revoke."""
+    amount: int = Field(ge=-100, le=100)
+    reason: str | None = Field(default=None, max_length=120)
 
 
 class ModerationLogRead(BaseModel):

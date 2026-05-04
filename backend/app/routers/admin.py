@@ -16,6 +16,7 @@ from app.schemas.admin import (
     AdminUsersResponse,
     BanRequest,
     DeletePostRequest,
+    KeysGrantRequest,
     ModerationLogRead,
     MuteRequest,
     PerksUpdate,
@@ -104,6 +105,8 @@ async def _serialize_admin_user(db, user: User) -> AdminUserRead:
         can_create_threads=user.can_create_threads,
         roles=[RoleRead.model_validate(r) for r in roles],
         granted_perks=list(user.granted_perks or []),
+        case_keys=user.case_keys,
+        bonus_xp=user.bonus_xp,
     )
 
 
@@ -470,6 +473,66 @@ async def set_user_perks(
             target_user_id=target.id,
             action="perks_granted",
             reason=", ".join(new_perks) if new_perks else "—",
+        )
+    )
+    await db.commit()
+    await db.refresh(target)
+    return await _serialize_admin_user(db, target)
+
+
+@router.post("/users/{user_id}/keys", response_model=AdminUserRead)
+async def grant_user_keys(
+    user_id: int,
+    payload: KeysGrantRequest,
+    actor: PerksActor,
+    db: DbSession,
+) -> AdminUserRead:
+    """Grant or revoke case keys. Positive amount adds N audit rows in
+    user_keys + bumps the cached counter. Negative consumes the oldest
+    unspent keys (effective revoke), capped at the user's current count."""
+    from datetime import UTC, datetime
+
+    from app.models.case import UserKey
+    from app.models.moderation import ModerationLog
+    from sqlalchemy import select as _select
+
+    target = await admin_service.get_user_or_404(db, user_id)
+    delta = payload.amount
+
+    if delta == 0:
+        return await _serialize_admin_user(db, target)
+
+    if delta > 0:
+        now = datetime.now(UTC)
+        for _ in range(delta):
+            db.add(
+                UserKey(
+                    user_id=target.id,
+                    granted_for=f"admin:{payload.reason or 'manual'}",
+                    granted_at=now,
+                )
+            )
+        target.case_keys = (target.case_keys or 0) + delta
+    else:
+        # Revoke: consume up to |delta| oldest unspent keys
+        revoke_n = min(-delta, target.case_keys or 0)
+        if revoke_n > 0:
+            keys_q = await db.execute(
+                _select(UserKey)
+                .where(UserKey.user_id == target.id, UserKey.consumed_at.is_(None))
+                .order_by(UserKey.granted_at)
+                .limit(revoke_n)
+            )
+            for k in keys_q.scalars().all():
+                k.consumed_at = datetime.now(UTC)
+            target.case_keys = max(0, (target.case_keys or 0) - revoke_n)
+
+    db.add(
+        ModerationLog(
+            actor_id=actor.id,
+            target_user_id=target.id,
+            action="keys_granted" if delta > 0 else "keys_revoked",
+            reason=f"{delta:+d} ключ(а): {payload.reason or '—'}",
         )
     )
     await db.commit()

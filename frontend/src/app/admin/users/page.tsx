@@ -89,18 +89,28 @@ export default async function UsersAdminPage({
                 return (
                   <tr key={u.id} className="transition-colors hover:bg-void/40">
                     <td className="px-4 py-3">
-                      <Link
-                        href={`/u/${u.nickname}`}
-                        className="inline-flex items-center gap-2"
-                      >
-                        <LetterAvatar nickname={u.nickname} size={28} />
-                        <span
-                          className="font-semibold"
-                          style={{ color: nickColor(u) }}
+                      <div className="inline-flex items-center gap-2">
+                        <Link
+                          href={`/u/${u.nickname}`}
+                          className="inline-flex items-center gap-2"
                         >
-                          {u.nickname}
-                        </span>
-                      </Link>
+                          <LetterAvatar nickname={u.nickname} size={28} />
+                          <span
+                            className="font-semibold"
+                            style={{ color: nickColor(u) }}
+                          >
+                            {u.nickname}
+                          </span>
+                        </Link>
+                        {(u.case_keys ?? 0) > 0 && (
+                          <span
+                            title={`${u.case_keys} ключ(а) кейсов`}
+                            className="inline-flex items-center gap-1 rounded-md border border-flame/40 bg-flame/10 px-1.5 py-px font-mono text-[10px] font-bold text-flame"
+                          >
+                            🗝 {u.case_keys}
+                          </span>
+                        )}
+                      </div>
                     </td>
                     <td className="px-4 py-3 text-xs text-smoke hidden md:table-cell">
                       {u.email ?? "—"}

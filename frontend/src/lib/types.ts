@@ -269,6 +269,8 @@ export interface AdminUserRead {
   can_create_threads: boolean;
   roles: Role[];
   granted_perks: string[];
+  case_keys?: number;
+  bonus_xp?: number;
 }
 
 export interface AdminPermissions {

@@ -5,6 +5,7 @@ import { motion } from "framer-motion";
 import {
   Ban,
   Check,
+  Key,
   KeyRound,
   Lock,
   MicOff,
@@ -30,7 +31,7 @@ interface UserActionsProps {
   user: AdminUserRead;
 }
 
-type Dialog = "ban" | "mute" | "roles" | "perks" | null;
+type Dialog = "ban" | "mute" | "roles" | "perks" | "keys" | null;
 
 const PRESET_DURATIONS = [
   { label: "1ч", h: 1 },
@@ -133,6 +134,13 @@ export function UserActions({ user }: UserActionsProps) {
     close();
   }
 
+  async function applyKeys(amount: number, reasonText: string) {
+    await call(`/admin/users/${user.id}/keys`, { amount, reason: reasonText || null });
+    const sign = amount > 0 ? "+" : "";
+    toast.success(`Ключи: ${sign}${amount}`);
+    close();
+  }
+
   return (
     <>
       <DropdownMenu.Root>
@@ -178,6 +186,14 @@ export function UserActions({ user }: UserActionsProps) {
               <Item icon={Sparkles} onSelect={() => setDialog("perks")} disabled={pending}>
                 Выдать перки…
               </Item>
+              <Item icon={Key} onSelect={() => setDialog("keys")} disabled={pending}>
+                Ключи кейсов…
+                {(user.case_keys ?? 0) > 0 && (
+                  <span className="ml-auto font-mono text-[10px] text-flame">
+                    {user.case_keys}
+                  </span>
+                )}
+              </Item>
               <DropdownMenu.Separator className="my-1 h-px bg-white/5" />
               <Item
                 icon={user.can_create_threads ? Lock : Unlock}
@@ -212,6 +228,15 @@ export function UserActions({ user }: UserActionsProps) {
           userRoleSlugs={userRoleSlugs}
           pending={pending}
           onToggle={toggleRole}
+          onClose={close}
+        />
+      )}
+
+      {dialog === "keys" && (
+        <KeysDialog
+          user={user}
+          pending={pending}
+          onApply={applyKeys}
           onClose={close}
         />
       )}
@@ -572,6 +597,127 @@ function PerksDialog({
           disabled={!dirty || pending}
         >
           {pending ? "Применяю…" : "Сохранить"}
+        </Button>
+      </div>
+    </ModalShell>
+  );
+}
+
+function KeysDialog({
+  user,
+  pending,
+  onApply,
+  onClose,
+}: {
+  user: AdminUserRead;
+  pending: boolean;
+  onApply: (amount: number, reason: string) => Promise<void>;
+  onClose: () => void;
+}) {
+  const [amount, setAmount] = useState<number>(1);
+  const [reason, setReason] = useState("");
+
+  const presets = [1, 3, 5, 10, -1];
+
+  return (
+    <ModalShell
+      title={`Ключи кейсов ${user.nickname}`}
+      accent="flame"
+      onClose={onClose}
+    >
+      <div className="space-y-4 p-5">
+        <div className="rounded-md border border-flame/30 bg-flame/5 p-3">
+          <div className="flex items-baseline justify-between">
+            <span className="text-[10px] font-semibold uppercase tracking-widest text-smoke">
+              сейчас у юзера
+            </span>
+            <span className="font-mono text-2xl font-bold text-flame">
+              {user.case_keys ?? 0}
+            </span>
+          </div>
+          <p className="mt-1.5 text-[11px] text-smoke">
+            Положительное число — выдать ключи. Отрицательное — отозвать
+            (списываются самые старые невыпотраченные).
+          </p>
+        </div>
+
+        <div className="space-y-2">
+          <label className="text-[10px] font-semibold uppercase tracking-widest text-smoke">
+            Количество (±)
+          </label>
+          <div className="flex flex-wrap gap-1.5">
+            {presets.map((n) => (
+              <button
+                key={n}
+                type="button"
+                onClick={() => setAmount(n)}
+                className={cn(
+                  "rounded-md border px-3 py-1.5 font-mono text-xs transition-colors",
+                  amount === n
+                    ? n < 0
+                      ? "border-ember bg-ember/15 text-ember"
+                      : "border-flame bg-flame/15 text-flame"
+                    : "border-border bg-card text-ash hover:border-flame/40 hover:bg-flame/5",
+                )}
+              >
+                {n > 0 ? `+${n}` : n}
+              </button>
+            ))}
+          </div>
+          <Input
+            type="number"
+            value={amount}
+            onChange={(e) => {
+              const v = parseInt(e.target.value || "0", 10);
+              setAmount(Math.max(-100, Math.min(100, isNaN(v) ? 0 : v)));
+            }}
+            min={-100}
+            max={100}
+            className="font-mono"
+          />
+        </div>
+
+        <div className="space-y-2">
+          <label className="text-[10px] font-semibold uppercase tracking-widest text-smoke">
+            Причина (опционально)
+          </label>
+          <Input
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+            maxLength={120}
+            placeholder="напр. победа в розыгрыше, компенсация за бан…"
+          />
+          <p className="text-[10px] text-smoke">
+            Сохраняется в moderation log + audit row user_keys.granted_for
+          </p>
+        </div>
+
+        <div className="rounded-md border border-border bg-void/40 px-3 py-2 text-[11px] text-smoke">
+          После применения у юзера станет:{" "}
+          <span className="font-mono font-bold text-flame">
+            {Math.max(0, (user.case_keys ?? 0) + amount)}
+          </span>{" "}
+          {amount < 0 && (user.case_keys ?? 0) + amount < 0 && (
+            <span className="text-ember">
+              (отзыв ограничен текущим балансом)
+            </span>
+          )}
+        </div>
+      </div>
+      <div className="flex items-center justify-end gap-2 border-t border-white/5 bg-void/40 px-5 py-3">
+        <Button variant="ghost" onClick={onClose} disabled={pending}>
+          Отмена
+        </Button>
+        <Button
+          variant="gradient"
+          onClick={() => onApply(amount, reason)}
+          disabled={amount === 0 || pending}
+        >
+          {pending
+            ? "Применяю…"
+            : amount > 0
+              ? `Выдать +${amount}`
+              : `Отозвать ${amount}`}
         </Button>
       </div>
     </ModalShell>
