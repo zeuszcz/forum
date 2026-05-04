@@ -25,8 +25,11 @@ from app.models.user import User
 
 
 async def list_cases(db: AsyncSession) -> list[Case]:
+    # Cheapest cases first so newcomers see what they can afford
     rows = await db.execute(
-        select(Case).where(Case.is_active.is_(True)).order_by(Case.id)
+        select(Case)
+        .where(Case.is_active.is_(True))
+        .order_by(Case.key_cost, Case.id)
     )
     return list(rows.scalars().all())
 
@@ -98,6 +101,18 @@ async def open_case(db: AsyncSession, user: User, case_id: int) -> dict:
         if item.reward_payload not in granted:
             granted.append(item.reward_payload)
             user.granted_perks = granted
+    elif item.reward_kind == "keys":
+        # Refund keys: grant N more case_keys (recursive opens possible).
+        # Each refunded key gets its own audit row.
+        for _ in range(item.reward_value or 0):
+            db.add(
+                UserKey(
+                    user_id=user.id,
+                    granted_for=f"case_drop:{case.slug}",
+                    granted_at=now,
+                )
+            )
+        user.case_keys = (user.case_keys or 0) + (item.reward_value or 0)
 
     # Log
     db.add(
