@@ -65,9 +65,17 @@ function MentionLink({ nickname }: { nickname: string }) {
  */
 function preprocess(input: string): string {
   return input
-    // TipTap: `<span style="color: #xxx">…</span>` → data-color
-    .replace(/<span\s+style="color:\s*([^;"]+);?\s*"\s*>/gi, (_m, c) => {
-      return `<span data-color="${String(c).trim()}">`;
+    // TipTap (any `<span style="…">`): extract color into a data attribute
+    // so sanitize never sees raw `style`. Other CSS props are dropped on
+    // purpose — only `color` is honoured by the renderer below.
+    .replace(/<span\s+style="([^"]*)"\s*>/gi, (_m, css) => {
+      const colorMatch = String(css).match(
+        /color\s*:\s*(#[0-9a-fA-F]{3,8}|rgb\([^)]+\)|rgba\([^)]+\))/i,
+      );
+      if (colorMatch) {
+        return `<span data-color="${colorMatch[1].trim()}">`;
+      }
+      return `<span>`;
     })
     // Legacy bracket tags
     .replace(/\[color:(#[0-9a-fA-F]{3,8})\](.+?)\[\/color\]/gs, (_m, c, t) => {
@@ -82,15 +90,14 @@ function preprocess(input: string): string {
 }
 
 // Extend default sanitize schema: allow our data-* on span, plus img sizing.
+// `data*` glob covers any data-color / data-size / data-deco attribute.
 const sanitizeSchema = {
   ...defaultSchema,
   attributes: {
     ...defaultSchema.attributes,
     span: [
       ...(defaultSchema.attributes?.span ?? []),
-      "dataColor",
-      "dataSize",
-      "dataDeco",
+      "data*",
     ],
     img: [
       ...(defaultSchema.attributes?.img ?? []),
@@ -295,8 +302,15 @@ export function MarkdownRenderer({
             const dataDeco = (props as Record<string, unknown>)["data-deco"];
 
             const style: React.CSSProperties = {};
-            if (typeof dataColor === "string" && /^#[0-9a-fA-F]{3,8}$/.test(dataColor)) {
-              style.color = dataColor;
+            if (typeof dataColor === "string") {
+              // Accept hex (#rgb/#rrggbb/#rrggbbaa) or plain rgb()/rgba() —
+              // both come from native color pickers / TipTap.
+              if (
+                /^#[0-9a-fA-F]{3,8}$/.test(dataColor) ||
+                /^rgba?\(\s*\d+\s*,\s*\d+\s*,\s*\d+\s*(?:,\s*[0-9.]+\s*)?\)$/i.test(dataColor)
+              ) {
+                style.color = dataColor;
+              }
             }
             if (typeof dataSize === "string" && /^\d{1,2}$/.test(dataSize)) {
               const px = Math.min(32, Math.max(10, parseInt(dataSize, 10)));
