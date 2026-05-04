@@ -14,6 +14,8 @@ interface AvatarRingProps {
   showLevel?: boolean;
   /** Custom outer glow halo color (e.g. user's avatar_glow_color). Null = no halo. */
   glowColor?: string | null;
+  /** Uploaded avatar URL — passed through to LetterAvatar. */
+  avatarUrl?: string | null;
 }
 
 /**
@@ -29,6 +31,7 @@ export function AvatarRing({
   color,
   showLevel = true,
   glowColor = null,
+  avatarUrl = null,
 }: AvatarRingProps) {
   const stroke = Math.max(2, Math.round(size * 0.04));
   const ringSize = size + stroke * 4;
@@ -85,7 +88,7 @@ export function AvatarRing({
         className="absolute"
         style={{ top: stroke * 2, left: stroke * 2, width: size, height: size }}
       >
-        <LetterAvatar nickname={nickname} size={size} />
+        <LetterAvatar nickname={nickname} size={size} avatarUrl={avatarUrl} />
       </div>
       {showLevel && (
         <span

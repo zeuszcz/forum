@@ -94,13 +94,22 @@ async def open_case(db: AsyncSession, user: User, case_id: int) -> dict:
     item = _weighted_pick(items)
 
     # Apply reward
+    expires_at: datetime | None = None
     if item.reward_kind == "xp":
         user.bonus_xp = (user.bonus_xp or 0) + (item.reward_value or 0)
     elif item.reward_kind == "perk" and item.reward_payload:
-        granted = list(user.granted_perks or [])
-        if item.reward_payload not in granted:
-            granted.append(item.reward_payload)
-            user.granted_perks = granted
+        # Permanent grant goes into the array; time-bounded → user_perk_grants
+        from app.services import perks as perks_service
+
+        grant_row = await perks_service.grant_perk(
+            db,
+            user,
+            perk_slug=item.reward_payload,
+            duration_days=item.duration_days,
+            source=f"case:{case.slug}",
+        )
+        if grant_row is not None and grant_row.expires_at is not None:
+            expires_at = grant_row.expires_at
     elif item.reward_kind == "keys":
         # Refund keys: grant N more case_keys (recursive opens possible).
         # Each refunded key gets its own audit row.
@@ -113,11 +122,6 @@ async def open_case(db: AsyncSession, user: User, case_id: int) -> dict:
                 )
             )
         user.case_keys = (user.case_keys or 0) + (item.reward_value or 0)
-    elif item.reward_kind == "title" and item.reward_payload:
-        # Pre-made vanity title — overwrite user's current title with the
-        # payload string. Bypasses the lvl-25 custom_title gate since it's
-        # an admin-curated cosmetic, not free-text input.
-        user.title = item.reward_payload[:80]
 
     # Log
     db.add(
@@ -144,6 +148,8 @@ async def open_case(db: AsyncSession, user: User, case_id: int) -> dict:
             "reward_value": item.reward_value,
             "reward_payload": item.reward_payload,
             "icon_color": item.icon_color,
+            "duration_days": item.duration_days,
+            "expires_at": expires_at.isoformat() if expires_at else None,
         },
         "remaining_keys": user.case_keys,
         "bonus_xp": user.bonus_xp,

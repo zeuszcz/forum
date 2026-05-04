@@ -175,13 +175,52 @@ async def update_me(payload: UserProfileUpdate, user: CurrentUser, db: DbSession
                 )
             user.avatar_glow_color = _validate_hex(s, "avatar_glow_color")
 
+    # Image URLs — must point to our /api/attachments/ namespace to prevent
+    # arbitrary external URLs (which could leak referrer info or fail to load).
+    def _validate_attachment_url(raw: str, label: str) -> str:
+        if not raw.startswith("/api/attachments/"):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"{label}: загрузи через нашу форму, внешние URL не принимаются",
+            )
+        return raw
+
+    if payload.avatar_url is not None:
+        s = payload.avatar_url.strip()
+        if s == "":
+            user.avatar_url = None
+        else:
+            user.avatar_url = _validate_attachment_url(s, "avatar_url")
+
+    if payload.profile_banner_url is not None:
+        s = payload.profile_banner_url.strip()
+        if s == "":
+            user.profile_banner_url = None
+        else:
+            # Banner is perk-gated — granted via case drop or admin.
+            from app.services import perks as perks_service
+
+            effective = await perks_service.effective_perk_slugs(db, user)
+            if "profile_banner" not in effective and not is_staff:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Баннер профиля — выпадает в кейсах или выдаёт админ",
+                )
+            user.profile_banner_url = _validate_attachment_url(s, "profile_banner_url")
+
     await db.commit()
     await db.refresh(user)
+
+    from app.services import perks as perks_service
+
+    eff_slugs = await perks_service.effective_perk_slugs(db, user)
+    eff_grants = await perks_service.perk_grants_for_api(db, user)
 
     return UserPublic(
         id=user.id,
         nickname=user.nickname,
         avatar_url=user.avatar_url,
+        profile_banner_url=user.profile_banner_url,
         title=user.title,
         bio=user.bio,
         is_active=user.is_active,
@@ -191,7 +230,8 @@ async def update_me(payload: UserProfileUpdate, user: CurrentUser, db: DbSession
         total_posts=user.total_posts,
         total_reactions_received=user.total_reactions_received,
         thanks_received=user.thanks_received,
-        granted_perks=list(user.granted_perks or []),
+        granted_perks=eff_slugs,
+        perk_grants=eff_grants,
         birthday=user.birthday.isoformat() if user.birthday else None,
         steam_id=user.steam_id,
         bonus_xp=user.bonus_xp,
@@ -582,15 +622,20 @@ async def get_user_activity(
 
 @router.get("/{nickname}", response_model=UserPublic)
 async def get_user(nickname: str, db: DbSession) -> UserPublic:
+    from app.services import perks as perks_service
+
     result = await db.execute(select(User).where(User.nickname == nickname))
     u = result.scalar_one_or_none()
     if u is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Пользователь не найден")
     roles = await auth_service.get_user_roles(db, u.id)
+    eff_slugs = await perks_service.effective_perk_slugs(db, u)
+    eff_grants = await perks_service.perk_grants_for_api(db, u)
     return UserPublic(
         id=u.id,
         nickname=u.nickname,
         avatar_url=u.avatar_url,
+        profile_banner_url=u.profile_banner_url,
         title=u.title,
         bio=u.bio,
         is_active=u.is_active,
@@ -600,7 +645,8 @@ async def get_user(nickname: str, db: DbSession) -> UserPublic:
         total_posts=u.total_posts,
         total_reactions_received=u.total_reactions_received,
         thanks_received=u.thanks_received,
-        granted_perks=list(u.granted_perks or []),
+        granted_perks=eff_slugs,
+        perk_grants=eff_grants,
         birthday=u.birthday.isoformat() if u.birthday else None,
         steam_id=u.steam_id,
         bonus_xp=u.bonus_xp,

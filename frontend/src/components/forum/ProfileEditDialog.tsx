@@ -3,6 +3,7 @@
 import { motion } from "framer-motion";
 import { Check, Lock, Pencil, Sparkles, X } from "lucide-react";
 import { useRouter } from "next/navigation";
+import * as React from "react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
@@ -46,6 +47,8 @@ function ProfileEditDialog({
   const [birthday, setBirthday] = useState(user.birthday ?? "");
   const [nickColor, setNickColor] = useState(user.nick_color ?? "");
   const [glowColor, setGlowColor] = useState(user.avatar_glow_color ?? "");
+  const [avatarUrl, setAvatarUrl] = useState(user.avatar_url ?? "");
+  const [bannerUrl, setBannerUrl] = useState(user.profile_banner_url ?? "");
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -62,6 +65,8 @@ function ProfileEditDialog({
         setBirthday(fresh.birthday ?? "");
         setNickColor(fresh.nick_color ?? "");
         setGlowColor(fresh.avatar_glow_color ?? "");
+        setAvatarUrl(fresh.avatar_url ?? "");
+        setBannerUrl(fresh.profile_banner_url ?? "");
       })
       .catch(() => {});
     return () => {
@@ -85,10 +90,18 @@ function ProfileEditDialog({
       const body: Record<string, string | null> = {
         bio: bio.trim() || null,
         birthday: birthday.trim() || "",
+        avatar_url: avatarUrl.trim() === (user.avatar_url ?? "") ? null : (avatarUrl.trim() || ""),
+        profile_banner_url:
+          bannerUrl.trim() === (user.profile_banner_url ?? "")
+            ? null
+            : (bannerUrl.trim() || ""),
       };
       if (titleUnlocked) body.title = title.trim() || null;
       if (nickColorUnlocked) body.nick_color = nickColor.trim() || "";
       if (glowColorUnlocked) body.avatar_glow_color = glowColor.trim() || "";
+      // Drop unchanged URL fields (null → don't touch on backend)
+      if (body.avatar_url === null) delete body.avatar_url;
+      if (body.profile_banner_url === null) delete body.profile_banner_url;
       await api<UserPublic>("/users/me", {
         method: "PATCH",
         body: JSON.stringify(body),
@@ -134,6 +147,27 @@ function ProfileEditDialog({
         </header>
 
         <div className="grid flex-1 grid-cols-1 gap-5 overflow-y-auto p-5 md:grid-cols-2">
+          <ImageUploadRow
+            label="Аватар"
+            value={avatarUrl}
+            onChange={setAvatarUrl}
+            unlocked={true}
+            hint="Любой PNG/JPEG/WebP до 8 МБ"
+            mode="avatar"
+            nickname={me.nickname}
+          />
+
+          <ImageUploadRow
+            label="Баннер профиля"
+            value={bannerUrl}
+            onChange={setBannerUrl}
+            unlocked={hasPerk(me, "profile_banner")}
+            hint="Большая картинка над хедером профиля. Перк выпадает в кейсах."
+            unlockHint="Открой в кейсе или попроси у админа"
+            mode="banner"
+            nickname={me.nickname}
+          />
+
           <div className="space-y-2 md:col-span-2">
             <label className="text-[10px] font-semibold uppercase tracking-widest text-smoke">
               О себе (bio)
@@ -340,6 +374,148 @@ function ColorPickerRow({
       {!unlocked && (
         <p className="text-[10px] text-smoke">{unlockHint}</p>
       )}
+    </div>
+  );
+}
+
+function ImageUploadRow({
+  label,
+  value,
+  onChange,
+  unlocked,
+  hint,
+  unlockHint,
+  mode,
+  nickname,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  unlocked: boolean;
+  hint: string;
+  unlockHint?: string;
+  mode: "avatar" | "banner";
+  nickname: string;
+}) {
+  const [uploading, setUploading] = useState(false);
+  const fileRef = React.useRef<HTMLInputElement | null>(null);
+  const apiBase = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+
+  async function handleFile(file: File) {
+    setUploading(true);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      const res = await fetch(`${apiBase}/attachments`, {
+        method: "POST",
+        body: fd,
+        credentials: "include",
+      });
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        throw new ApiError(res.status, j.detail ?? res.statusText);
+      }
+      const { url } = (await res.json()) as { url: string };
+      onChange(url);
+      toast.success(mode === "avatar" ? "Аватар загружен" : "Баннер загружен");
+    } catch (err) {
+      toast.error(err instanceof ApiError ? err.detail : "Не удалось загрузить");
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  const previewUrl = value.startsWith("/api/") ? value : value;
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between">
+        <label className="text-[10px] font-semibold uppercase tracking-widest text-smoke">
+          {label}
+        </label>
+        {unlocked ? (
+          <span className="inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-widest text-plasma">
+            <Sparkles className="h-3 w-3" />
+            доступно
+          </span>
+        ) : (
+          <span className="inline-flex items-center gap-1 text-[10px] uppercase tracking-widest text-smoke">
+            <Lock className="h-3 w-3" />
+            закрыто
+          </span>
+        )}
+      </div>
+      <div
+        className={cn(
+          "flex items-center gap-3 rounded-md border border-border bg-void/40 p-3",
+          !unlocked && "opacity-50",
+        )}
+      >
+        {mode === "avatar" ? (
+          previewUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={previewUrl}
+              alt="avatar"
+              className="h-14 w-14 rounded-full border border-border object-cover"
+            />
+          ) : (
+            <div className="flex h-14 w-14 items-center justify-center rounded-full border border-dashed border-border bg-card text-lg font-bold text-bone">
+              {nickname[0]?.toUpperCase()}
+            </div>
+          )
+        ) : previewUrl ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={previewUrl}
+            alt="banner"
+            className="h-14 w-24 rounded-md border border-border object-cover"
+          />
+        ) : (
+          <div className="flex h-14 w-24 items-center justify-center rounded-md border border-dashed border-border bg-card text-[10px] text-smoke">
+            нет
+          </div>
+        )}
+        <div className="min-w-0 flex-1 space-y-1">
+          <button
+            type="button"
+            onClick={() => fileRef.current?.click()}
+            disabled={!unlocked || uploading}
+            className={cn(
+              "inline-flex items-center gap-1.5 rounded-md border border-cyan/40 bg-cyan/10 px-3 py-1.5 text-xs font-semibold text-cyan transition-colors",
+              !unlocked || uploading
+                ? "cursor-not-allowed opacity-50"
+                : "hover:bg-cyan/20",
+            )}
+          >
+            <Sparkles className="h-3 w-3" />
+            {uploading ? "Загружаем…" : value ? "Заменить" : "Загрузить"}
+          </button>
+          {value && unlocked && (
+            <button
+              type="button"
+              onClick={() => onChange("")}
+              className="ml-2 text-[10px] uppercase tracking-widest text-smoke hover:text-bone"
+            >
+              убрать
+            </button>
+          )}
+          <p className="text-[10px] text-smoke">
+            {unlocked ? hint : unlockHint || hint}
+          </p>
+        </div>
+      </div>
+      <input
+        ref={fileRef}
+        type="file"
+        accept="image/png,image/jpeg,image/webp,image/gif"
+        className="hidden"
+        onChange={(e) => {
+          const f = e.target.files?.[0];
+          if (f) handleFile(f);
+          e.target.value = "";
+        }}
+      />
     </div>
   );
 }

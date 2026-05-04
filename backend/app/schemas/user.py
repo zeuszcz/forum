@@ -17,12 +17,20 @@ class RoleRead(BaseModel):
     affiliation_tag: str | None = None
 
 
+class PerkGrantOut(BaseModel):
+    """Active perk grant — either permanent (expires_at=None) or time-bounded."""
+    slug: str
+    expires_at: str | None = None
+    source: str | None = None
+
+
 class UserPublic(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
     nickname: str
     avatar_url: str | None = None
+    profile_banner_url: str | None = None
     title: str | None = None
     bio: str | None = None
     is_active: bool
@@ -37,8 +45,11 @@ class UserPublic(BaseModel):
     # as a separate reputation metric in profile/post sidebars.
     thanks_received: int = 0
 
-    # Manually-granted perks that bypass level requirements
+    # Effective perks — union of permanent (users.granted_perks) + active
+    # time-bounded grants from user_perk_grants.
     granted_perks: list[str] = []
+    # Structured grants list with expiration metadata for countdowns
+    perk_grants: list[PerkGrantOut] = []
 
     # ISO date string YYYY-MM-DD if user has set their birthday
     birthday: str | None = None
@@ -72,3 +83,7 @@ class UserProfileUpdate(BaseModel):
     # Hex colors "#RRGGBB" or "#RRGGBBAA" — empty string clears, None = no change
     nick_color: str | None = Field(default=None, max_length=9)
     avatar_glow_color: str | None = Field(default=None, max_length=9)
+    # Image URLs — empty string clears, None = no change. Must come from our
+    # /attachments endpoint (validated in router).
+    avatar_url: str | None = Field(default=None, max_length=512)
+    profile_banner_url: str | None = Field(default=None, max_length=512)

@@ -9,6 +9,8 @@ interface LetterAvatarProps {
   className?: string;
   /** Custom outer glow halo (typically `avatarGlowColor(user)`). Null = no halo. */
   glowColor?: string | null;
+  /** Uploaded avatar URL — when present, renders as <img> instead of the letter. */
+  avatarUrl?: string | null;
 }
 
 /**
@@ -21,10 +23,23 @@ export function LetterAvatar({
   size = 40,
   className,
   glowColor = null,
+  avatarUrl = null,
 }: LetterAvatarProps) {
   const letter = (nickname[0] ?? "?").toUpperCase();
   const hue = nicknameHue(nickname);
-  const avatar = (
+  const avatar = avatarUrl ? (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      src={avatarUrl}
+      alt={nickname}
+      className={cn(
+        "relative shrink-0 rounded-full border border-border object-cover",
+        className,
+      )}
+      style={{ width: size, height: size }}
+      aria-hidden="true"
+    />
+  ) : (
     <div
       className={cn(
         "relative flex shrink-0 items-center justify-center rounded-full font-semibold text-white shadow-inner",

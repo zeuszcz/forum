@@ -44,6 +44,9 @@ class CaseItem(Base, TimestampMixin):
     reward_value: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     reward_payload: Mapped[str | None] = mapped_column(String(64), nullable=True)
     icon_color: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    # Duration in days for perk-kind rewards. NULL = permanent. 7/30/90 used for
+    # rotating server privileges + cosmetics.
+    duration_days: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
 
 class UserKey(Base, TimestampMixin):

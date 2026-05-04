@@ -18,6 +18,7 @@ interface CaseItemDef {
   reward_value: number;
   reward_payload: string | null;
   icon_color: string | null;
+  duration_days?: number | null;
 }
 interface CaseDef {
   id: number;
@@ -32,7 +33,7 @@ interface CaseDef {
 
 interface OpenResult {
   case: { id: number; slug: string; title: string };
-  reward: CaseItemDef;
+  reward: CaseItemDef & { expires_at?: string | null };
   remaining_keys: number;
   bonus_xp: number;
 }
@@ -232,6 +233,21 @@ function DropModal({
             {result.reward.rarity}
           </p>
           <h3 className="mt-1 text-xl font-bold text-bone">{result.reward.title}</h3>
+          {result.reward.expires_at && (
+            <p className="mt-2 inline-block rounded-md border border-cyan/40 bg-cyan/10 px-2.5 py-0.5 font-mono text-[11px] text-cyan">
+              действует до{" "}
+              {new Date(result.reward.expires_at).toLocaleDateString("ru-RU", {
+                day: "2-digit",
+                month: "short",
+                year: "numeric",
+              })}
+            </p>
+          )}
+          {result.reward.reward_kind === "perk" && !result.reward.expires_at && (
+            <p className="mt-2 inline-block rounded-md border border-flame/40 bg-flame/10 px-2.5 py-0.5 font-mono text-[11px] text-flame">
+              навсегда ∞
+            </p>
+          )}
           <p className="mt-3 text-xs text-smoke">из «{result.case.title}»</p>
         </div>
 

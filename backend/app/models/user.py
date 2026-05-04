@@ -19,6 +19,7 @@ class User(Base, TimestampMixin):
     steam_id: Mapped[str | None] = mapped_column(String(32), unique=True, nullable=True, index=True)
 
     avatar_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    profile_banner_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
     title: Mapped[str | None] = mapped_column(String(80), nullable=True)
     bio: Mapped[str | None] = mapped_column(String(1024), nullable=True)
     signature: Mapped[str | None] = mapped_column(String(1024), nullable=True)

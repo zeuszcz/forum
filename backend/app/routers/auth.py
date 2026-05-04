@@ -24,11 +24,16 @@ def _set_session_cookie(response: Response, token: str) -> None:
 
 
 async def _serialize_user(db, user) -> UserPublic:
+    from app.services import perks as perks_service
+
     roles = await auth_service.get_user_roles(db, user.id)
+    slugs = await perks_service.effective_perk_slugs(db, user)
+    grants = await perks_service.perk_grants_for_api(db, user)
     return UserPublic(
         id=user.id,
         nickname=user.nickname,
         avatar_url=user.avatar_url,
+        profile_banner_url=user.profile_banner_url,
         title=user.title,
         bio=user.bio,
         is_active=user.is_active,
@@ -38,7 +43,8 @@ async def _serialize_user(db, user) -> UserPublic:
         total_posts=user.total_posts,
         total_reactions_received=user.total_reactions_received,
         thanks_received=user.thanks_received,
-        granted_perks=list(user.granted_perks or []),
+        granted_perks=slugs,
+        perk_grants=grants,
         birthday=user.birthday.isoformat() if user.birthday else None,
         steam_id=user.steam_id,
         bonus_xp=user.bonus_xp,

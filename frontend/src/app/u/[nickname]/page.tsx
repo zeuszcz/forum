@@ -72,9 +72,21 @@ export default async function UserProfilePage({
     <div className="container max-w-4xl py-6 md:py-10">
       {/* === Hero === */}
       <section className="relative overflow-hidden rounded-2xl border-2 border-plasma/30 bg-card">
-        <div className="absolute inset-0 -z-10">
-          <MeshBackground />
-        </div>
+        {user.profile_banner_url ? (
+          <div className="absolute inset-0 -z-10">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={user.profile_banner_url}
+              alt=""
+              className="h-full w-full object-cover opacity-50"
+            />
+            <div className="absolute inset-0 bg-gradient-to-b from-card/30 via-card/60 to-card" />
+          </div>
+        ) : (
+          <div className="absolute inset-0 -z-10">
+            <MeshBackground />
+          </div>
+        )}
         <div className="dotted-grid pointer-events-none absolute inset-0 -z-[5] opacity-25" />
 
         <div className="relative flex flex-wrap items-start gap-6 p-6 md:p-8">
@@ -86,6 +98,7 @@ export default async function UserProfilePage({
               percent={rank.percent}
               color={rank.color}
               glowColor={heroGlowColor}
+              avatarUrl={user.avatar_url ?? null}
             />
           </div>
 
@@ -209,23 +222,18 @@ export default async function UserProfilePage({
         </section>
       )}
 
-      {/* === Granted perks ribbon (if any) === */}
-      {user.granted_perks?.length > 0 && (
+      {/* === Active perk grants with countdown === */}
+      {user.perk_grants && user.perk_grants.length > 0 && (
         <section className="mt-4 rounded-lg border border-plasma/30 bg-plasma/5 p-4">
           <header className="flex items-center gap-2">
             <CheckCircle2 className="h-3.5 w-3.5 text-plasma" />
             <h2 className="text-[10px] font-semibold uppercase tracking-widest text-plasma">
-              Перки от админа
+              Активные привилегии
             </h2>
           </header>
           <div className="mt-2 flex flex-wrap gap-1.5">
-            {user.granted_perks.map((p) => (
-              <span
-                key={p}
-                className="rounded-md border border-plasma/40 bg-plasma/15 px-2.5 py-1 font-mono text-[11px] text-plasma"
-              >
-                {p}
-              </span>
+            {user.perk_grants.map((g) => (
+              <PerkGrantBadge key={`${g.slug}-${g.expires_at ?? "perm"}`} grant={g} />
             ))}
           </div>
         </section>
@@ -300,5 +308,68 @@ function HeroStat({
         {label}
       </div>
     </div>
+  );
+}
+
+const PERK_LABELS: Record<string, string> = {
+  glow_nick: "Свечение ника",
+  animated_frame: "Свечение аватара",
+  custom_title: "Кастомный титул",
+  profile_banner: "Баннер профиля",
+  server_vip: "VIP на сервере",
+  server_admin: "Админ на сервере",
+  server_reserved: "Резерв-слот",
+};
+
+function PerkGrantBadge({
+  grant,
+}: {
+  grant: { slug: string; expires_at: string | null };
+}) {
+  const label = PERK_LABELS[grant.slug] ?? grant.slug;
+  const isServer = grant.slug.startsWith("server_");
+  const accent = isServer ? "cyan" : "plasma";
+
+  let suffix = "";
+  if (grant.expires_at) {
+    const expires = new Date(grant.expires_at);
+    const now = Date.now();
+    const diffMs = expires.getTime() - now;
+    if (diffMs <= 0) suffix = "истёк";
+    else {
+      const days = Math.floor(diffMs / (24 * 60 * 60 * 1000));
+      if (days >= 1) suffix = `${days} дн.`;
+      else {
+        const hours = Math.max(1, Math.floor(diffMs / (60 * 60 * 1000)));
+        suffix = `${hours} ч.`;
+      }
+    }
+  }
+
+  return (
+    <span
+      className={
+        accent === "cyan"
+          ? "inline-flex items-center gap-1.5 rounded-md border border-cyan/40 bg-cyan/10 px-2.5 py-1 font-mono text-[11px] text-cyan"
+          : "inline-flex items-center gap-1.5 rounded-md border border-plasma/40 bg-plasma/15 px-2.5 py-1 font-mono text-[11px] text-plasma"
+      }
+      title={
+        grant.expires_at
+          ? `Истекает ${new Date(grant.expires_at).toLocaleString("ru-RU")}`
+          : "Постоянная"
+      }
+    >
+      {label}
+      {suffix && (
+        <span className="text-[10px] uppercase tracking-widest opacity-70">
+          {suffix}
+        </span>
+      )}
+      {!grant.expires_at && (
+        <span className="text-[10px] uppercase tracking-widest opacity-70">
+          ∞
+        </span>
+      )}
+    </span>
   );
 }

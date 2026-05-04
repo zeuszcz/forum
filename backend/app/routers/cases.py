@@ -34,6 +34,7 @@ def _serialize_item(i) -> dict:
         "reward_value": i.reward_value,
         "reward_payload": i.reward_payload,
         "icon_color": i.icon_color,
+        "duration_days": i.duration_days,
     }
 
 

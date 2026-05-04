@@ -19,6 +19,8 @@ export interface UserPublic {
   total_posts: number;
   total_reactions_received: number;
   granted_perks: string[];
+  /** Active perks with expiry metadata (permanent grants have expires_at=null). */
+  perk_grants?: { slug: string; expires_at: string | null; source?: string | null }[];
   birthday?: string | null;
   nick_color?: string | null;
   avatar_glow_color?: string | null;
@@ -26,6 +28,7 @@ export interface UserPublic {
   steam_id?: string | null;
   bonus_xp?: number;
   case_keys?: number;
+  profile_banner_url?: string | null;
 }
 
 export interface Section {
