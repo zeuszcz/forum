@@ -3,7 +3,7 @@
 import { CornerDownRight, Quote } from "lucide-react";
 import * as React from "react";
 
-const URL_RE = /(https?:\/\/[^\s<>"]+)/g;
+import { MarkdownRenderer } from "@/components/forum/MarkdownRenderer";
 
 /** Detect quote header pattern produced by ReplyForm: `> **author** написал:` */
 const QUOTE_HEADER_RE = /^>\s+\*\*(.+?)\*\*\s+(?:написал|сказал)\s*:\s*$/;
@@ -19,32 +19,38 @@ interface TextBlock {
 }
 type Block = QuoteBlock | TextBlock;
 
+/** Split body into quote-card blocks vs free-form markdown blocks. The quote
+ *  detection only fires on consecutive lines that start with `> ` AND the first
+ *  matches the legacy author-header pattern — anything else falls through to
+ *  markdown which renders `> ` as a regular blockquote. */
 function parse(body: string): Block[] {
   const lines = body.split("\n");
   const blocks: Block[] = [];
-  let cur: Block | null = null;
-  for (let i = 0; i < lines.length; i++) {
+  let i = 0;
+  while (i < lines.length) {
     const line = lines[i];
     const headerMatch = line.match(QUOTE_HEADER_RE);
     if (headerMatch) {
-      // start a new quote block
-      cur = { type: "quote", author: headerMatch[1], lines: [] };
-      blocks.push(cur);
-      continue;
-    }
-    if (line.startsWith(">")) {
-      if (!cur || cur.type !== "quote") {
-        cur = { type: "quote", author: null, lines: [] };
-        blocks.push(cur);
+      const block: QuoteBlock = {
+        type: "quote",
+        author: headerMatch[1],
+        lines: [],
+      };
+      i++;
+      while (i < lines.length && lines[i].startsWith(">")) {
+        block.lines.push(lines[i].replace(/^>\s?/, ""));
+        i++;
       }
-      cur.lines.push(line.replace(/^>\s?/, ""));
+      blocks.push(block);
       continue;
     }
-    if (!cur || cur.type !== "text") {
-      cur = { type: "text", lines: [] };
-      blocks.push(cur);
+    // Accumulate text/markdown lines until the next quote-header
+    const textBlock: TextBlock = { type: "text", lines: [] };
+    while (i < lines.length && !lines[i].match(QUOTE_HEADER_RE)) {
+      textBlock.lines.push(lines[i]);
+      i++;
     }
-    cur.lines.push(line);
+    if (textBlock.lines.length > 0) blocks.push(textBlock);
   }
   return blocks;
 }
@@ -57,22 +63,8 @@ export function PostBody({ body }: { body: string }) {
         block.type === "quote" ? (
           <QuoteCard key={idx} author={block.author} lines={block.lines} />
         ) : (
-          <TextChunk key={idx} lines={block.lines} />
+          <MarkdownRenderer key={idx} source={block.lines.join("\n")} />
         ),
-      )}
-    </div>
-  );
-}
-
-function TextChunk({ lines }: { lines: string[] }) {
-  // collapse leading/trailing blanks
-  while (lines.length && !lines[0].trim()) lines.shift();
-  while (lines.length && !lines[lines.length - 1].trim()) lines.pop();
-  if (!lines.length) return null;
-  return (
-    <div className="space-y-2 whitespace-pre-wrap">
-      {lines.map((l, i) =>
-        l.trim() ? <p key={i}>{renderInline(l)}</p> : <br key={i} />,
       )}
     </div>
   );
@@ -101,10 +93,8 @@ function QuoteCard({ author, lines }: { author: string | null; lines: string[] }
           )}
         </div>
       </header>
-      <div className="space-y-1 px-3 py-2 text-[13px] italic leading-relaxed text-ash whitespace-pre-wrap">
-        {visible.map((l, i) => (
-          <p key={i}>{renderInline(l)}</p>
-        ))}
+      <div className="px-3 py-2 text-[13px] italic leading-relaxed text-ash">
+        <MarkdownRenderer source={visible.join("\n")} />
       </div>
       {collapsedHeight && (
         <button
@@ -118,28 +108,4 @@ function QuoteCard({ author, lines }: { author: string | null; lines: string[] }
       )}
     </div>
   );
-}
-
-function renderInline(text: string): React.ReactNode {
-  const parts: React.ReactNode[] = [];
-  let lastIdx = 0;
-  let m: RegExpExecArray | null;
-  URL_RE.lastIndex = 0;
-  while ((m = URL_RE.exec(text)) !== null) {
-    if (m.index > lastIdx) parts.push(text.slice(lastIdx, m.index));
-    parts.push(
-      <a
-        key={`${m.index}-${m[0]}`}
-        href={m[0]}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="text-plasma hover:text-plasma-bright underline underline-offset-4"
-      >
-        {m[0]}
-      </a>,
-    );
-    lastIdx = m.index + m[0].length;
-  }
-  if (lastIdx < text.length) parts.push(text.slice(lastIdx));
-  return parts;
 }

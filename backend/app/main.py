@@ -10,6 +10,7 @@ from app.core.config import settings
 from app.core.logging import configure_logging, get_logger
 from app.routers import (
     admin,
+    attachments,
     auth,
     forum,
     health,
@@ -57,6 +58,7 @@ app.include_router(stats.router)
 app.include_router(admin.router)
 app.include_router(polls.router)
 app.include_router(notifications.router)
+app.include_router(attachments.router)
 
 
 @app.get("/", include_in_schema=False)

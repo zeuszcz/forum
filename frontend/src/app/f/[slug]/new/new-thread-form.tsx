@@ -1,14 +1,11 @@
 "use client";
 
-import { motion } from "framer-motion";
 import {
   AlertTriangle,
   Coffee,
-  Eye,
   Lightbulb,
   Megaphone,
   MessageSquare,
-  Pencil,
   Send,
   Shield,
   Sparkles,
@@ -20,8 +17,7 @@ import { useState } from "react";
 import { toast } from "sonner";
 
 import { MeshBackground } from "@/components/effects/MeshBackground";
-import { MentionTextarea } from "@/components/forum/MentionTextarea";
-import { PostBody } from "@/components/forum/PostBody";
+import { MarkdownEditor } from "@/components/forum/MarkdownEditor";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { api, ApiError } from "@/lib/api";
@@ -59,7 +55,6 @@ export function NewThreadForm({ section }: { section: Section }) {
   const [body, setBody] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
-  const [tab, setTab] = useState<"compose" | "preview">("compose");
 
   const Icon = ICONS[section.icon] ?? MessageSquare;
   const sectionAccent = ACCENTS[section.accent] ?? "text-plasma";
@@ -164,70 +159,31 @@ export function NewThreadForm({ section }: { section: Section }) {
         </div>
       </section>
 
-      {/* === Compose / Preview tabs === */}
-      <section className="overflow-hidden rounded-lg border border-border bg-card">
-        <header className="flex border-b border-border">
-          <TabBtn
-            active={tab === "compose"}
-            onClick={() => setTab("compose")}
-            icon={Pencil}
-          >
-            Текст
-          </TabBtn>
-          <TabBtn
-            active={tab === "preview"}
-            onClick={() => setTab("preview")}
-            icon={Eye}
-            disabled={body.trim().length < 1}
-          >
-            Превью
-          </TabBtn>
-          <div className="ml-auto flex items-center gap-3 px-4 text-[11px] text-smoke">
-            <span>
-              {bodyOk ? (
-                <span className="text-success">✓</span>
-              ) : (
-                <span>от {BODY_MIN} символов</span>
-              )}
-            </span>
+      {/* === Editor (markdown + toolbar + integrated preview) === */}
+      <section className="space-y-2 rounded-lg border border-border bg-card p-4">
+        <div className="flex items-center justify-between text-[11px] text-smoke">
+          <span className="font-semibold uppercase tracking-widest">текст темы</span>
+          <span className="flex items-center gap-3">
+            {bodyOk ? (
+              <span className="text-success">✓</span>
+            ) : (
+              <span>от {BODY_MIN} символов</span>
+            )}
             <span className="font-mono">
               {body.length}/{BODY_MAX}
             </span>
-          </div>
-        </header>
-
-        {tab === "compose" ? (
-          <div className="p-4">
-            <MentionTextarea
-              value={body}
-              onChange={setBody}
-              placeholder="Распиши подробно — @упоминай людей, переносы строк сохраняются…"
-              rows={12}
-              maxLength={BODY_MAX}
-              required
-              className="resize-y border-0 bg-transparent text-[15px] leading-relaxed focus-visible:ring-0"
-            />
-            <p className="mt-2 text-[11px] text-smoke">
-              переносы строк сохраняются · ссылки автокликабельны · @ник — упомянуть
-            </p>
-          </div>
-        ) : (
-          <motion.div
-            key="preview"
-            initial={{ opacity: 0, y: 6 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.18 }}
-            className="bg-void/30 p-5 min-h-[280px]"
-          >
-            {body.trim() ? (
-              <PostBody body={body} />
-            ) : (
-              <p className="text-center text-sm text-smoke">
-                Сначала напиши что-нибудь во вкладке «Текст»
-              </p>
-            )}
-          </motion.div>
-        )}
+          </span>
+        </div>
+        <MarkdownEditor
+          value={body}
+          onChange={setBody}
+          placeholder="Markdown: **жирный**, *курсив*, ## заголовок, > цитата, картинки через 📷, таблицы, [color:#ff0000]цвет[/color]…"
+          rows={14}
+          maxLength={BODY_MAX}
+        />
+        <p className="text-[11px] text-smoke">
+          поддержка Markdown · GFM таблицы · картинки до 8МБ · переключи «👁» для превью
+        </p>
       </section>
 
       {/* === Submit row === */}
@@ -252,45 +208,5 @@ export function NewThreadForm({ section }: { section: Section }) {
         </p>
       )}
     </form>
-  );
-}
-
-function TabBtn({
-  active,
-  onClick,
-  icon: Icon,
-  children,
-  disabled,
-}: {
-  active: boolean;
-  onClick: () => void;
-  icon: LucideIcon;
-  children: React.ReactNode;
-  disabled?: boolean;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      className={cn(
-        "relative flex items-center gap-2 px-5 py-3 text-sm font-medium transition-colors",
-        disabled && "cursor-not-allowed opacity-50",
-        active ? "text-bone" : "text-ash hover:text-bone",
-      )}
-    >
-      <Icon className="h-3.5 w-3.5" />
-      {children}
-      {active && (
-        <motion.span
-          layoutId="thread-tab-bg"
-          className="absolute inset-x-3 bottom-0 h-px"
-          style={{
-            background:
-              "linear-gradient(90deg, transparent, rgb(var(--plasma-rgb)), transparent)",
-          }}
-        />
-      )}
-    </button>
   );
 }
