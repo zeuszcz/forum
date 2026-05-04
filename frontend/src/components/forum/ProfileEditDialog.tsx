@@ -132,7 +132,7 @@ function ProfileEditDialog({
               onChange={(e) => setBirthday(e.target.value)}
               max={new Date().toISOString().slice(0, 10)}
               min="1920-01-01"
-              className="h-10 [color-scheme:dark]"
+              className="h-10"
             />
             <p className="text-[10px] text-smoke">
               месяц + день показываются другим в виджете «Сегодня ДР» — год скрыт
@@ -274,7 +274,7 @@ function ColorPickerRow({
           onChange={(e) => onChange(e.target.value)}
           disabled={!unlocked}
           className={cn(
-            "h-10 w-14 cursor-pointer rounded-md border border-border bg-void [color-scheme:dark]",
+            "h-10 w-14 cursor-pointer rounded-md border border-border bg-void",
             !unlocked && "cursor-not-allowed opacity-40",
           )}
         />

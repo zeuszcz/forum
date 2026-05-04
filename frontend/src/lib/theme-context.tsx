@@ -8,7 +8,8 @@ export type ThemeId =
   | "hacker-mono"
   | "glass-foil"
   | "retro-jail"
-  | "high-contrast";
+  | "high-contrast"
+  | "daylight";
 
 export interface ThemeMeta {
   id: ThemeId;
@@ -54,7 +55,16 @@ export const THEMES: ThemeMeta[] = [
     description: "Доступность AAA. Чистые жёлтый/чёрный/белый.",
     swatch: ["#ffff00", "#ffffff", "#000000"],
   },
+  {
+    id: "daylight",
+    title: "Daylight",
+    description: "Светлая. Тёплый off-white фон, плазма-акценты сохранены.",
+    swatch: ["#f6f4fb", "#7c5cff", "#1a1424"],
+  },
 ];
+
+/** Themes that render on a light background — body color-scheme flips to "light". */
+const LIGHT_THEMES: ReadonlySet<ThemeId> = new Set<ThemeId>(["daylight"]);
 
 interface ThemeContextValue {
   theme: ThemeId;
@@ -79,6 +89,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     const saved = (localStorage.getItem(STORAGE_KEY) as ThemeId | null) ?? "plasma";
     setThemeState(saved);
     document.documentElement.setAttribute("data-theme", saved);
+    document.documentElement.style.colorScheme = LIGHT_THEMES.has(saved) ? "light" : "dark";
     const dim = localStorage.getItem(AUTO_DIM_KEY);
     setAutoDimEnabled(dim !== "0");
   }, []);
@@ -87,6 +98,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     setThemeState(t);
     localStorage.setItem(STORAGE_KEY, t);
     document.documentElement.setAttribute("data-theme", t);
+    document.documentElement.style.colorScheme = LIGHT_THEMES.has(t) ? "light" : "dark";
   }, []);
 
   const toggleAutoDim = useCallback(() => {
@@ -106,12 +118,15 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     }
     const apply = () => {
       const hour = new Date().getHours();
+      const isLight = LIGHT_THEMES.has(theme);
       // Late-night (22-6) → slightly warmer + darker; mid-day → neutral
       let filter = "";
       if (hour >= 22 || hour < 6) {
-        filter = "saturate(0.92) brightness(0.92) hue-rotate(-4deg)";
+        filter = isLight
+          ? "saturate(0.96) brightness(0.97)"
+          : "saturate(0.92) brightness(0.92) hue-rotate(-4deg)";
       } else if (hour >= 6 && hour < 10) {
-        filter = "saturate(1.05) brightness(1.02)";
+        filter = isLight ? "" : "saturate(1.05) brightness(1.02)";
       } else {
         filter = "";
       }
@@ -120,7 +135,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     apply();
     const id = window.setInterval(apply, 1000 * 60 * 30);
     return () => window.clearInterval(id);
-  }, [autoDimEnabled]);
+  }, [autoDimEnabled, theme]);
 
   const value = useMemo(
     () => ({ theme, setTheme, autoDimEnabled, toggleAutoDim }),

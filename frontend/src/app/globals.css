@@ -90,6 +90,53 @@
     --plasma-rgb: 255 255 0;
   }
 
+  /* === THEME: Daylight (light mode) === */
+  [data-theme="daylight"] {
+    --background: 240 25% 97%;
+    --foreground: 240 30% 12%;
+    --card: 0 0% 100%;
+    --card-foreground: 240 30% 12%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 240 30% 12%;
+    --muted: 240 20% 94%;
+    --muted-foreground: 240 12% 38%;
+    --primary: 252 88% 56%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 240 20% 94%;
+    --secondary-foreground: 240 30% 12%;
+    --accent: 327 75% 50%;
+    --accent-foreground: 0 0% 100%;
+    --destructive: 350 80% 50%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 240 18% 88%;
+    --input: 0 0% 100%;
+    --ring: 252 88% 56%;
+    /* Brand RGBs slightly darker for legibility on light surfaces */
+    --plasma-rgb: 108 75 230;
+    --plasma-bright-rgb: 124 92 255;
+    --flame-rgb: 222 50 130;
+    --cyan-rgb: 14 165 200;
+    --ember-rgb: 230 40 70;
+  }
+
+  /* Brand-named raw hex Tailwind classes are not CSS-var driven, so we need
+     selector overrides for the light theme. Mirror their semantic role
+     (bone=primary text, ash=secondary, smoke=tertiary, void/slate=surfaces). */
+  [data-theme="daylight"] .text-bone { color: #1a1424; }
+  [data-theme="daylight"] .text-ash { color: #4a4d63; }
+  [data-theme="daylight"] .text-smoke { color: #8a8da0; }
+  [data-theme="daylight"] .bg-void { background-color: #f4f5fa; }
+  [data-theme="daylight"] .bg-void\/30 { background-color: rgba(244, 245, 250, 0.6); }
+  [data-theme="daylight"] .bg-void\/40 { background-color: rgba(244, 245, 250, 0.7); }
+  [data-theme="daylight"] .bg-void\/50 { background-color: rgba(244, 245, 250, 0.8); }
+  [data-theme="daylight"] .bg-void\/60 { background-color: rgba(244, 245, 250, 0.85); }
+  [data-theme="daylight"] .bg-slate { background-color: #eef0f6; }
+  [data-theme="daylight"] .bg-ink { background-color: #ffffff; }
+  [data-theme="daylight"] .border-border-strong { border-color: #c9ccd9; }
+  /* Hover affordances that previously brightened a dark surface — invert to subtle dim */
+  [data-theme="daylight"] .hover\:bg-slate:hover { background-color: #e6e8f0; }
+  [data-theme="daylight"] .hover\:text-bone:hover { color: #0f0a18; }
+
   * {
     @apply border-border;
   }
@@ -100,6 +147,9 @@
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     text-rendering: optimizeLegibility;
+  }
+  html[data-theme="daylight"] {
+    color-scheme: light;
   }
 
   body {
@@ -179,6 +229,26 @@
     backdrop-filter: blur(8px) saturate(120%);
     -webkit-backdrop-filter: blur(8px) saturate(120%);
     border: 1px solid rgba(255, 255, 255, 0.05);
+  }
+
+  /* Daylight glass — invert to white-tinted backdrop with subtle ink border */
+  [data-theme="daylight"] .glass {
+    background: rgba(255, 255, 255, 0.72);
+    border: 1px solid rgba(20, 20, 30, 0.06);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.6),
+      0 8px 30px rgba(20, 20, 40, 0.08);
+  }
+  [data-theme="daylight"] .glass-strong {
+    background: rgba(255, 255, 255, 0.88);
+    border: 1px solid rgba(20, 20, 30, 0.08);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.7),
+      0 12px 40px rgba(20, 20, 40, 0.12);
+  }
+  [data-theme="daylight"] .glass-thin {
+    background: rgba(255, 255, 255, 0.45);
+    border: 1px solid rgba(20, 20, 30, 0.05);
   }
 
   /* ==========================================================
@@ -299,6 +369,21 @@
     );
     background-size: 16px 16px;
   }
+  /* Daylight: dark dots on light surface */
+  [data-theme="daylight"] .dotted-grid {
+    background-image: radial-gradient(
+      circle,
+      rgba(20, 20, 40, 0.08) 1px,
+      transparent 1.5px
+    );
+  }
+  [data-theme="daylight"] .dotted-grid-fine {
+    background-image: radial-gradient(
+      circle,
+      rgba(20, 20, 40, 0.07) 1px,
+      transparent 1px
+    );
+  }
 
   /* ==========================================================
    * Noise/grain overlay — fixed, pointer-events-none
@@ -312,6 +397,10 @@
     mix-blend-mode: overlay;
     /* Inline noise SVG */
     background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 200'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0.9 0 0 0 0 0.9 0 0 0 0 0.95 0 0 0 0.9 0'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>");
+  }
+  [data-theme="daylight"] .noise-overlay {
+    opacity: 0.025;
+    mix-blend-mode: multiply;
   }
 
   /* ==========================================================
