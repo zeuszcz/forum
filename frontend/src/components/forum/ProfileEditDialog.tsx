@@ -202,11 +202,11 @@ function ProfileEditDialog({
           </div>
 
           <ColorPickerRow
-            label="Цвет ника"
+            label="Цвет свечения ника"
             value={nickColor}
             onChange={setNickColor}
             unlocked={nickColorUnlocked}
-            unlockHint={`Откроется на lvl 50 (glow_nick) — сейчас ${rank.level}`}
+            unlockHint={`Откроется на lvl 50 (Свечение ника) — сейчас ${rank.level}`}
             preview={(c) => (
               <span
                 className="font-bold"
@@ -222,7 +222,7 @@ function ProfileEditDialog({
             value={glowColor}
             onChange={setGlowColor}
             unlocked={glowColorUnlocked}
-            unlockHint={`Откроется на lvl 15 (animated_frame) — сейчас ${rank.level}`}
+            unlockHint={`Откроется на lvl 15 (Свечение аватара) — сейчас ${rank.level}`}
             preview={(c) => (
               <div className="flex items-center gap-2">
                 <div className="relative">

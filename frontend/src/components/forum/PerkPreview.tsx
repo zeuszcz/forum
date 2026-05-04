@@ -259,7 +259,7 @@ function AnimatedFramePreview() {
           <LetterAvatar nickname="ты" size={56} />
         </div>
       </div>
-      <span className="text-xs text-ash">аватар светится у всех</span>
+      <span className="text-xs text-ash">свечение видно у всех</span>
     </div>
   );
 }

@@ -95,8 +95,8 @@ export const PERKS: Perk[] = [
   {
     level: 15,
     slug: "animated_frame",
-    name: "Анимированная рамка аватара",
-    description: "Плазма-кольцо вокруг твоего аватара везде",
+    name: "Свечение аватара",
+    description: "Цветное свечение вокруг аватара везде на форуме",
   },
   {
     level: 25,
@@ -107,8 +107,8 @@ export const PERKS: Perk[] = [
   {
     level: 50,
     slug: "glow_nick",
-    name: "Glow-ник",
-    description: "Светящийся ник в шоутбоксе, постах, профиле",
+    name: "Свечение ника",
+    description: "Цветной ник со свечением в шоутбоксе, постах, профиле",
   },
 ];
 
