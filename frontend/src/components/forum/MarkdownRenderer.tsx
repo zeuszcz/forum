@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import * as React from "react";
 import ReactMarkdown from "react-markdown";
 import rehypeRaw from "rehype-raw";
@@ -7,6 +8,45 @@ import rehypeSanitize, { defaultSchema } from "rehype-sanitize";
 import remarkGfm from "remark-gfm";
 
 import { cn } from "@/lib/utils";
+
+/** @nickname pattern — letters/digits/_/. up to 32 chars, must follow start/space/punctuation */
+const MENTION_RE = /(^|[\s(\[{>«„"'\-])@([a-zA-Z0-9_.]{2,32})\b/g;
+
+/** Walk react children and inline @nickname tokens into styled MentionLink. */
+function renderWithMentions(children: React.ReactNode): React.ReactNode {
+  return React.Children.map(children, (child, i) => {
+    if (typeof child !== "string") return child;
+    const out: React.ReactNode[] = [];
+    let lastIdx = 0;
+    let m: RegExpExecArray | null;
+    MENTION_RE.lastIndex = 0;
+    while ((m = MENTION_RE.exec(child)) !== null) {
+      const matchStart = m.index + m[1].length; // position of @
+      if (matchStart > lastIdx) {
+        out.push(child.slice(lastIdx, matchStart));
+      }
+      const nick = m[2];
+      out.push(
+        <MentionLink key={`m-${i}-${matchStart}`} nickname={nick} />,
+      );
+      lastIdx = matchStart + 1 + nick.length;
+    }
+    if (lastIdx === 0) return child;
+    if (lastIdx < child.length) out.push(child.slice(lastIdx));
+    return out;
+  });
+}
+
+function MentionLink({ nickname }: { nickname: string }) {
+  return (
+    <Link
+      href={`/u/${nickname}`}
+      className="mention-pill inline-flex items-center rounded-md border border-plasma/30 bg-plasma/10 px-1.5 py-px font-medium text-plasma transition-colors hover:border-plasma/60 hover:bg-plasma/20"
+    >
+      @{nickname}
+    </Link>
+  );
+}
 
 /**
  * Pre-process body before markdown rendering. Two responsibilities:
@@ -118,27 +158,29 @@ export function MarkdownRenderer({
           ),
           h1: ({ children, ...props }) => (
             <h1 className="mb-2 mt-4 text-2xl font-bold tracking-tight text-bone" {...props}>
-              {children}
+              {renderWithMentions(children)}
             </h1>
           ),
           h2: ({ children, ...props }) => (
             <h2 className="mb-2 mt-4 text-xl font-bold tracking-tight text-bone" {...props}>
-              {children}
+              {renderWithMentions(children)}
             </h2>
           ),
           h3: ({ children, ...props }) => (
             <h3 className="mb-1.5 mt-3 text-lg font-semibold tracking-tight text-bone" {...props}>
-              {children}
+              {renderWithMentions(children)}
             </h3>
           ),
           h4: ({ children, ...props }) => (
             <h4 className="mb-1 mt-3 text-base font-semibold text-bone" {...props}>
-              {children}
+              {renderWithMentions(children)}
             </h4>
           ),
           p: ({ children, ...props }) => (
-            <p className="mb-2 last:mb-0" {...props}>
-              {children}
+            // whitespace-pre-wrap preserves consecutive spaces / explicit
+            // newlines users typed (without losing word-wrap).
+            <p className="mb-2 whitespace-pre-wrap last:mb-0" {...props}>
+              {renderWithMentions(children)}
             </p>
           ),
           ul: ({ children, ...props }) => (
@@ -151,13 +193,15 @@ export function MarkdownRenderer({
               {children}
             </ol>
           ),
-          li: ({ children, ...props }) => <li {...props}>{children}</li>,
+          li: ({ children, ...props }) => (
+            <li {...props}>{renderWithMentions(children)}</li>
+          ),
           blockquote: ({ children, ...props }) => (
             <blockquote
               className="my-2 rounded-r-md border-l-2 border-plasma/50 bg-plasma/5 px-3 py-1 italic text-ash"
               {...props}
             >
-              {children}
+              {renderWithMentions(children)}
             </blockquote>
           ),
           code: ({ className: cls, children, ...props }) => {
@@ -206,12 +250,12 @@ export function MarkdownRenderer({
               className="border border-border px-3 py-1.5 text-left font-semibold text-bone"
               {...props}
             >
-              {children}
+              {renderWithMentions(children)}
             </th>
           ),
           td: ({ children, ...props }) => (
             <td className="border border-border px-3 py-1.5 align-top" {...props}>
-              {children}
+              {renderWithMentions(children)}
             </td>
           ),
           input: ({ type, checked, ...props }) => {
