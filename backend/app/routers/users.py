@@ -74,7 +74,12 @@ async def update_me(payload: UserProfileUpdate, user: CurrentUser, db: DbSession
       - bio:        always
       - signature:  level >= 5
       - title:      level >= 25 (custom-title perk)
-    Staff bypass: anyone with is_staff role can edit anything.
+      - nick_color: level >= 50 (glow_nick perk)
+      - glow_color: level >= 15 (animated_frame perk)
+
+    Staff role does NOT auto-bypass perk-gated visual customisations —
+    admins must explicitly grant themselves the perk via the admin panel
+    (or hit the level). This keeps the gate honest with what the UI shows.
     """
     roles = await auth_service.get_user_roles(db, user.id)
     is_staff = any(r.is_staff for r in roles)
@@ -94,7 +99,7 @@ async def update_me(payload: UserProfileUpdate, user: CurrentUser, db: DbSession
         user.signature = payload.signature.strip() or None
 
     if payload.title is not None:
-        if not is_staff and level < 25 and "custom_title" not in granted:
+        if level < 25 and "custom_title" not in granted:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail=f"Кастомный титул доступен с lvl 25 или выдается админом (сейчас {level})",
@@ -143,7 +148,7 @@ async def update_me(payload: UserProfileUpdate, user: CurrentUser, db: DbSession
         if s == "":
             user.nick_color = None
         else:
-            if not is_staff and "glow_nick" not in granted and level < 50:
+            if "glow_nick" not in granted and level < 50:
                 raise HTTPException(
                     status_code=status.HTTP_403_FORBIDDEN,
                     detail=f"Цвет ника доступен с lvl 50 (glow_nick perk) или от админа (сейчас {level})",
@@ -155,7 +160,7 @@ async def update_me(payload: UserProfileUpdate, user: CurrentUser, db: DbSession
         if s == "":
             user.avatar_glow_color = None
         else:
-            if not is_staff and "animated_frame" not in granted and level < 15:
+            if "animated_frame" not in granted and level < 15:
                 raise HTTPException(
                     status_code=status.HTTP_403_FORBIDDEN,
                     detail=f"Цвет свечения аватара доступен с lvl 15 (animated_frame perk) или от админа (сейчас {level})",

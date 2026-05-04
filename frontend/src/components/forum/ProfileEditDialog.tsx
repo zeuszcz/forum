@@ -3,7 +3,7 @@
 import { motion } from "framer-motion";
 import { Lock, Pencil, Sparkles, X } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -11,7 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { api, ApiError } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
-import { hasPerk, isStaff } from "@/lib/perks";
+import { hasPerk } from "@/lib/perks";
 import { computeRank } from "@/lib/rank";
 import type { UserPublic } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -38,6 +38,9 @@ function ProfileEditDialog({
 }) {
   const router = useRouter();
   const { refresh: refreshAuth } = useAuth();
+  // Hold a live copy of the current user so perk gates reflect the latest
+  // granted_perks even if the prop is stale (e.g. admin revoked elsewhere).
+  const [me, setMe] = useState<UserPublic>(user);
   const [bio, setBio] = useState(user.bio ?? "");
   const [title, setTitle] = useState(user.title ?? "");
   const [birthday, setBirthday] = useState(user.birthday ?? "");
@@ -46,12 +49,34 @@ function ProfileEditDialog({
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const rank = computeRank(user.total_posts, user.total_reactions_received);
-  const titleUnlocked = isStaff(user) || rank.level >= 25 || hasPerk(user, "custom_title");
-  const nickColorUnlocked =
-    isStaff(user) || rank.level >= 50 || hasPerk(user, "glow_nick");
-  const glowColorUnlocked =
-    isStaff(user) || rank.level >= 15 || hasPerk(user, "animated_frame");
+  // On mount, hit /auth/me to grab fresh granted_perks / level / colors.
+  useEffect(() => {
+    let cancelled = false;
+    api<UserPublic>("/auth/me")
+      .then((fresh) => {
+        if (cancelled) return;
+        setMe(fresh);
+        // Sync editable fields if the latest copy differs from the prop
+        setBio(fresh.bio ?? "");
+        setTitle(fresh.title ?? "");
+        setBirthday(fresh.birthday ?? "");
+        setNickColor(fresh.nick_color ?? "");
+        setGlowColor(fresh.avatar_glow_color ?? "");
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const rank = computeRank(me.total_posts, me.total_reactions_received);
+  // Gates are perk-honest: only granted_perks or unlocked level qualify.
+  // Staff role does NOT auto-bypass — admins must grant themselves the
+  // perk explicitly (or hit the level) to use these visual customisations.
+  const titleUnlocked = hasPerk(me, "custom_title");
+  const nickColorUnlocked = hasPerk(me, "glow_nick");
+  const glowColorUnlocked = hasPerk(me, "animated_frame");
 
   async function save() {
     setPending(true);
@@ -185,9 +210,9 @@ function ProfileEditDialog({
             preview={(c) => (
               <span
                 className="font-bold"
-                style={{ color: c || (user.roles?.[0]?.color ?? "#e8e9f3") }}
+                style={{ color: c || (me.roles?.[0]?.color ?? "#e8e9f3") }}
               >
-                {user.nickname}
+                {me.nickname}
               </span>
             )}
           />
@@ -202,7 +227,7 @@ function ProfileEditDialog({
               <div className="flex items-center gap-2">
                 <div className="relative">
                   <div className="h-7 w-7 rounded-full bg-slate text-center text-[10px] font-bold leading-7 text-bone">
-                    {user.nickname[0]?.toUpperCase()}
+                    {me.nickname[0]?.toUpperCase()}
                   </div>
                   {c && (
                     <div
