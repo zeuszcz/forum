@@ -9,19 +9,27 @@ import remarkGfm from "remark-gfm";
 import { cn } from "@/lib/utils";
 
 /**
- * Custom forum markup pre-processor — turns user-friendly inline tags into
- * data-attribute-bearing spans that the React components map renders with
- * validated styles. Avoids exposing raw `style` attribute to sanitize.
+ * Pre-process body before markdown rendering. Two responsibilities:
  *
- *   [color:#ff0000]text[/color]   → <span data-color="#ff0000">text</span>
- *   [size:20]text[/size]          → <span data-size="20">text</span>
- *   [u]text[/u]                   → <span data-deco="underline">text</span>
+ * 1. TipTap WYSIWYG output uses `<span style="color: #xxx">…</span>` for the
+ *    text-color extension. Our sanitizer doesn't allow raw `style`, so we
+ *    rewrite to a `data-color` attribute that the components map below
+ *    converts into a validated React style.
  *
- * Validation lives in the renderer below, so even malformed/oversized values
- * are clamped or ignored.
+ * 2. Legacy custom inline tags (used by older threads or hand-typed posts):
+ *    `[color:…]…[/color]`, `[size:…]…[/size]`, `[u]…[/u]` → same data-attr
+ *    spans.
+ *
+ * Validation of the values happens at React render time, so even malformed
+ * payloads can't smuggle anything dangerous past sanitize.
  */
 function preprocess(input: string): string {
   return input
+    // TipTap: `<span style="color: #xxx">…</span>` → data-color
+    .replace(/<span\s+style="color:\s*([^;"]+);?\s*"\s*>/gi, (_m, c) => {
+      return `<span data-color="${String(c).trim()}">`;
+    })
+    // Legacy bracket tags
     .replace(/\[color:(#[0-9a-fA-F]{3,8})\](.+?)\[\/color\]/gs, (_m, c, t) => {
       return `<span data-color="${c}">${t}</span>`;
     })

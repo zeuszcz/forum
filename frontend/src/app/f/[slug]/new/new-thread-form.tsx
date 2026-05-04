@@ -17,7 +17,7 @@ import { useState } from "react";
 import { toast } from "sonner";
 
 import { MeshBackground } from "@/components/effects/MeshBackground";
-import { MarkdownEditor } from "@/components/forum/MarkdownEditor";
+import { RichEditor } from "@/components/forum/RichEditor";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { api, ApiError } from "@/lib/api";
@@ -60,7 +60,9 @@ export function NewThreadForm({ section }: { section: Section }) {
   const sectionAccent = ACCENTS[section.accent] ?? "text-plasma";
 
   const titleOk = title.trim().length >= TITLE_MIN && title.length <= TITLE_MAX;
-  const bodyOk = body.trim().length >= BODY_MIN && body.length <= BODY_MAX;
+  // TipTap stores HTML — measure plain-text length for the min-content check.
+  const bodyText = body.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
+  const bodyOk = bodyText.length >= BODY_MIN && body.length <= BODY_MAX;
   const canSubmit = titleOk && bodyOk && !submitting;
 
   async function submit(e: React.FormEvent) {
@@ -159,30 +161,29 @@ export function NewThreadForm({ section }: { section: Section }) {
         </div>
       </section>
 
-      {/* === Editor (markdown + toolbar + integrated preview) === */}
-      <section className="space-y-2 rounded-lg border border-border bg-card p-4">
+      {/* === WYSIWYG editor — what you see is what posts === */}
+      <section className="space-y-2">
         <div className="flex items-center justify-between text-[11px] text-smoke">
           <span className="font-semibold uppercase tracking-widest">текст темы</span>
           <span className="flex items-center gap-3">
             {bodyOk ? (
-              <span className="text-success">✓</span>
+              <span className="text-success">✓ норм</span>
             ) : (
               <span>от {BODY_MIN} символов</span>
             )}
             <span className="font-mono">
-              {body.length}/{BODY_MAX}
+              {bodyText.length}/{BODY_MAX}
             </span>
           </span>
         </div>
-        <MarkdownEditor
+        <RichEditor
           value={body}
           onChange={setBody}
-          placeholder="Markdown: **жирный**, *курсив*, ## заголовок, > цитата, картинки через 📷, таблицы, [color:#ff0000]цвет[/color]…"
-          rows={14}
-          maxLength={BODY_MAX}
+          placeholder="Распиши подробно — выдели текст и используй панель сверху для оформления"
+          minHeight={280}
         />
         <p className="text-[11px] text-smoke">
-          поддержка Markdown · GFM таблицы · картинки до 8МБ · переключи «👁» для превью
+          форматирование сразу как будет выглядеть · картинки до 8МБ перетаскиванием на «📷» · таблицы по кнопке
         </p>
       </section>
 

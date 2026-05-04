@@ -32,7 +32,19 @@
     "react-markdown": "^9.0.3",
     "remark-gfm": "^4.0.0",
     "rehype-sanitize": "^6.0.0",
-    "rehype-raw": "^7.0.0"
+    "rehype-raw": "^7.0.0",
+    "@tiptap/react": "^2.10.4",
+    "@tiptap/starter-kit": "^2.10.4",
+    "@tiptap/extension-link": "^2.10.4",
+    "@tiptap/extension-image": "^2.10.4",
+    "@tiptap/extension-underline": "^2.10.4",
+    "@tiptap/extension-table": "^2.10.4",
+    "@tiptap/extension-table-row": "^2.10.4",
+    "@tiptap/extension-table-cell": "^2.10.4",
+    "@tiptap/extension-table-header": "^2.10.4",
+    "@tiptap/extension-text-style": "^2.10.4",
+    "@tiptap/extension-color": "^2.10.4",
+    "@tiptap/extension-placeholder": "^2.10.4"
   },
   "devDependencies": {
     "@types/node": "^22.13.0",
