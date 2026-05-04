@@ -111,7 +111,8 @@ export function RichEditor({
   React.useEffect(() => {
     if (!editor) return;
     if (editor.getHTML() !== value) {
-      editor.commands.setContent(value || "", { emitUpdate: false });
+      // emitUpdate=false prevents loop: parent set → editor → onUpdate → parent
+      editor.commands.setContent(value || "", false);
     }
   }, [value, editor]);
 
