@@ -73,6 +73,7 @@ export function PostCard({ post, index, onQuote }: PostCardProps) {
   }, [post.id]);
 
   const roles = post.author?.roles ?? [];
+  const topRole = roles[0];
   const rank = post.author
     ? computeRank(
         post.author.total_posts,
