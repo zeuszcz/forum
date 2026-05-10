@@ -1,7 +1,17 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { Check, Pencil, Quote, X } from "lucide-react";
+import {
+  Bookmark,
+  Check,
+  Hash,
+  Pencil,
+  Quote,
+  Reply,
+  Share2,
+  X,
+} from "lucide-react";
+import Link from "next/link";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
@@ -18,6 +28,17 @@ import { avatarGlowColor, glowNickProps, isStaff, nickColor } from "@/lib/perks"
 import { computeRank } from "@/lib/rank";
 import type { Post, ReactionKind } from "@/lib/types";
 import { cn } from "@/lib/utils";
+
+/** Visual badge mapping for granted_perks — shown as little icons under
+ *  the avatar (achievements row in the screenshot). */
+const PERK_BADGES: { slug: string; emoji: string; title: string }[] = [
+  { slug: "glow_nick", emoji: "✨", title: "Свечение ника" },
+  { slug: "animated_frame", emoji: "💫", title: "Свечение аватара" },
+  { slug: "custom_title", emoji: "🏆", title: "Кастомный титул" },
+  { slug: "profile_banner", emoji: "🎨", title: "Баннер профиля" },
+  { slug: "server_vip", emoji: "🟦", title: "VIP на сервере" },
+  { slug: "server_admin", emoji: "🛡", title: "Админ на сервере" },
+];
 
 interface PostCardProps {
   post: Post;
@@ -107,126 +128,192 @@ export function PostCard({ post, index, onQuote }: PostCardProps) {
       <SpotlightCard
         as="article"
         className={cn(
-          "grid grid-cols-1 overflow-hidden rounded-xl border bg-card transition-all duration-300 ease-premium md:grid-cols-[180px_1fr]",
+          "grid grid-cols-1 overflow-hidden rounded-xl border bg-card transition-all duration-300 ease-premium md:grid-cols-[210px_1fr]",
           "border-border",
           highlight && "border-plasma shadow-glow-plasma",
         )}
       >
-        {/* === Author sidebar === */}
-        <aside className="relative flex flex-row items-center gap-3 border-b border-border bg-void/50 p-3.5 md:flex-col md:items-center md:gap-2 md:border-b-0 md:border-r md:p-4">
+        {/* === Author sidebar (classic forum style) === */}
+        <aside className="relative flex flex-col items-center gap-3 border-b border-border bg-void/50 p-4 md:border-b-0 md:border-r">
           {post.author ? (
-            <UserHoverCard user={post.author}>
-              <a
-                href={`/u/${post.author.nickname}`}
-                className="flex flex-row items-center gap-3 md:flex-col md:gap-2 md:text-center"
-              >
-                <LetterAvatar
-                  nickname={post.author.nickname}
-                  size={48}
-                  glowColor={avatarGlowColor(post.author)}
-                />
-                <div className="flex flex-col gap-0.5 md:items-center">
-                  <span
-                    className={cn(
-                      "text-base font-semibold leading-none transition-opacity hover:opacity-80",
-                      glow.className,
-                    )}
-                    style={{ color: authorColor, ...glow.style }}
+            <>
+              {/* Square avatar 128px with online dot + role color frame */}
+              <UserHoverCard user={post.author}>
+                <Link
+                  href={`/u/${post.author.nickname}`}
+                  className="relative block transition-transform hover:scale-[1.02]"
+                >
+                  <div
+                    className="relative h-32 w-32 overflow-hidden rounded-lg border-2"
+                    style={{
+                      borderColor: topRole?.color
+                        ? `${topRole.color}80`
+                        : undefined,
+                      boxShadow: avatarGlowColor(post.author)
+                        ? `0 0 18px ${avatarGlowColor(post.author)}55`
+                        : undefined,
+                    }}
                   >
-                    {post.author.nickname}
+                    {post.author.avatar_url ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={post.author.avatar_url}
+                        alt={post.author.nickname}
+                        className="h-full w-full object-cover"
+                      />
+                    ) : (
+                      <LetterAvatar
+                        nickname={post.author.nickname}
+                        size={128}
+                        className="!rounded-none"
+                      />
+                    )}
+                  </div>
+                  {/* Online indicator */}
+                  {post.author.last_seen_at &&
+                    Date.now() -
+                      new Date(post.author.last_seen_at).getTime() <
+                      10 * 60 * 1000 && (
+                      <span
+                        className="absolute -bottom-1 -right-1 h-4 w-4 rounded-full border-2 border-card bg-success"
+                        title="онлайн"
+                      />
+                    )}
+                </Link>
+              </UserHoverCard>
+
+              {/* Nickname */}
+              <Link
+                href={`/u/${post.author.nickname}`}
+                className={cn(
+                  "max-w-full truncate text-base font-bold leading-none transition-opacity hover:opacity-80",
+                  glow.className,
+                )}
+                style={{ color: authorColor, ...glow.style }}
+              >
+                {post.author.nickname}
+              </Link>
+
+              {/* Custom title (italic, single line) */}
+              {post.author.title && (
+                <p className="-mt-1 line-clamp-2 max-w-full text-center text-[11px] italic text-ash">
+                  {post.author.title}
+                </p>
+              )}
+
+              {/* Role pills — vertical stack, gradient pills with role color */}
+              {roles.length > 0 && (
+                <div className="flex w-full flex-col gap-1">
+                  {roles.map((r) => (
+                    <RolePill key={r.slug} role={r} />
+                  ))}
+                </div>
+              )}
+
+              {/* Level meter — circle + progress bar */}
+              {rank && (
+                <div className="flex w-full items-center gap-2 rounded-md border border-border bg-card px-2 py-1.5">
+                  <span
+                    className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border-2 font-mono text-xs font-bold"
+                    style={{
+                      borderColor: rank.color,
+                      color: rank.color,
+                    }}
+                  >
+                    {rank.level}
                   </span>
-                  {roles.length > 0 && (
-                    <div className="flex flex-wrap gap-1 md:justify-center">
-                      {roles.map((r) => (
+                  <div className="flex flex-1 flex-col gap-0.5">
+                    <div className="h-1.5 overflow-hidden rounded-full bg-void/60">
+                      <div
+                        className="h-full rounded-full transition-all"
+                        style={{
+                          width: `${rank.percent}%`,
+                          background: `linear-gradient(90deg, ${rank.color}, rgb(var(--flame-rgb)))`,
+                        }}
+                      />
+                    </div>
+                    <span className="font-mono text-[9px] uppercase tracking-widest text-smoke">
+                      LVL {rank.level}
+                    </span>
+                  </div>
+                </div>
+              )}
+
+              {/* Achievement badges row from granted_perks */}
+              {post.author.granted_perks &&
+                post.author.granted_perks.length > 0 && (
+                  <div className="flex flex-wrap justify-center gap-1.5">
+                    {PERK_BADGES.filter((b) =>
+                      post.author?.granted_perks?.includes(b.slug),
+                    )
+                      .slice(0, 6)
+                      .map((b) => (
                         <span
-                          key={r.slug}
-                          className="inline-flex items-center self-start rounded-sm border px-1.5 py-px text-[9px] font-semibold uppercase tracking-widest"
-                          style={{
-                            borderColor: `${r.color}40`,
-                            color: r.color,
-                            backgroundColor: `${r.color}1a`,
-                          }}
+                          key={b.slug}
+                          title={b.title}
+                          className="inline-flex h-6 w-6 items-center justify-center rounded-md border border-border bg-void/40 text-sm"
                         >
-                          {r.title}
+                          {b.emoji}
                         </span>
                       ))}
-                    </div>
-                  )}
-                  {rank && (
-                    <span className="inline-flex items-center gap-1.5 text-[10px] text-smoke">
-                      <span className="font-mono font-bold" style={{ color: rank.color }}>
-                        Lvl {rank.level}
-                      </span>
-                      <span>·</span>
-                      <span>{rank.title}</span>
-                    </span>
-                  )}
-                  {post.author.title && (
-                    <span className="mt-1 hidden text-center text-xs italic text-ash md:line-clamp-2">
-                      {post.author.title}
-                    </span>
-                  )}
-                </div>
-              </a>
-            </UserHoverCard>
+                  </div>
+                )}
+            </>
           ) : (
             <>
-              <div className="h-16 w-16 rounded-full bg-slate" />
+              <div className="h-32 w-32 rounded-lg bg-slate" />
               <span className="text-sm text-smoke">удалён</span>
             </>
           )}
         </aside>
 
-        {/* === Body === */}
+        {/* === Body column === */}
         <div className="flex min-w-0 flex-col">
-          <header className="flex items-center justify-between border-b border-border px-5 py-2.5 text-xs text-smoke">
-            <span title={exactTime(post.created_at)}>
+          {/* Header: timestamp left, action icons + post-id right */}
+          <header className="flex items-center justify-between gap-3 border-b border-border bg-void/20 px-5 py-2.5 text-xs">
+            <span className="text-smoke" title={exactTime(post.created_at)}>
               {relativeTime(post.created_at)}
               {editedAt && (
                 <span className="ml-2 italic">
                   · ред. {relativeTime(editedAt)}
                   {post.edited_by &&
                     post.edited_by.id !== post.author?.id && (
-                      <>
+                      <span className="not-italic text-flame">
                         {" "}
-                        <span className="not-italic text-flame">
-                          ({post.edited_by.nickname}
-                          {post.edited_by.roles?.some((r) => r.is_staff)
-                            ? " · staff"
-                            : ""}
-                          )
-                        </span>
-                      </>
+                        ({post.edited_by.nickname}
+                        {post.edited_by.roles?.some((r) => r.is_staff)
+                          ? " · staff"
+                          : ""}
+                        )
+                      </span>
                     )}
                 </span>
               )}
             </span>
-            <div className="flex items-center gap-2">
-              {showEditButton && !editing && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setEditBody(body);
-                    setEditing(true);
-                  }}
-                  className="inline-flex items-center gap-1 rounded-md border border-transparent px-2 py-1 text-[11px] text-smoke transition-colors hover:border-border hover:bg-slate hover:text-bone"
-                  title={canStaffEdit && !canEdit ? "Редактировать (staff)" : "Редактировать"}
-                >
-                  <Pencil className="h-3 w-3" />
-                  ред.
-                </button>
-              )}
+            <div className="flex items-center gap-1">
+              <HeaderIconBtn
+                icon={Share2}
+                title="Поделиться ссылкой"
+                onClick={() => {
+                  const url = `${window.location.origin}/t/${post.thread_id}#post-${post.id}`;
+                  navigator.clipboard.writeText(url);
+                  toast.success("Ссылка скопирована");
+                }}
+              />
+              <HeaderIconBtn icon={Bookmark} title="Закладка (скоро)" disabled />
               <a
                 href={`#post-${post.id}`}
-                className="font-mono text-smoke transition-colors hover:text-plasma"
+                className="inline-flex items-center gap-1 rounded-md px-2 py-1 font-mono text-[11px] text-smoke transition-colors hover:bg-slate hover:text-plasma"
                 title="Прямая ссылка"
               >
-                #{index + 1}
+                <Hash className="h-3 w-3" />
+                {index + 1}
               </a>
             </div>
           </header>
 
-          <div className="min-w-0 px-5 py-5">
+          {/* Body */}
+          <div className="min-w-0 flex-1 px-5 py-5">
             {editing ? (
               <div className="space-y-2">
                 <Textarea
@@ -263,6 +350,7 @@ export function PostCard({ post, index, onQuote }: PostCardProps) {
             )}
           </div>
 
+          {/* Thanked-by strip */}
           {post.thanked_by && post.thanked_by.length > 0 && (
             <div className="border-t border-border bg-plasma/5 px-5 py-2 text-[11px] text-smoke">
               <span className="font-semibold text-plasma">
@@ -278,25 +366,122 @@ export function PostCard({ post, index, onQuote }: PostCardProps) {
             </div>
           )}
 
-          <footer className="mt-auto flex items-center justify-between gap-2 border-t border-border bg-void/30 px-3 py-2">
-            <ReactionsBar
-              postId={post.id}
-              initialCounts={post.reactions_by_kind ?? {}}
-              initialReacted={(post.my_reaction_kinds ?? []) as ReactionKind[]}
-            />
-            {onQuote && !editing && (
-              <button
-                type="button"
-                onClick={() => onQuote(post)}
-                className="inline-flex items-center gap-1.5 rounded-md border border-transparent px-2.5 py-1.5 text-xs font-medium text-ash transition-colors hover:border-border hover:bg-slate hover:text-bone"
-              >
-                <Quote className="h-3.5 w-3.5" />
-                Цитата
-              </button>
-            )}
+          {/* Footer toolbar — mod actions left, user actions right */}
+          <footer className="mt-auto flex flex-wrap items-center justify-between gap-2 border-t border-border bg-void/30 px-4 py-2">
+            <div className="flex items-center gap-1">
+              {showEditButton && !editing && (
+                <ToolbarBtn
+                  icon={Pencil}
+                  label="Изменить"
+                  onClick={() => {
+                    setEditBody(body);
+                    setEditing(true);
+                  }}
+                />
+              )}
+            </div>
+            <div className="flex items-center gap-2">
+              <ReactionsBar
+                postId={post.id}
+                initialCounts={post.reactions_by_kind ?? {}}
+                initialReacted={(post.my_reaction_kinds ?? []) as ReactionKind[]}
+              />
+              {onQuote && !editing && (
+                <>
+                  <ToolbarBtn
+                    icon={Quote}
+                    label="Цитата"
+                    onClick={() => onQuote(post)}
+                    accent="plasma"
+                  />
+                  <ToolbarBtn
+                    icon={Reply}
+                    label="Ответить"
+                    onClick={() => onQuote(post)}
+                    accent="cyan"
+                  />
+                </>
+              )}
+            </div>
           </footer>
         </div>
       </SpotlightCard>
     </motion.div>
+  );
+}
+
+/* ---------- helpers ---------- */
+
+function RolePill({ role }: { role: { slug: string; title: string; color: string; affiliation_tag?: string | null } }) {
+  return (
+    <span
+      className="inline-flex w-full items-center justify-center rounded-md px-2.5 py-1 text-[10px] font-bold uppercase tracking-widest text-white shadow-sm"
+      style={{
+        background: `linear-gradient(135deg, ${role.color}, ${role.color}cc)`,
+        boxShadow: `0 1px 0 ${role.color}40 inset, 0 2px 4px ${role.color}33`,
+      }}
+    >
+      {role.affiliation_tag ? `${role.title} ► ${role.affiliation_tag}` : role.title}
+    </span>
+  );
+}
+
+function HeaderIconBtn({
+  icon: Icon,
+  title,
+  onClick,
+  disabled,
+}: {
+  icon: React.ElementType;
+  title: string;
+  onClick?: () => void;
+  disabled?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      title={title}
+      className={cn(
+        "inline-flex h-7 w-7 items-center justify-center rounded-md text-smoke transition-colors",
+        disabled
+          ? "cursor-not-allowed opacity-40"
+          : "hover:bg-slate hover:text-bone",
+      )}
+    >
+      <Icon className="h-3.5 w-3.5" />
+    </button>
+  );
+}
+
+function ToolbarBtn({
+  icon: Icon,
+  label,
+  onClick,
+  accent,
+}: {
+  icon: React.ElementType;
+  label: string;
+  onClick: () => void;
+  accent?: "plasma" | "cyan";
+}) {
+  const accentCls = accent === "plasma"
+    ? "hover:border-plasma/40 hover:bg-plasma/10 hover:text-plasma"
+    : accent === "cyan"
+      ? "hover:border-cyan/40 hover:bg-cyan/10 hover:text-cyan"
+      : "hover:border-border hover:bg-slate hover:text-bone";
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        "inline-flex items-center gap-1.5 rounded-md border border-transparent px-2.5 py-1.5 text-xs font-medium text-ash transition-colors",
+        accentCls,
+      )}
+    >
+      <Icon className="h-3.5 w-3.5" />
+      {label}
+    </button>
   );
 }
