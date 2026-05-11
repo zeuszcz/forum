@@ -1416,6 +1416,75 @@ function ServerStatusPill({ status }: { status: CsServerStatus }) {
 // System message row (bot-cast / game events)
 // -----------------------------------------------------------------------------
 
+/** Visual styling per jail event category. Defaults to neutral border/smoke
+ * for unrecognised categories so an unknown UDP listener event still renders
+ * without throwing. */
+const SYSTEM_CATEGORY_STYLE: Record<
+  string,
+  { border: string; bg: string; badge: string; text: string }
+> = {
+  rebel: {
+    border: "border-ember/40",
+    bg: "bg-ember/5",
+    badge: "border-ember/40 bg-ember/15 text-ember",
+    text: "text-ash",
+  },
+  bunt: {
+    border: "border-ember/40",
+    bg: "bg-ember/5",
+    badge: "border-ember/40 bg-ember/15 text-ember",
+    text: "text-ash",
+  },
+  freekill: {
+    border: "border-flame/40",
+    bg: "bg-flame/5",
+    badge: "border-flame/40 bg-flame/15 text-flame",
+    text: "text-ash",
+  },
+  mass: {
+    border: "border-flame/40",
+    bg: "bg-flame/5",
+    badge: "border-flame/40 bg-flame/15 text-flame",
+    text: "text-ash",
+  },
+  lr: {
+    border: "border-plasma/30",
+    bg: "bg-plasma/5",
+    badge: "border-plasma/40 bg-plasma/15 text-plasma",
+    text: "text-ash",
+  },
+  freeday: {
+    border: "border-cyan/30",
+    bg: "bg-cyan/5",
+    badge: "border-cyan/40 bg-cyan/15 text-cyan",
+    text: "text-ash",
+  },
+  round: {
+    border: "border-border",
+    bg: "bg-void/40",
+    badge: "border-border bg-card text-smoke",
+    text: "text-smoke",
+  },
+  killfeed: {
+    border: "border-border",
+    bg: "bg-void/40",
+    badge: "border-cyan/30 bg-cyan/10 text-cyan",
+    text: "text-ash",
+  },
+  join: {
+    border: "border-border",
+    bg: "bg-void/30",
+    badge: "border-border bg-card text-smoke",
+    text: "text-smoke/80",
+  },
+  leave: {
+    border: "border-border",
+    bg: "bg-void/30",
+    badge: "border-border bg-card text-smoke",
+    text: "text-smoke/80",
+  },
+};
+
 function SystemMessageRow({
   msg,
   canDelete,
@@ -1426,16 +1495,30 @@ function SystemMessageRow({
   onDelete: () => void;
 }) {
   const meta = (msg.meta as { tag?: string; category?: string } | null) ?? null;
+  const style =
+    SYSTEM_CATEGORY_STYLE[meta?.category ?? ""] ??
+    SYSTEM_CATEGORY_STYLE.killfeed!;
   return (
     <div
       id={`chat-${msg.id}`}
-      className="group/sys relative rounded-md border border-border bg-void/40 px-3 py-1.5 font-mono text-[12px]"
+      className={cn(
+        "group/sys relative rounded-md border px-3 py-1.5 font-mono text-[12px]",
+        style.border,
+        style.bg,
+      )}
     >
       <div className="flex items-baseline gap-2">
-        <span className="inline-flex shrink-0 items-center gap-1 rounded border border-cyan/30 bg-cyan/10 px-1.5 text-[9px] font-bold uppercase tracking-widest text-cyan">
-          {meta?.tag ?? "system"}
+        <span
+          className={cn(
+            "inline-flex shrink-0 items-center gap-1 rounded border px-1.5 text-[9px] font-bold uppercase tracking-widest",
+            style.badge,
+          )}
+        >
+          {meta?.tag ?? meta?.category ?? "jail"}
         </span>
-        <span className="min-w-0 flex-1 break-words text-smoke">{msg.body}</span>
+        <span className={cn("min-w-0 flex-1 break-words", style.text)}>
+          {msg.body}
+        </span>
         <span className="shrink-0 text-[9px] text-smoke/60">
           {relativeTime(msg.created_at)}
         </span>

@@ -1,31 +1,38 @@
-/** CS 1.6 themed sticker pack. Inserts a pre-styled message body when picked.
+/** Jailbreak-themed sticker pack for endless-war jail server.
  *
- * Without art assets, we lean on emoji + capitalised typography to feel
- * sticker-y. Premium stickers gate behind `granted_perks` (the `server_vip`
- * or `server_premium` perks already exist in the perks system — we just
- * reuse them as the unlock key). Free stickers always work.
+ * Inserted as pre-styled bodies into the composer when picked — render
+ * identically for everyone via the same Markdown pipeline. Premium tier
+ * is gated by the existing perks system (server_vip / server_premium),
+ * no new perk slugs introduced.
  */
 
 export interface Sticker {
   slug: string;
   /** What gets inserted into the composer when the user picks the sticker. */
   body: string;
-  /** Small label shown in the picker grid. */
+  /** Short label shown in the picker grid. */
   label: string;
   /** Optional perk slug that unlocks this sticker. */
   perkRequired?: string;
 }
 
 export const STICKERS: Sticker[] = [
-  { slug: "rush-b", body: "🚀 RUSH B!!! 🚀", label: "Rush B" },
-  { slug: "bomb", body: "💣 **БОМБА УСТАНОВЛЕНА** 💣", label: "Bomb" },
-  { slug: "defuse", body: "🛡️ **DEFUSED** in 1.2s 🛡️", label: "Defused" },
-  { slug: "knife", body: "🔪 KNIFE KILL — позор", label: "Knife" },
-  { slug: "awp", body: "🎯 AWP NO-SCOPE 360 🎯", label: "AWP" },
-  { slug: "ace", body: "⚡ **ACE ROUND** ⚡", label: "Ace" },
+  // Free — джаил-классика
+  { slug: "bunt", body: "🚨 **БУНТ!** 🚨", label: "Бунт" },
+  { slug: "freeday", body: "🆓 **FREEDAY!** 🆓", label: "Freeday" },
+  { slug: "lr", body: "🎲 **Last Request** запрошен", label: "LR" },
+  { slug: "simon", body: "👑 *Симон сказал...*", label: "Simon" },
+  { slug: "to-cell", body: "⛓️ В клетку, заключённый!", label: "В клетку" },
+  { slug: "knife", body: "🔪 **NINJA REBEL** — knife kill 🔪", label: "Ninja" },
   { slug: "gg", body: "🏆 **GG WP** 🏆", label: "GG WP" },
   { slug: "respect", body: "🫡 RESPECT", label: "Respect" },
-  // Premium tier (perks-gated)
+  // Premium — нужен perk
+  {
+    slug: "escape",
+    body: "🔓💨 **ПОБЕГ!** 💨🔓",
+    label: "Побег",
+    perkRequired: "server_vip",
+  },
   {
     slug: "headshot",
     body: "🎯💥 **HEADSHOT!** 💥🎯",
@@ -33,21 +40,15 @@ export const STICKERS: Sticker[] = [
     perkRequired: "server_vip",
   },
   {
-    slug: "clutch-1v5",
-    body: "🥇 **1v5 CLUTCH** 🥇 — легенда",
-    label: "1v5",
-    perkRequired: "server_vip",
-  },
-  {
-    slug: "legend",
-    body: "👑 **LEGEND STATUS** 👑",
-    label: "Legend",
+    slug: "razdacha",
+    body: "🍴 *РАЗДАЧА от КТ* 🍴 — фрик в студии",
+    label: "Раздача",
     perkRequired: "server_premium",
   },
   {
-    slug: "dump",
-    body: "🚮 *Dumped* by the team",
-    label: "Dump",
+    slug: "lineup",
+    body: "⚖️ **СИКС!** Всем в шеренгу ⚖️",
+    label: "Сикс",
     perkRequired: "server_premium",
   },
 ];
@@ -58,7 +59,6 @@ export function canUseSticker(
 ): boolean {
   if (!sticker.perkRequired) return true;
   const perks = grantedPerks ?? [];
-  // server_premium implies server_vip
   if (sticker.perkRequired === "server_vip") {
     return perks.includes("server_vip") || perks.includes("server_premium");
   }

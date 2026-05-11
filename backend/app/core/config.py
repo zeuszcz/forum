@@ -59,8 +59,8 @@ class Settings(BaseSettings):
     # --- CS 1.6 jail server (shoutbox Phase 3) ---
     # Address the chat header + /connect button advertises. Set to the real
     # public IP:PORT once the jail server is online.
-    cs_server_address: str = "ew-jail.innertalk.space:27015"
-    cs_server_name: str = "endless-war jail · #1"
+    cs_server_address: str = "37.230.228.248:27015"
+    cs_server_name: str = "Endless War [JailBreak]"
     # Bearer-style token expected in X-Shoutbox-Token on POST /shoutbox/system.
     # If empty, the system endpoint is disabled. Generate with `openssl rand -hex 32`.
     shoutbox_system_token: str = ""

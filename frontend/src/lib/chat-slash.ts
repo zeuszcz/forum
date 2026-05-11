@@ -103,6 +103,30 @@ export function applySlashCommand(
       const reason = tok.rest ? `: ${tok.rest}` : "";
       return { body: `💤 AFK${reason}` };
     }
+    case "lr": {
+      // /lr [target] — "Last Request" callout, jail flavour.
+      const target = tok.rest ? ` для **${tok.rest}**` : "";
+      const who = ctx.nickname ?? "anon";
+      return { body: `🎲 **${who}** просит LR${target}` };
+    }
+    case "freeday": {
+      const target = tok.rest ? ` для **${tok.rest}**` : "";
+      return { body: `🆓 **FREEDAY**${target} — гуляем 🆓` };
+    }
+    case "bunt": {
+      return { body: `🚨 **БУНТ!** 🚨 ${tok.rest}`.trim() };
+    }
+    case "simon": {
+      if (!tok.rest) {
+        return { body: null, error: "Использование: /simon <команда>" };
+      }
+      return { body: `👑 *Симон сказал:* ${tok.rest}` };
+    }
+    case "razdacha":
+    case "freekill": {
+      const who = tok.rest ? ` от **${tok.rest}**` : "";
+      return { body: `🍴 **РАЗДАЧА**${who} — зови админа` };
+    }
     case "clear": {
       return { body: null, sideEffect: "clear" };
     }
@@ -158,10 +182,20 @@ export const KNOWN_SLASH_HELP: { cmd: string; example: string; desc: string }[] 
   { cmd: "/flip", example: "/flip", desc: "Подбросить монетку" },
   { cmd: "/afk", example: "/afk обед", desc: "Отойти" },
   { cmd: "/shrug", example: "/shrug", desc: "¯\\_(ツ)_/¯" },
+  // Jail-flavoured
+  { cmd: "/lr", example: "/lr admin", desc: "Last Request (джаил)" },
+  { cmd: "/freeday", example: "/freeday me", desc: "Объявить фридей" },
+  { cmd: "/bunt", example: "/bunt поднимаем", desc: "БУНТ! 🚨" },
+  { cmd: "/simon", example: "/simon встать", desc: "Симон сказал…" },
+  {
+    cmd: "/razdacha",
+    example: "/razdacha admin",
+    desc: "Раздача — звать админа",
+  },
   { cmd: "/clear", example: "/clear", desc: "Очистить чат (мод)" },
   {
     cmd: "/mapvote",
-    example: "/mapvote dust2 inferno nuke 5m",
-    desc: "Запустить голосование за карту (мод)",
+    example: "/mapvote jail_simple jail_alcatraz 5m",
+    desc: "Голосование за карту (мод)",
   },
 ];
