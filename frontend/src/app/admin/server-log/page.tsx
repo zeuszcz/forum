@@ -3,6 +3,7 @@
 import {
   Activity,
   AlertTriangle,
+  BookOpen,
   ChevronUp,
   Crosshair,
   Flame,
@@ -23,6 +24,14 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { api } from "@/lib/api";
 import { exactTime, relativeTime } from "@/lib/format";
+import {
+  JBF_CATEGORY_LABEL,
+  JBF_CATEGORY_TONE,
+  type JbfCategory,
+  type JbfCommand,
+  type JbfKind,
+  groupJbfCommands,
+} from "@/lib/jbf-commands";
 import type { ShoutboxMessage } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -138,16 +147,26 @@ const GAME_CATEGORIES = new Set([
 
 const ADMIN_CATEGORIES = new Set(["admin_action"]);
 
-type Tab = "game" | "admin";
+type Tab = "game" | "admin" | "commands";
 
 const TAB_LABEL: Record<Tab, string> = {
   game: "Игровые события",
   admin: "Админ-меню",
+  commands: "Справочник команд",
 };
 
 const TAB_ICON: Record<Tab, LucideIcon> = {
   game: Gamepad2,
   admin: KeyRound,
+  commands: BookOpen,
+};
+
+const JBF_KIND_LABEL: Record<JbfKind, { label: string; tone: string }> = {
+  toggle: { label: "переключатель", tone: "text-cyan border-cyan/40" },
+  setter: { label: "значение", tone: "text-plasma border-plasma/40" },
+  action: { label: "действие", tone: "text-flame border-flame/40" },
+  give: { label: "выдача", tone: "text-ash border-border" },
+  clear: { label: "очистка", tone: "text-ember border-ember/40" },
 };
 
 const GAME_FILTERS: { value: string; label: string }[] = [
@@ -178,6 +197,8 @@ export default function ServerLogPage() {
 
   const fetchPage = useCallback(
     async (beforeId: number | null = null) => {
+      // The static reference tab doesn't hit the API at all.
+      if (tab === "commands") return;
       setLoading(true);
       setError(null);
       try {
@@ -256,6 +277,9 @@ export default function ServerLogPage() {
           );
         })}
       </div>
+
+      {/* Commands reference (static, no API) */}
+      {tab === "commands" && <JbfCommandsReference />}
 
       {/* Filters (only for game tab) */}
       {tab === "game" && (
@@ -404,24 +428,145 @@ export default function ServerLogPage() {
         </div>
       )}
 
-      {/* Tiny legend */}
-      <div className="rounded-md border border-border bg-card/50 p-3 text-[10px] text-smoke">
-        <div className="mb-1 flex items-center gap-1 text-[9px] uppercase tracking-widest text-ash">
-          <Activity className="h-3 w-3" />
-          источник
+      {/* Tiny legend — hidden on the static reference tab */}
+      {tab !== "commands" && (
+        <div className="rounded-md border border-border bg-card/50 p-3 text-[10px] text-smoke">
+          <div className="mb-1 flex items-center gap-1 text-[9px] uppercase tracking-widest text-ash">
+            <Activity className="h-3 w-3" />
+            источник
+          </div>
+          Listener <code className="font-mono">cs-log-listener</code> на VPS слушает
+          UDP 27500, парсит HL-логи и пишет в БД через{" "}
+          <code className="font-mono">/shoutbox/system</code>. Игровые события
+          больше не показываются в публичном чате — только здесь.
+          <br />
+          <Users className="mr-1 inline h-3 w-3" />
+          Сервер:{" "}
+          <code className="font-mono">
+            <Server className="mr-0.5 inline h-3 w-3" />
+            37.230.228.248:27015
+          </code>
         </div>
-        Listener <code className="font-mono">cs-log-listener</code> на VPS слушает
-        UDP 27500, парсит HL-логи и пишет в БД через{" "}
-        <code className="font-mono">/shoutbox/system</code>. Игровые события
-        больше не показываются в публичном чате — только здесь.
-        <br />
-        <Users className="mr-1 inline h-3 w-3" />
-        Сервер:{" "}
-        <code className="font-mono">
-          <Server className="mr-0.5 inline h-3 w-3" />
-          37.230.228.248:27015
-        </code>
+      )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Static reference panel — jbf_uaio_modular admin commands
+// ─────────────────────────────────────────────────────────────────────
+
+function JbfCommandsReference() {
+  const grouped = useMemo(() => groupJbfCommands(), []);
+  const [query, setQuery] = useState("");
+
+  const filterCmd = (c: JbfCommand) => {
+    if (!query) return true;
+    const q = query.toLowerCase();
+    return (
+      c.cmd.toLowerCase().includes(q) ||
+      c.label.toLowerCase().includes(q) ||
+      (c.notes?.toLowerCase().includes(q) ?? false)
+    );
+  };
+
+  const totalCount = Object.values(grouped).reduce((s, l) => s + l.length, 0);
+  const matchedCount = Object.values(grouped).reduce(
+    (s, l) => s + l.filter(filterCmd).length,
+    0,
+  );
+
+  return (
+    <div className="space-y-5">
+      <div className="rounded-md border border-cyan/30 bg-cyan/5 p-3 text-xs text-ash">
+        <div className="mb-1 flex items-center gap-1.5 text-[10px] uppercase tracking-widest text-cyan">
+          <BookOpen className="h-3 w-3" />
+          справочник jbf_uaio_modular ({totalCount} команд)
+        </div>
+        Команды плагина админ-меню. Параметры собраны из наблюдений в логах
+        и конвенций jbf_uaio (компилированные .amxx зашифрованы AMX-X
+        protector'ом, плагин не возвращает usage из RCON). Если что-то
+        неверно — поправь в{" "}
+        <code className="font-mono">frontend/src/lib/jbf-commands.ts</code>.
       </div>
+
+      <input
+        type="search"
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+        placeholder="Поиск по cmd / лейблу / заметке…"
+        className="w-full rounded-md border border-border bg-card px-3 py-2 text-sm text-ash outline-none transition-colors placeholder:text-smoke focus:border-plasma/60"
+      />
+
+      {query && (
+        <div className="text-[11px] text-smoke">
+          {matchedCount === 0 ? "ничего не найдено" : `совпадений: ${matchedCount}`}
+        </div>
+      )}
+
+      {(Object.keys(grouped) as JbfCategory[]).map((cat) => {
+        const list = grouped[cat].filter(filterCmd);
+        if (list.length === 0) return null;
+        return (
+          <section key={cat} className="space-y-2">
+            <header className="flex items-baseline gap-2">
+              <h2 className="text-xs font-semibold uppercase tracking-widest text-bone">
+                {JBF_CATEGORY_LABEL[cat]}
+              </h2>
+              <span className="text-[10px] text-smoke">{list.length} шт.</span>
+              <div className="h-px flex-1 bg-border" />
+            </header>
+            <div className="grid gap-2 lg:grid-cols-2 xl:grid-cols-3">
+              {list.map((c) => (
+                <JbfCommandCard key={c.cmd} cmd={c} />
+              ))}
+            </div>
+          </section>
+        );
+      })}
+    </div>
+  );
+}
+
+function JbfCommandCard({ cmd }: { cmd: JbfCommand }) {
+  const kindMeta = JBF_KIND_LABEL[cmd.kind];
+  const tone = JBF_CATEGORY_TONE[cmd.category];
+  return (
+    <div
+      className={cn(
+        "flex flex-col gap-1.5 rounded-md border bg-card/60 p-3 transition-colors",
+        tone.split(" ").filter((c) => c.startsWith("border-"))[0],
+      )}
+    >
+      <div className="flex flex-wrap items-baseline justify-between gap-x-2 gap-y-1">
+        <code className="font-mono text-xs text-bone break-all">{cmd.cmd}</code>
+        <span
+          className={cn(
+            "shrink-0 rounded border px-1.5 font-mono text-[9px] uppercase tracking-widest",
+            kindMeta.tone,
+          )}
+          title={kindMeta.label}
+        >
+          {kindMeta.label}
+        </span>
+      </div>
+      <div className="text-xs font-semibold text-ash">{cmd.label}</div>
+      <code className="rounded bg-void/40 px-1.5 py-0.5 font-mono text-[11px] text-iridescent">
+        {cmd.cmd} {cmd.params}
+      </code>
+      {(cmd.verb || cmd.notes) && (
+        <div className="space-y-0.5 text-[11px] text-smoke">
+          {cmd.verb && (
+            <div>
+              <span className="text-[9px] uppercase tracking-widest text-smoke/70">
+                лог-глагол:
+              </span>{" "}
+              <span className="font-mono text-ash">{cmd.verb}(а)</span>
+            </div>
+          )}
+          {cmd.notes && <p className="italic">{cmd.notes}</p>}
+        </div>
+      )}
     </div>
   );
 }
