@@ -195,7 +195,7 @@ export default function BindBuilderPage() {
       );
     } catch (e) {
       if (e instanceof ApiError) {
-        toast.error(`RCON: ${e.detail}`);
+        toast.error(e.detail);
       } else {
         toast.error("Ошибка запуска");
       }
@@ -302,7 +302,7 @@ export default function BindBuilderPage() {
               } выполнено`,
             );
           } catch (e) {
-            if (e instanceof ApiError) toast.error(`RCON: ${e.detail}`);
+            if (e instanceof ApiError) toast.error(e.detail);
             else toast.error("Ошибка запуска пресета");
           }
         }}
