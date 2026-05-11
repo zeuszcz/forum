@@ -30,6 +30,10 @@ class ActionRequest(BaseModel):
 
     command: str = Field(min_length=1, max_length=500)
     announce: str | None = Field(default=None, max_length=200)
+    # AMX color tag — used for amx_tsay (top-left HUD coloured banner).
+    # Acceptable: red / green / yellow / blue / white / grey. Backend
+    # validates against an allow-list; unknown / null → green.
+    announce_color: str | None = Field(default=None, max_length=16)
     # If set, the effect goes into cs_active_effects (grant or revoke).
     effect_slug: str | None = Field(default=None, max_length=64)
     effect_label: str | None = Field(default=None, max_length=128)

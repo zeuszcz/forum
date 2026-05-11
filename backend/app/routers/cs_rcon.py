@@ -207,15 +207,43 @@ async def execute_batch(
     return out
 
 
-# Sanitize the forum-supplied announce text — strip anything that could
-# escape from the `say "..."` wrapper. CS chat accepts plain printable
-# text; we keep cyrillic + emoji but drop quotes / control chars / `;`.
+# Sanitize the forum-supplied announce text:
+#  1. strip quotes / control chars / semicolons (RCON / engine injection)
+#  2. allow-list: ASCII printable (0x20-0x7E), Cyrillic (U+0400-U+04FF),
+#     arrows (U+2190-U+21FF — e.g. →←↑↓), whitespace. Everything else
+#     (emoji, CJK, dingbats, variation selectors) is stripped because
+#     the CS 1.6 chat font renders them as empty rectangles.
+#  3. collapse runs of whitespace
 _ANNOUNCE_BAD_RE = re.compile(r"[\";`\n\r\x00]+")
+_NON_PRINTABLE_RE = re.compile(r"[^\x20-\x7EЀ-ӿ←-⇿\s]")
+_WS_COLLAPSE_RE = re.compile(r"\s{2,}")
 _ANNOUNCE_MAX = 160
+
+# AMX-X `amx_tsay <color> <text>` colors. Normalize aliases so the
+# frontend can pass tailwind-style names ("ember" / "flame" / "plasma")
+# and we map them to the AMX vocabulary.
+_ALLOWED_COLORS: dict[str, str] = {
+    "red": "red",
+    "ember": "red",
+    "green": "green",
+    "success": "green",
+    "cyan": "blue",
+    "blue": "blue",
+    "yellow": "yellow",
+    "flame": "yellow",
+    "plasma": "yellow",
+    "white": "white",
+    "grey": "grey",
+    "gray": "grey",
+    "dgreen": "dgreen",
+}
 
 
 def _sanitize_announce(text: str) -> str:
-    return _ANNOUNCE_BAD_RE.sub(" ", text).strip()[:_ANNOUNCE_MAX]
+    text = _ANNOUNCE_BAD_RE.sub(" ", text)
+    text = _NON_PRINTABLE_RE.sub("", text)
+    text = _WS_COLLAPSE_RE.sub(" ", text)
+    return text.strip()[:_ANNOUNCE_MAX]
 
 
 @router.post("/action", response_model=ActionResult)
@@ -267,16 +295,31 @@ async def execute_action(
         latency_ms=primary_latency,
     )
 
-    # 2) Optional announce. Errors here don't fail the action — the
-    #    effect already landed; we just couldn't broadcast.
+    # 2) Optional announce — TWO RCON calls in sequence:
+    #    a) `say <text>` — plain chat record (no colours possible via
+    #       vanilla `say`; the engine just appends `<HostName> <text>`).
+    #    b) `amx_tsay <color> "<text>"` — coloured HUD banner in the
+    #       top-left corner. Server has amx_tsay (verified via
+    #       `cmdlist amx_`). Color codes: red/green/yellow/blue/white/
+    #       grey/dgreen. Failure here is non-fatal — the effect
+    #       already landed.
     announce_sent = False
     if payload.announce:
         sanitized = _sanitize_announce(payload.announce)
-        if sanitized:
-            say_text = f"[FORUM {user.nickname}] {sanitized}"
-            # Re-sanitize the composite in case nickname has weird chars.
-            say_text = _sanitize_announce(say_text)
-            say_cmd = f'say "{say_text}"'
+        nick = _sanitize_announce(user.nickname)
+        target = (
+            _sanitize_announce(payload.target_nick)
+            if payload.target_nick
+            else None
+        )
+        if sanitized and nick:
+            target_part = f" -> {target}" if target else ""
+            say_text = _sanitize_announce(
+                f"[FORUM] {nick}{target_part} | {sanitized}"
+            )
+
+            # 2a) Plain chat — engine takes the whole tail unquoted.
+            say_cmd = f"say {say_text}"
             try:
                 say_res = await cs_rcon.execute(say_cmd)
                 await _audit(
@@ -294,6 +337,35 @@ async def execute_action(
                     db,
                     actor_id=user.id,
                     command=say_cmd,
+                    response=None,
+                    success=False,
+                    error=str(e),
+                    latency_ms=None,
+                )
+
+            # 2b) Coloured HUD banner (top-left). amx_tsay parses args
+            #     space-separated — wrap in quotes so the message stays
+            #     one arg.
+            color = _ALLOWED_COLORS.get(
+                (payload.announce_color or "").lower(), "green"
+            )
+            tsay_cmd = f'amx_tsay {color} "{say_text}"'
+            try:
+                tsay_res = await cs_rcon.execute(tsay_cmd)
+                await _audit(
+                    db,
+                    actor_id=user.id,
+                    command=tsay_cmd,
+                    response=tsay_res.output,
+                    success=True,
+                    error=None,
+                    latency_ms=tsay_res.latency_ms,
+                )
+            except cs_rcon.RconError as e:
+                await _audit(
+                    db,
+                    actor_id=user.id,
+                    command=tsay_cmd,
                     response=None,
                     success=False,
                     error=str(e),

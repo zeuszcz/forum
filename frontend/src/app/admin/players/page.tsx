@@ -20,6 +20,7 @@ import {
   QUICK_ACTIONS,
   QUICK_GROUPS_ORDER,
   QUICK_GROUP_META,
+  actionAnnounceColor,
   actionsByGroup,
 } from "@/lib/jbf-quick-actions";
 import type {
@@ -129,20 +130,29 @@ export default function PlayersPage() {
       const key = `${player.userid}:${action.slug}:${mode}`;
       setBusyKey(key);
       try {
-        const announce =
-          mode === "on"
-            ? `${action.emoji} ${action.label} → ${player.name}`
-            : `${action.emoji} снят ${action.label} → ${player.name}`;
+        // Announce text is the EFFECT part only — backend prepends the
+        // "[FORUM] <auth-nick> -> <target>" framing using the
+        // authenticated user, target_nick from the payload, and its own
+        // sanitizer (strips emoji / quotes / control chars).
+        const duration =
+          action.oneShot || mode === "off" ? null : (action.duration ?? null);
+        const durSuffix = duration ? ` ${duration}с` : "";
+        const stateSuffix = mode === "off" ? " снят" : "";
+        const announce = `${action.label}${durSuffix}${stateSuffix}`;
+        const announce_color = actionAnnounceColor(action, mode);
         await api("/cs-rcon/action", {
           method: "POST",
           body: JSON.stringify({
             command,
             announce,
+            announce_color,
+            // Always send target so the announcement has «-> nick» even
+            // for one-shot actions like kill.
+            target_steamid: player.steamid,
+            target_nick: player.name,
             effect_slug: action.oneShot ? null : action.effectSlug,
             effect_label: action.oneShot ? null : action.label,
             effect_emoji: action.oneShot ? null : action.emoji,
-            target_steamid: action.oneShot ? null : player.steamid,
-            target_nick: action.oneShot ? null : player.name,
             state: action.oneShot ? null : mode === "on" ? "grant" : "revoke",
             duration_s:
               action.oneShot || mode === "off" ? null : action.duration ?? null,

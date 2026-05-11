@@ -36,29 +36,58 @@ export type QuickGroup = "frequent" | "effects" | "games" | "clear";
 
 export const QUICK_GROUP_META: Record<
   QuickGroup,
-  { label: string; emoji: string; tone: string }
+  {
+    label: string;
+    emoji: string;
+    tone: string;
+    /** AMX color sent to amx_tsay — defines the HUD banner colour. */
+    announceColor: string;
+  }
 > = {
   frequent: {
     label: "Часто",
     emoji: "⚡",
     tone: "border-bone/30 text-bone",
+    announceColor: "yellow",
   },
   effects: {
     label: "Эффекты",
     emoji: "🎲",
     tone: "border-plasma/40 text-plasma",
+    announceColor: "green",
   },
   games: {
     label: "Геймплей",
     emoji: "🎮",
     tone: "border-flame/40 text-flame",
+    announceColor: "yellow",
   },
   clear: {
     label: "Очистка",
     emoji: "🧹",
     tone: "border-cyan/40 text-cyan",
+    announceColor: "blue",
   },
 };
+
+/** Pick the announce colour for a single action. Punishment actions
+ *  (kill / freeze / bury / disarm / mute) always go red regardless of
+ *  their tab — they're the most important class of action and we want
+ *  them visually unmistakeable on screen. */
+export function actionAnnounceColor(action: QuickAction, mode: "on" | "off"): string {
+  if (mode === "off") return "blue";
+  const punishSlugs = new Set([
+    "kill",
+    "freeze",
+    "bury",
+    "disarm",
+    "block_chat",
+  ]);
+  if (punishSlugs.has(action.effectSlug)) return "red";
+  // Help-y actions go green.
+  if (["god", "health", "respawn"].includes(action.effectSlug)) return "green";
+  return QUICK_GROUP_META[action.group].announceColor;
+}
 
 const esc = (n: string) => n;
 
