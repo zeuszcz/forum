@@ -20,6 +20,7 @@ import {
   Vote,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
+import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { api } from "@/lib/api";
@@ -478,16 +479,22 @@ function JbfCommandsReference() {
 
   return (
     <div className="space-y-5">
-      <div className="rounded-md border border-cyan/30 bg-cyan/5 p-3 text-xs text-ash">
-        <div className="mb-1 flex items-center gap-1.5 text-[10px] uppercase tracking-widest text-cyan">
-          <BookOpen className="h-3 w-3" />
-          справочник jbf_uaio_modular ({totalCount} команд)
+      <div className="flex flex-wrap items-start justify-between gap-3 rounded-md border border-cyan/30 bg-cyan/5 p-3 text-xs text-ash">
+        <div className="min-w-0">
+          <div className="mb-1 flex items-center gap-1.5 text-[10px] uppercase tracking-widest text-cyan">
+            <BookOpen className="h-3 w-3" />
+            справочник jbf_uaio_modular ({totalCount} команд)
+          </div>
+          Параметры взяты напрямую из ответа плагина (verified usage). Если
+          добавятся новые команды — поправь в{" "}
+          <code className="font-mono">frontend/src/lib/jbf-commands.ts</code>.
         </div>
-        Команды плагина админ-меню. Параметры собраны из наблюдений в логах
-        и конвенций jbf_uaio (компилированные .amxx зашифрованы AMX-X
-        protector'ом, плагин не возвращает usage из RCON). Если что-то
-        неверно — поправь в{" "}
-        <code className="font-mono">frontend/src/lib/jbf-commands.ts</code>.
+        <Link
+          href="/tools/bind-builder"
+          className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-plasma/40 bg-plasma/10 px-3 py-1.5 text-[11px] font-semibold text-plasma transition-colors hover:bg-plasma/20"
+        >
+          ⌨️ Конструктор биндов
+        </Link>
       </div>
 
       <input
