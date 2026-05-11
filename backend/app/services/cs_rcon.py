@@ -98,6 +98,91 @@ def _blocking_rcon(
         sock.close()
 
 
+_RE_PLAYER = re.compile(
+    r'^\s*#?\s*(?P<slot>\d+)\s+'
+    r'"(?P<name>.*?)"\s+'
+    r"(?P<userid>\d+)\s+"
+    r"(?P<steamid>\S+)\s+"
+    r"(?P<frag>-?\d+)\s+"
+    r"(?P<time>\S+)\s+"
+    r"(?P<ping>\d+)\s+"
+    r"(?P<loss>\d+)\s+"
+    r"(?P<addr>\S+)\s*$"
+)
+
+
+def _parse_status(text: str) -> dict:
+    """Parse RCON `status` output into structured form.
+
+    The header line varies between rehlds builds (different column order /
+    extra columns), so we identify the player table by finding lines that
+    match _RE_PLAYER and skip everything else — including connecting
+    players that don't have a steamid yet."""
+    players: list[dict] = []
+    map_name: str | None = None
+    max_players: int | None = None
+    online: int | None = None
+    for raw in text.splitlines():
+        line = raw.rstrip()
+        if line.startswith("map") and ":" in line:
+            # `map     :  jail_simple_mr at: 0 x, 0 y, 0 z`
+            after = line.split(":", 1)[1].strip()
+            map_name = after.split(" at:")[0].strip() or None
+            continue
+        if line.startswith("players") and ":" in line:
+            # `players :  3 active (32 max)`
+            m = re.search(r"(\d+)\s+active\s*\((\d+)\s+max\)", line)
+            if m:
+                online = int(m.group(1))
+                max_players = int(m.group(2))
+            continue
+        m = _RE_PLAYER.match(line)
+        if not m:
+            continue
+        gd = m.groupdict()
+        players.append(
+            {
+                "slot": int(gd["slot"]),
+                "name": gd["name"],
+                "userid": int(gd["userid"]),
+                "steamid": gd["steamid"],
+                "frag": int(gd["frag"]),
+                "time": gd["time"],
+                "ping": int(gd["ping"]),
+                "loss": int(gd["loss"]),
+                "addr": gd["addr"],
+            }
+        )
+    return {
+        "players": players,
+        "map": map_name,
+        "online": online if online is not None else len(players),
+        "max_players": max_players,
+    }
+
+
+# Tiny in-process cache for the players list — admin will hit refresh a lot
+# while planning the day, no need to talk to the CS server every time.
+_status_cache: dict[str, tuple[float, dict]] = {}
+_STATUS_TTL_S = 5.0
+
+
+async def status(*, force: bool = False, timeout: float = 3.0) -> dict:
+    """Run `status` via RCON and return the parsed shape:
+    `{players: [...], map, online, max_players}`. Cached 5 s."""
+    import time as _time
+
+    now = _time.monotonic()
+    if not force:
+        cached = _status_cache.get("v1")
+        if cached and now - cached[0] < _STATUS_TTL_S:
+            return cached[1]
+    result = await execute("status", timeout=timeout)
+    parsed = _parse_status(result.output)
+    _status_cache["v1"] = (now, parsed)
+    return parsed
+
+
 async def execute(command: str, *, timeout: float = 3.0) -> RconResult:
     """Run a single RCON command against the configured CS server.
     Raises RconError if the server isn't configured, doesn't respond, or

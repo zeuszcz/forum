@@ -27,6 +27,7 @@ from app.core.deps import CurrentUser, DbSession, get_current_user
 from app.models.cs_rcon_log import CsRconLog
 from app.models.user import User
 from app.schemas.cs_rcon import (
+    CsPlayersResponse,
     RconBatch,
     RconCommand,
     RconLogRead,
@@ -201,6 +202,29 @@ async def execute_batch(
         await _check_rate_limit(user.id)
         out.append(await _run_one(db, user.id, cmd.strip()))
     return out
+
+
+@router.get("/players", response_model=CsPlayersResponse)
+async def list_players(
+    user: CurrentUser,
+    db: DbSession,
+    force: bool = Query(default=False, description="Bypass the 5 s cache"),
+) -> CsPlayersResponse:
+    """Snapshot of who's on the CS server right now — names, steam ids,
+    ping, frags — sourced from RCON `status`. 5 s in-process cache.
+    Staff-only (the steam ids are PII-ish + you can derive routing info
+    from the addr column)."""
+    if not await _is_staff(db, user):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Только для модераторов"
+        )
+    try:
+        data = await cs_rcon.status(force=force)
+    except cs_rcon.RconError as e:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY, detail=f"RCON: {e}"
+        )
+    return CsPlayersResponse(**data)
 
 
 @router.get("/log", response_model=list[RconLogRead])

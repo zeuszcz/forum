@@ -24,6 +24,25 @@ class RconResult(BaseModel):
     latency_ms: int
 
 
+class CsPlayer(BaseModel):
+    slot: int
+    name: str
+    userid: int
+    steamid: str
+    frag: int
+    time: str
+    ping: int
+    loss: int
+    addr: str
+
+
+class CsPlayersResponse(BaseModel):
+    players: list[CsPlayer]
+    map: str | None = None
+    online: int = 0
+    max_players: int | None = None
+
+
 class RconLogRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

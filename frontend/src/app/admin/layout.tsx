@@ -25,6 +25,7 @@ const NAV = [
   { href: "/admin/users", label: "Пользователи", icon: Users },
   { href: "/admin/roles", label: "Роли", icon: KeyRound },
   { href: "/admin/sections", label: "Разделы", icon: Settings },
+  { href: "/admin/players", label: "Игроки на сервере", icon: Users },
   { href: "/admin/server-log", label: "Логи сервера", icon: Radio },
   { href: "/admin/cs-rcon-log", label: "RCON-аудит", icon: Terminal },
   { href: "/admin/audit", label: "Аудит", icon: ScrollText },

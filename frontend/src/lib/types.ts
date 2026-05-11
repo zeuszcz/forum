@@ -362,6 +362,25 @@ export interface ModerationLogRead {
   target_section_title: string | null;
 }
 
+export interface CsPlayer {
+  slot: number;
+  name: string;
+  userid: number;
+  steamid: string;
+  frag: number;
+  time: string;
+  ping: number;
+  loss: number;
+  addr: string;
+}
+
+export interface CsPlayersResponse {
+  players: CsPlayer[];
+  map: string | null;
+  online: number;
+  max_players: number | null;
+}
+
 export interface CsRconLogRead {
   id: number;
   command: string;
