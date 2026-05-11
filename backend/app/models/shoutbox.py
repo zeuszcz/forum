@@ -23,6 +23,33 @@ class ShoutboxMessage(Base, TimestampMixin):
     edited_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    reply_to_id: Mapped[int | None] = mapped_column(
+        BigInteger,
+        ForeignKey("shoutbox_messages.id", ondelete="SET NULL"),
+        index=True,
+        nullable=True,
+    )
+
+
+class ShoutboxReaction(Base, TimestampMixin):
+    """One row per (message, user, kind). Re-toggling deletes the row."""
+
+    __tablename__ = "shoutbox_reactions"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    message_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("shoutbox_messages.id", ondelete="CASCADE"),
+        index=True,
+        nullable=False,
+    )
+    user_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("users.id", ondelete="CASCADE"),
+        index=True,
+        nullable=False,
+    )
+    kind: Mapped[str] = mapped_column(String(16), nullable=False, default="like")
 
 
 class ChatMute(Base, TimestampMixin):

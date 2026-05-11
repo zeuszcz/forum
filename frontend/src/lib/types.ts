@@ -203,6 +203,13 @@ export interface ThreadWithPosts {
   total_posts: number;
 }
 
+export interface ShoutboxReplyPreview {
+  id: number;
+  body: string;
+  author_nickname: string | null;
+  is_deleted: boolean;
+}
+
 export interface ShoutboxMessage {
   id: number;
   body: string;
@@ -211,6 +218,9 @@ export interface ShoutboxMessage {
   is_pinned: boolean;
   is_deleted: boolean;
   author: UserPublic | null;
+  reply_to?: ShoutboxReplyPreview | null;
+  reactions?: Partial<Record<ReactionKind, number>>;
+  reacted?: ReactionKind[];
 }
 
 export interface AuthResponse {

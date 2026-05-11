@@ -1,18 +1,33 @@
 from __future__ import annotations
 
+import re
+from collections import defaultdict
 from datetime import UTC, datetime, timedelta
 
 from fastapi import HTTPException, status
-from sqlalchemy import and_, asc, delete, desc, select
+from sqlalchemy import and_, asc, delete, desc, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.shoutbox import ChatMute, ShoutboxMessage
+from app.models.notification import Notification
+from app.models.shoutbox import ChatMute, ShoutboxMessage, ShoutboxReaction
 from app.models.user import User
 from app.schemas.shoutbox import ShoutboxCreate, ShoutboxUpdate
 
-# How many messages to keep visible per page
 TAIL_LIMIT = 50
 EDIT_WINDOW = timedelta(minutes=5)
+CLEAR_LIMIT = 200  # safety cap on /clear
+
+REACTION_KINDS: tuple[str, ...] = (
+    "like",
+    "fire",
+    "laugh",
+    "wow",
+    "sad",
+    "thinking",
+    "thanks",
+)
+
+_RE_MENTION = re.compile(r"@([a-z0-9_\-\.]{3,32})", re.IGNORECASE)
 
 
 async def list_recent(
@@ -21,8 +36,6 @@ async def list_recent(
     limit: int = TAIL_LIMIT,
     before_id: int | None = None,
 ) -> list[ShoutboxMessage]:
-    """Return up to `limit` non-deleted messages older than `before_id` (exclusive),
-    or the most recent `limit` if `before_id` is None. Result is chronological (asc)."""
     stmt = select(ShoutboxMessage).where(ShoutboxMessage.is_deleted.is_(False))
     if before_id is not None:
         stmt = stmt.where(ShoutboxMessage.id < before_id)
@@ -57,7 +70,10 @@ async def get_message(db: AsyncSession, message_id: int) -> ShoutboxMessage:
 
 
 async def post(
-    db: AsyncSession, *, author: User, payload: ShoutboxCreate
+    db: AsyncSession,
+    *,
+    author: User,
+    payload: ShoutboxCreate,
 ) -> ShoutboxMessage:
     from app.services.admin import is_currently_banned, is_currently_muted
 
@@ -80,10 +96,23 @@ async def post(
             detail=f"Чат-мут до {chat_mute.until.isoformat()}{suffix}",
         )
 
-    msg = ShoutboxMessage(author_id=author.id, body=payload.body.strip())
+    reply_to_id: int | None = None
+    if payload.reply_to_id is not None:
+        target = await db.get(ShoutboxMessage, payload.reply_to_id)
+        if target is not None and not target.is_deleted:
+            reply_to_id = target.id
+        # silently drop bad reply_to_id rather than 4xx — message still goes out
+
+    msg = ShoutboxMessage(
+        author_id=author.id,
+        body=payload.body.strip(),
+        reply_to_id=reply_to_id,
+    )
     db.add(msg)
     await db.commit()
     await db.refresh(msg)
+
+    await _create_mention_notifications(db, body=msg.body, actor=author, message_id=msg.id)
     return msg
 
 
@@ -136,11 +165,8 @@ async def set_pinned(
     message: ShoutboxMessage,
     pinned: bool,
 ) -> tuple[ShoutboxMessage, list[int]]:
-    """Pin or unpin a message. Returns (target, unpinned_ids) — unpinned_ids lists
-    any other rows that lost their pin (we keep at most 1 pin at a time)."""
     unpinned: list[int] = []
     if pinned:
-        # demote any existing pins so we always show only one
         existing = await db.execute(
             select(ShoutboxMessage).where(
                 and_(
@@ -207,17 +233,181 @@ async def unmute_user(db: AsyncSession, *, target_user_id: int) -> None:
     await db.commit()
 
 
+# -----------------------------------------------------------------------------
+# Reactions
+# -----------------------------------------------------------------------------
+
+
+async def toggle_reaction(
+    db: AsyncSession, *, message_id: int, user_id: int, kind: str
+) -> dict[str, int]:
+    """Toggle a reaction. Returns the up-to-date counts map for the message."""
+    if kind not in REACTION_KINDS:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Unknown reaction kind: {kind}",
+        )
+    msg = await db.get(ShoutboxMessage, message_id)
+    if msg is None or msg.is_deleted:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Сообщение не найдено"
+        )
+    existing_q = await db.execute(
+        select(ShoutboxReaction).where(
+            and_(
+                ShoutboxReaction.message_id == message_id,
+                ShoutboxReaction.user_id == user_id,
+                ShoutboxReaction.kind == kind,
+            )
+        )
+    )
+    existing = existing_q.scalar_one_or_none()
+    if existing is not None:
+        await db.delete(existing)
+    else:
+        db.add(
+            ShoutboxReaction(message_id=message_id, user_id=user_id, kind=kind)
+        )
+    await db.commit()
+    return await counts_for_message(db, message_id)
+
+
+async def counts_for_message(db: AsyncSession, message_id: int) -> dict[str, int]:
+    rows = await db.execute(
+        select(ShoutboxReaction.kind, func.count(ShoutboxReaction.id))
+        .where(ShoutboxReaction.message_id == message_id)
+        .group_by(ShoutboxReaction.kind)
+    )
+    return {kind: int(count) for kind, count in rows.all()}
+
+
+async def reactions_for_messages(
+    db: AsyncSession, message_ids: list[int]
+) -> dict[int, dict[str, int]]:
+    if not message_ids:
+        return {}
+    rows = await db.execute(
+        select(
+            ShoutboxReaction.message_id,
+            ShoutboxReaction.kind,
+            func.count(ShoutboxReaction.id),
+        )
+        .where(ShoutboxReaction.message_id.in_(message_ids))
+        .group_by(ShoutboxReaction.message_id, ShoutboxReaction.kind)
+    )
+    out: dict[int, dict[str, int]] = defaultdict(dict)
+    for mid, kind, count in rows.all():
+        out[mid][kind] = int(count)
+    return dict(out)
+
+
+async def reacted_kinds_for_user(
+    db: AsyncSession, message_ids: list[int], user_id: int
+) -> dict[int, list[str]]:
+    if not message_ids:
+        return {}
+    rows = await db.execute(
+        select(ShoutboxReaction.message_id, ShoutboxReaction.kind)
+        .where(
+            and_(
+                ShoutboxReaction.message_id.in_(message_ids),
+                ShoutboxReaction.user_id == user_id,
+            )
+        )
+    )
+    out: dict[int, list[str]] = defaultdict(list)
+    for mid, kind in rows.all():
+        out[mid].append(kind)
+    return dict(out)
+
+
+# -----------------------------------------------------------------------------
+# Mentions → notifications
+# -----------------------------------------------------------------------------
+
+
+async def _create_mention_notifications(
+    db: AsyncSession, *, body: str, actor: User, message_id: int
+) -> None:
+    """Scan body for @nicknames, create one notification per unique mentioned
+    user (excluding the actor). Best-effort — swallow errors so chat posting
+    never breaks because of a notification glitch."""
+    try:
+        nicknames = {m.lower() for m in _RE_MENTION.findall(body)}
+        if not nicknames:
+            return
+        rows = await db.execute(
+            select(User).where(func.lower(User.nickname).in_(list(nicknames)))
+        )
+        users = list(rows.scalars().all())
+        snippet = body[:120]
+        for u in users:
+            if u.id == actor.id:
+                continue
+            db.add(
+                Notification(
+                    user_id=u.id,
+                    kind="mention",
+                    title=f"{actor.nickname} упомянул тебя в чате",
+                    body=snippet,
+                    href=f"/#chat-{message_id}",
+                )
+            )
+        await db.commit()
+    except Exception:  # noqa: BLE001
+        pass
+
+
+# -----------------------------------------------------------------------------
+# Clear (mod-only bulk soft-delete)
+# -----------------------------------------------------------------------------
+
+
+async def clear_recent(db: AsyncSession, *, limit: int = CLEAR_LIMIT) -> list[int]:
+    """Soft-delete up to `limit` most-recent non-deleted, non-pinned messages.
+    Returns the list of affected ids so callers can broadcast `delete` events."""
+    cap = min(max(limit, 1), CLEAR_LIMIT)
+    rows = await db.execute(
+        select(ShoutboxMessage.id)
+        .where(
+            and_(
+                ShoutboxMessage.is_deleted.is_(False),
+                ShoutboxMessage.is_pinned.is_(False),
+            )
+        )
+        .order_by(desc(ShoutboxMessage.id))
+        .limit(cap)
+    )
+    ids = [int(r[0]) for r in rows.all()]
+    if not ids:
+        return []
+    await db.execute(
+        update(ShoutboxMessage)
+        .where(ShoutboxMessage.id.in_(ids))
+        .values(is_deleted=True)
+    )
+    await db.commit()
+    return ids
+
+
 __all__ = [
+    "CLEAR_LIMIT",
     "EDIT_WINDOW",
+    "REACTION_KINDS",
     "TAIL_LIMIT",
+    "clear_recent",
+    "counts_for_message",
     "get_active_chat_mute",
     "get_message",
     "list_pinned",
     "list_recent",
     "mute_user",
     "post",
+    "reacted_kinds_for_user",
+    "reactions_for_messages",
     "set_pinned",
     "soft_delete",
+    "toggle_reaction",
     "unmute_user",
     "update_message",
 ]

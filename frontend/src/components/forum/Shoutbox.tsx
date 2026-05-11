@@ -1,16 +1,41 @@
 "use client";
 
-import { Check, ChevronUp, Pencil, Pin, PinOff, Send, Trash2, VolumeX, X } from "lucide-react";
+import {
+  Check,
+  ChevronUp,
+  CornerDownRight,
+  Eraser,
+  Pencil,
+  Pin,
+  PinOff,
+  Reply,
+  Send,
+  Smile,
+  SmilePlus,
+  Trash2,
+  VolumeX,
+  X,
+} from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import ReactMarkdown from "react-markdown";
+import rehypeSanitize, { defaultSchema } from "rehype-sanitize";
+import remarkGfm from "remark-gfm";
 
 import { LetterAvatar } from "@/components/ui/avatar";
 import { api, ApiError } from "@/lib/api";
 import { sfx } from "@/lib/audio";
 import { useAuth } from "@/lib/auth-context";
+import { EMOJI_GROUPS } from "@/lib/chat-emoji";
+import { applySlashCommand, KNOWN_SLASH_HELP } from "@/lib/chat-slash";
 import { relativeTime } from "@/lib/format";
 import { avatarGlowColor, glowNickProps, nickColor } from "@/lib/perks";
-import type { ShoutboxMessage, UserPublic } from "@/lib/types";
+import {
+  REACTION_EMOJI,
+  type ReactionKind,
+  type ShoutboxMessage,
+  type UserPublic,
+} from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 const POLL_FALLBACK_MS = 5000;
@@ -22,6 +47,9 @@ const MUTE_OPTIONS = [
   { min: 60, label: "1 ч" },
   { min: 60 * 24, label: "24 ч" },
 ];
+const REACTION_KINDS: ReactionKind[] = [
+  "like", "fire", "laugh", "wow", "sad", "thinking", "thanks",
+];
 
 type WsEvent =
   | { type: "hello"; user_id: number | null }
@@ -29,7 +57,22 @@ type WsEvent =
   | { type: "edit"; message: ShoutboxMessage }
   | { type: "delete"; id: number }
   | { type: "pin"; message: ShoutboxMessage; unpinned: number[] }
-  | { type: "unpin"; id: number; message: ShoutboxMessage };
+  | { type: "unpin"; id: number; message: ShoutboxMessage }
+  | { type: "react"; id: number; reactions: Partial<Record<ReactionKind, number>> };
+
+const MARKDOWN_SCHEMA = {
+  ...defaultSchema,
+  tagNames: ["p", "br", "strong", "em", "code", "a", "del", "s"],
+  attributes: {
+    ...defaultSchema.attributes,
+    a: [
+      ["href", /^https?:\/\//, /^\/[^/]/],
+      ["title"],
+      ["target"],
+      ["rel"],
+    ],
+  },
+};
 
 export function Shoutbox({ initialMessages }: { initialMessages: ShoutboxMessage[] }) {
   const { user } = useAuth();
@@ -52,10 +95,19 @@ export function Shoutbox({ initialMessages }: { initialMessages: ShoutboxMessage
   const [body, setBody] = useState("");
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editBody, setEditBody] = useState("");
+  const [replyTo, setReplyTo] = useState<ShoutboxMessage | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
   const [wsConnected, setWsConnected] = useState(false);
   const [muteOpenFor, setMuteOpenFor] = useState<number | null>(null);
+  const [reactPickerFor, setReactPickerFor] = useState<number | null>(null);
+  const [emojiOpen, setEmojiOpen] = useState(false);
+  const [mentionState, setMentionState] = useState<{
+    query: string;
+    start: number;
+    items: UserPublic[];
+    activeIdx: number;
+  } | null>(null);
 
   const listRef = useRef<HTMLDivElement | null>(null);
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
@@ -64,7 +116,7 @@ export function Shoutbox({ initialMessages }: { initialMessages: ShoutboxMessage
   // -------- WebSocket --------
   useEffect(() => {
     const apiUrl = process.env.NEXT_PUBLIC_API_URL || "";
-    if (!apiUrl) return; // dev edge case
+    if (!apiUrl) return;
     const wsUrl = apiUrl.replace(/^http(s?):/, "ws$1:") + "/shoutbox/ws";
 
     let ws: WebSocket | null = null;
@@ -78,13 +130,11 @@ export function Shoutbox({ initialMessages }: { initialMessages: ShoutboxMessage
           break;
         case "new": {
           const msg = evt.message;
-          if (msg.is_pinned) {
-            setPinned(msg);
-          } else {
+          if (msg.is_pinned) setPinned(msg);
+          else
             setMessages((prev) =>
               prev.some((m) => m.id === msg.id) ? prev : [...prev, msg],
             );
-          }
           if (msg.author?.id !== user?.id) sfx.message();
           break;
         }
@@ -97,23 +147,33 @@ export function Shoutbox({ initialMessages }: { initialMessages: ShoutboxMessage
         case "delete": {
           setMessages((prev) => prev.filter((m) => m.id !== evt.id));
           setPinned((p) => (p && p.id === evt.id ? null : p));
+          setReplyTo((r) => (r && r.id === evt.id ? null : r));
           break;
         }
         case "pin": {
           setPinned(evt.message);
-          // remove from chrono list (it's shown only in pinned slot)
           setMessages((prev) => prev.filter((m) => m.id !== evt.message.id));
           break;
         }
         case "unpin": {
           setPinned((p) => (p && p.id === evt.id ? null : p));
-          // re-insert into chrono list at correct position
           setMessages((prev) => {
             if (prev.some((m) => m.id === evt.message.id)) return prev;
             const next = [...prev, evt.message];
             next.sort((a, b) => a.id - b.id);
             return next;
           });
+          break;
+        }
+        case "react": {
+          // Don't overwrite our own `reacted` list — the toggle endpoint
+          // already updated us. We only refresh counts here.
+          setMessages((prev) =>
+            prev.map((m) => (m.id === evt.id ? { ...m, reactions: evt.reactions } : m)),
+          );
+          setPinned((p) =>
+            p && p.id === evt.id ? { ...p, reactions: evt.reactions } : p,
+          );
           break;
         }
       }
@@ -169,7 +229,7 @@ export function Shoutbox({ initialMessages }: { initialMessages: ShoutboxMessage
     };
   }, [user?.id]);
 
-  // -------- Polling fallback when WS is offline --------
+  // -------- Polling fallback --------
   const refresh = useCallback(async () => {
     try {
       const next = await api<ShoutboxMessage[]>(`/shoutbox?limit=${PAGE_SIZE}`);
@@ -188,17 +248,15 @@ export function Shoutbox({ initialMessages }: { initialMessages: ShoutboxMessage
     return () => window.clearInterval(id);
   }, [refresh]);
 
-  // -------- Autoscroll on new --------
+  // -------- Autoscroll --------
   useEffect(() => {
     const el = listRef.current;
     if (!el) return;
-    // Only autoscroll if user is already near the bottom (within 120px) to
-    // avoid yanking the view while they read history.
     const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
     if (nearBottom) el.scrollTop = el.scrollHeight;
   }, [messages.length]);
 
-  // -------- Load older on scroll up --------
+  // -------- Load older --------
   const loadOlder = useCallback(async () => {
     if (loadingOlder || !hasMore || messages.length === 0) return;
     setLoadingOlder(true);
@@ -212,7 +270,6 @@ export function Shoutbox({ initialMessages }: { initialMessages: ShoutboxMessage
       const filtered = older.filter((m) => !m.is_deleted && !m.is_pinned);
       setMessages((prev) => [...filtered, ...prev]);
       setHasMore(filtered.length >= PAGE_SIZE);
-      // Preserve visual scroll position so the user stays at the same message.
       window.requestAnimationFrame(() => {
         if (el) el.scrollTop = el.scrollHeight - prevHeight;
       });
@@ -223,23 +280,112 @@ export function Shoutbox({ initialMessages }: { initialMessages: ShoutboxMessage
     }
   }, [loadingOlder, hasMore, messages]);
 
+  // -------- Mention autocomplete --------
+  const updateMentionFromInput = useCallback(
+    (value: string, caret: number) => {
+      // Find the most recent `@` before the caret with no whitespace between.
+      let i = caret - 1;
+      while (i >= 0 && /[a-zA-Z0-9_.\-]/.test(value[i] ?? "")) i--;
+      if (i < 0 || value[i] !== "@") {
+        setMentionState(null);
+        return;
+      }
+      const start = i;
+      const query = value.slice(start + 1, caret);
+      if (query.length < 1) {
+        setMentionState({ query: "", start, items: [], activeIdx: 0 });
+        return;
+      }
+      setMentionState((prev) => ({
+        query,
+        start,
+        items: prev?.items ?? [],
+        activeIdx: 0,
+      }));
+    },
+    [],
+  );
+
+  const mentionQuery = mentionState?.query ?? "";
+  useEffect(() => {
+    if (mentionQuery.length < 2) return;
+    const q = mentionQuery;
+    const handle = window.setTimeout(async () => {
+      try {
+        const r = await api<UserPublic[]>(
+          `/users/search?q=${encodeURIComponent(q)}&limit=6`,
+        );
+        setMentionState((prev) =>
+          prev && prev.query === q
+            ? { ...prev, items: r, activeIdx: 0 }
+            : prev,
+        );
+      } catch {
+        /* swallow */
+      }
+    }, 150);
+    return () => window.clearTimeout(handle);
+  }, [mentionQuery]);
+
+  function applyMentionPick(u: UserPublic) {
+    if (!mentionState || !composerRef.current) return;
+    const before = body.slice(0, mentionState.start);
+    const afterCaret = body.slice(composerRef.current.selectionStart);
+    const inserted = `@${u.nickname} `;
+    const next = `${before}${inserted}${afterCaret}`;
+    setBody(next);
+    setMentionState(null);
+    window.requestAnimationFrame(() => {
+      const el = composerRef.current;
+      if (!el) return;
+      el.focus();
+      const pos = before.length + inserted.length;
+      el.setSelectionRange(pos, pos);
+    });
+  }
+
   // -------- Send --------
-  async function send(e: React.FormEvent) {
-    e.preventDefault();
+  async function clearChat() {
+    if (!isStaff) return;
+    if (!window.confirm("Очистить чат? Будут soft-удалены последние сообщения.")) return;
+    try {
+      await api("/shoutbox/clear", { method: "POST" });
+    } catch (err) {
+      if (err instanceof ApiError) setError(err.detail);
+    }
+  }
+
+  async function send(e?: React.FormEvent) {
+    if (e) e.preventDefault();
     const trimmed = body.trim();
     if (!user || !trimmed || sending) return;
+
+    const cmd = applySlashCommand(trimmed, { nickname: user.nickname });
+    if (cmd.error) {
+      setError(cmd.error);
+      return;
+    }
+    if (cmd.sideEffect === "clear") {
+      setBody("");
+      await clearChat();
+      return;
+    }
+    const finalBody = cmd.body;
+    if (!finalBody) return;
+
     setSending(true);
     setError(null);
+    const replyId = replyTo?.id ?? null;
     try {
       const msg = await api<ShoutboxMessage>("/shoutbox", {
         method: "POST",
-        body: JSON.stringify({ body: trimmed }),
+        body: JSON.stringify({ body: finalBody, reply_to_id: replyId }),
       });
-      // optimistic — WS will dedupe; falls back to local insert if WS dead
       setMessages((prev) =>
         prev.some((m) => m.id === msg.id) ? prev : [...prev, msg],
       );
       setBody("");
+      setReplyTo(null);
       sfx.message();
     } catch (err) {
       if (err instanceof ApiError) setError(err.detail);
@@ -249,7 +395,24 @@ export function Shoutbox({ initialMessages }: { initialMessages: ShoutboxMessage
     }
   }
 
-  // -------- Edit --------
+  function insertAtCaret(text: string) {
+    const el = composerRef.current;
+    if (!el) {
+      setBody((b) => b + text);
+      return;
+    }
+    const start = el.selectionStart ?? body.length;
+    const end = el.selectionEnd ?? body.length;
+    const next = body.slice(0, start) + text + body.slice(end);
+    setBody(next);
+    window.requestAnimationFrame(() => {
+      el.focus();
+      const pos = start + text.length;
+      el.setSelectionRange(pos, pos);
+    });
+  }
+
+  // -------- Edit / Delete / Pin / Mute --------
   function startEdit(msg: ShoutboxMessage) {
     setEditingId(msg.id);
     setEditBody(msg.body);
@@ -271,8 +434,6 @@ export function Shoutbox({ initialMessages }: { initialMessages: ShoutboxMessage
       if (err instanceof ApiError) setError(err.detail);
     }
   }
-
-  // -------- Delete / Pin / Mute --------
   async function deleteMsg(id: number) {
     if (!window.confirm("Удалить сообщение?")) return;
     try {
@@ -299,10 +460,56 @@ export function Shoutbox({ initialMessages }: { initialMessages: ShoutboxMessage
       if (err instanceof ApiError) setError(err.detail);
     }
   }
+  async function reactTo(id: number, kind: ReactionKind) {
+    if (!user) return;
+    // Optimistic: toggle local reacted + count
+    setMessages((prev) =>
+      prev.map((m) => {
+        if (m.id !== id) return m;
+        const had = (m.reacted ?? []).includes(kind);
+        const reactions = { ...(m.reactions ?? {}) };
+        reactions[kind] = Math.max(0, (reactions[kind] ?? 0) + (had ? -1 : 1));
+        const reacted = had
+          ? (m.reacted ?? []).filter((k) => k !== kind)
+          : [...(m.reacted ?? []), kind];
+        return { ...m, reactions, reacted };
+      }),
+    );
+    try {
+      const r = await api<{
+        id: number;
+        reactions: Partial<Record<ReactionKind, number>>;
+        reacted: ReactionKind[];
+      }>(`/shoutbox/${id}/react?kind=${kind}`, { method: "POST" });
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === id ? { ...m, reactions: r.reactions, reacted: r.reacted } : m,
+        ),
+      );
+    } catch (err) {
+      // Rollback on failure
+      setMessages((prev) =>
+        prev.map((m) => {
+          if (m.id !== id) return m;
+          const had = (m.reacted ?? []).includes(kind);
+          const reactions = { ...(m.reactions ?? {}) };
+          reactions[kind] = Math.max(0, (reactions[kind] ?? 0) + (had ? -1 : 1));
+          const reacted = had
+            ? (m.reacted ?? []).filter((k) => k !== kind)
+            : [...(m.reacted ?? []), kind];
+          return { ...m, reactions, reacted };
+        }),
+      );
+      if (err instanceof ApiError) setError(err.detail);
+    }
+  }
 
   // -------- Render --------
   const charsLeft = 500 - body.length;
   const charsLow = charsLeft < 50;
+  const slashHint = body.trim().startsWith("/")
+    ? KNOWN_SLASH_HELP.find((c) => body.trim().toLowerCase().startsWith(c.cmd))
+    : null;
 
   return (
     <section className="flex h-full min-h-0 flex-col rounded-lg border border-border bg-card">
@@ -317,7 +524,20 @@ export function Shoutbox({ initialMessages }: { initialMessages: ShoutboxMessage
           />
           <h2 className="text-sm font-semibold tracking-tight text-bone">Общий чат</h2>
         </div>
-        <span className="text-xs text-smoke">{messages.length}</span>
+        <div className="flex items-center gap-2">
+          {isStaff && (
+            <button
+              type="button"
+              onClick={clearChat}
+              title="Очистить чат"
+              className="inline-flex h-6 items-center gap-1 rounded-md border border-border px-1.5 text-[10px] uppercase tracking-widest text-smoke transition-colors hover:border-ember/40 hover:text-ember"
+            >
+              <Eraser className="h-3 w-3" />
+              clear
+            </button>
+          )}
+          <span className="text-xs text-smoke">{messages.length}</span>
+        </div>
       </header>
 
       {pinned && (
@@ -335,7 +555,7 @@ export function Shoutbox({ initialMessages }: { initialMessages: ShoutboxMessage
               </button>
             )}
           </div>
-          <MessageBody msg={pinned} />
+          <MessageBody body={pinned.body} />
         </div>
       )}
 
@@ -367,14 +587,19 @@ export function Shoutbox({ initialMessages }: { initialMessages: ShoutboxMessage
           const ageMs = Date.now() - new Date(m.created_at).getTime();
           const canEdit = isOwn && ageMs < EDIT_WINDOW_MS;
           const canDelete = isOwn || isStaff;
-          const canMute =
-            isStaff && m.author && m.author.id !== user?.id;
+          const canMute = isStaff && m.author && m.author.id !== user?.id;
           const isEditing = editingId === m.id;
+          const reactions = m.reactions ?? {};
+          const reacted = new Set(m.reacted ?? []);
+          const visibleReactions = REACTION_KINDS.filter(
+            (k) => (reactions[k] ?? 0) > 0,
+          );
 
           return (
             <div
               key={m.id}
               className="group/msg relative flex items-start gap-2"
+              id={`chat-${m.id}`}
             >
               {m.author && (
                 <LetterAvatar
@@ -385,6 +610,9 @@ export function Shoutbox({ initialMessages }: { initialMessages: ShoutboxMessage
                 />
               )}
               <div className="min-w-0 flex-1">
+                {m.reply_to && (
+                  <ReplyPreview reply={m.reply_to} />
+                )}
                 <div className="flex flex-wrap items-baseline gap-x-2">
                   <AuthorName author={m.author} />
                   <span className="text-[10px] text-smoke">
@@ -423,17 +651,76 @@ export function Shoutbox({ initialMessages }: { initialMessages: ShoutboxMessage
                     </div>
                   </div>
                 ) : (
-                  <MessageBody msg={m} />
+                  <MessageBody body={m.body} />
+                )}
+
+                {visibleReactions.length > 0 && (
+                  <div className="mt-1 flex flex-wrap items-center gap-1">
+                    {visibleReactions.map((k) => (
+                      <button
+                        key={k}
+                        type="button"
+                        onClick={() => reactTo(m.id, k)}
+                        disabled={!user}
+                        className={cn(
+                          "inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[11px] transition-colors disabled:cursor-not-allowed disabled:opacity-50",
+                          reacted.has(k)
+                            ? "border-flame/40 bg-flame/10 text-flame"
+                            : "border-border bg-card text-ash hover:border-plasma/40 hover:text-bone",
+                        )}
+                      >
+                        <span aria-hidden>{REACTION_EMOJI[k]}</span>
+                        <span className="font-mono">{reactions[k]}</span>
+                      </button>
+                    ))}
+                  </div>
                 )}
               </div>
 
-              {!isEditing && (canEdit || canDelete || isStaff || canMute) && (
+              {!isEditing && user && (
                 <div className="absolute right-1 top-0 flex items-center gap-0.5 opacity-0 transition-opacity group-hover/msg:opacity-100">
-                  {canEdit && (
+                  <div className="relative">
                     <ActionButton
-                      label="Редактировать"
-                      onClick={() => startEdit(m)}
+                      label="Реакция"
+                      onClick={() =>
+                        setReactPickerFor((curr) => (curr === m.id ? null : m.id))
+                      }
                     >
+                      <SmilePlus className="h-3 w-3" />
+                    </ActionButton>
+                    {reactPickerFor === m.id && (
+                      <div className="absolute right-0 top-7 z-10 flex items-center gap-1 rounded-md border border-border bg-card p-1 shadow-xl">
+                        {REACTION_KINDS.map((k) => (
+                          <button
+                            key={k}
+                            type="button"
+                            onClick={() => {
+                              setReactPickerFor(null);
+                              reactTo(m.id, k);
+                            }}
+                            className={cn(
+                              "flex h-7 w-7 items-center justify-center rounded-md text-base transition-transform hover:scale-125 hover:bg-slate",
+                              reacted.has(k) && "bg-flame/15",
+                            )}
+                            aria-label={k}
+                          >
+                            {REACTION_EMOJI[k]}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  <ActionButton
+                    label="Ответить"
+                    onClick={() => {
+                      setReplyTo(m);
+                      composerRef.current?.focus();
+                    }}
+                  >
+                    <Reply className="h-3 w-3" />
+                  </ActionButton>
+                  {canEdit && (
+                    <ActionButton label="Редактировать" onClick={() => startEdit(m)}>
                       <Pencil className="h-3 w-3" />
                     </ActionButton>
                   )}
@@ -478,10 +765,7 @@ export function Shoutbox({ initialMessages }: { initialMessages: ShoutboxMessage
                     </div>
                   )}
                   {canDelete && (
-                    <ActionButton
-                      label="Удалить"
-                      onClick={() => deleteMsg(m.id)}
-                    >
+                    <ActionButton label="Удалить" onClick={() => deleteMsg(m.id)}>
                       <Trash2 className="h-3 w-3 text-ember" />
                     </ActionButton>
                   )}
@@ -492,9 +776,34 @@ export function Shoutbox({ initialMessages }: { initialMessages: ShoutboxMessage
         })}
       </div>
 
+      {replyTo && (
+        <div className="border-t border-cyan/30 bg-cyan/5 px-3 py-1.5">
+          <div className="flex items-center justify-between gap-2">
+            <div className="min-w-0 flex-1 text-[11px]">
+              <span className="inline-flex items-center gap-1 text-cyan">
+                <CornerDownRight className="h-3 w-3" />
+                ответ {replyTo.author?.nickname ?? "анон"}
+              </span>
+              <span className="ml-2 text-smoke truncate">
+                {replyTo.body.slice(0, 80)}
+                {replyTo.body.length > 80 && "…"}
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setReplyTo(null)}
+              className="text-smoke transition-colors hover:text-bone"
+              aria-label="Отменить ответ"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        </div>
+      )}
+
       <form
         onSubmit={send}
-        className="flex flex-col gap-2 border-t border-border bg-void/40 p-3"
+        className="relative flex flex-col gap-2 border-t border-border bg-void/40 p-3"
       >
         {user ? (
           <>
@@ -502,11 +811,54 @@ export function Shoutbox({ initialMessages }: { initialMessages: ShoutboxMessage
               <textarea
                 ref={composerRef}
                 value={body}
-                onChange={(e) => setBody(e.target.value)}
+                onChange={(e) => {
+                  setBody(e.target.value);
+                  updateMentionFromInput(
+                    e.target.value,
+                    e.target.selectionStart ?? e.target.value.length,
+                  );
+                }}
+                onSelect={(e) => {
+                  const t = e.currentTarget;
+                  updateMentionFromInput(t.value, t.selectionStart ?? 0);
+                }}
                 onKeyDown={(e) => {
+                  if (mentionState && mentionState.items.length > 0) {
+                    if (e.key === "ArrowDown") {
+                      e.preventDefault();
+                      setMentionState((s) =>
+                        s
+                          ? {
+                              ...s,
+                              activeIdx: Math.min(
+                                s.activeIdx + 1,
+                                s.items.length - 1,
+                              ),
+                            }
+                          : s,
+                      );
+                      return;
+                    }
+                    if (e.key === "ArrowUp") {
+                      e.preventDefault();
+                      setMentionState((s) =>
+                        s ? { ...s, activeIdx: Math.max(0, s.activeIdx - 1) } : s,
+                      );
+                      return;
+                    }
+                    if (e.key === "Enter" || e.key === "Tab") {
+                      e.preventDefault();
+                      applyMentionPick(mentionState.items[mentionState.activeIdx]!);
+                      return;
+                    }
+                    if (e.key === "Escape") {
+                      setMentionState(null);
+                      return;
+                    }
+                  }
                   if (e.key === "Enter" && !e.shiftKey) {
                     e.preventDefault();
-                    void send(e as unknown as React.FormEvent);
+                    void send();
                   }
                 }}
                 placeholder="Написать в чат… (Shift+Enter — перенос)"
@@ -515,6 +867,14 @@ export function Shoutbox({ initialMessages }: { initialMessages: ShoutboxMessage
                 rows={1}
                 className="min-h-[36px] max-h-[120px] flex-1 resize-none rounded-md border border-border bg-card px-3 py-2 text-sm text-ash outline-none transition-colors placeholder:text-smoke focus:border-plasma/60"
               />
+              <button
+                type="button"
+                onClick={() => setEmojiOpen((v) => !v)}
+                className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-border bg-card text-smoke transition-colors hover:border-plasma/40 hover:text-bone"
+                title="Эмодзи"
+              >
+                <Smile className="h-4 w-4" />
+              </button>
               <button
                 type="submit"
                 disabled={!body.trim() || sending}
@@ -525,7 +885,11 @@ export function Shoutbox({ initialMessages }: { initialMessages: ShoutboxMessage
               </button>
             </div>
             <div className="flex items-center justify-between text-[10px] text-smoke">
-              <span>Enter — отправить, Shift+Enter — перенос строки</span>
+              <span>
+                {slashHint
+                  ? `${slashHint.cmd} — ${slashHint.desc}`
+                  : "Markdown: **жирный**, *курсив*, `код`, [текст](url), @ник"}
+              </span>
               <span
                 className={cn(
                   "font-mono",
@@ -536,6 +900,64 @@ export function Shoutbox({ initialMessages }: { initialMessages: ShoutboxMessage
                 {charsLeft}
               </span>
             </div>
+
+            {mentionState && mentionState.items.length > 0 && (
+              <div className="absolute bottom-[68px] left-3 z-20 w-64 overflow-hidden rounded-md border border-border bg-card shadow-xl">
+                {mentionState.items.map((u, idx) => (
+                  <button
+                    key={u.id}
+                    type="button"
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      applyMentionPick(u);
+                    }}
+                    className={cn(
+                      "flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-xs transition-colors",
+                      idx === mentionState.activeIdx
+                        ? "bg-slate text-bone"
+                        : "text-ash hover:bg-slate hover:text-bone",
+                    )}
+                  >
+                    <LetterAvatar
+                      nickname={u.nickname}
+                      size={18}
+                      avatarUrl={u.avatar_url ?? null}
+                    />
+                    <span style={{ color: nickColor(u) }}>@{u.nickname}</span>
+                    {u.title && (
+                      <span className="ml-auto text-[10px] text-smoke">{u.title}</span>
+                    )}
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {emojiOpen && (
+              <div className="absolute bottom-[68px] right-12 z-20 w-72 overflow-hidden rounded-md border border-border bg-card shadow-xl">
+                {EMOJI_GROUPS.map((group) => (
+                  <div key={group.name} className="border-b border-border last:border-b-0">
+                    <div className="px-2 py-1 text-[10px] uppercase tracking-widest text-smoke">
+                      {group.name}
+                    </div>
+                    <div className="grid grid-cols-8 gap-0.5 p-1">
+                      {group.emojis.map((e) => (
+                        <button
+                          key={e}
+                          type="button"
+                          onClick={() => {
+                            insertAtCaret(e);
+                            setEmojiOpen(false);
+                          }}
+                          className="flex h-7 w-7 items-center justify-center rounded-md text-base transition-transform hover:scale-125 hover:bg-slate"
+                        >
+                          {e}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </>
         ) : (
           <p className="text-center text-xs text-smoke">
@@ -595,10 +1017,110 @@ function AuthorName({ author }: { author: UserPublic | null }) {
   );
 }
 
-function MessageBody({ msg }: { msg: ShoutboxMessage }) {
+function ReplyPreview({
+  reply,
+}: {
+  reply: NonNullable<ShoutboxMessage["reply_to"]>;
+}) {
   return (
-    <p className="mt-0.5 whitespace-pre-wrap break-words text-sm leading-snug text-ash">
-      {msg.body}
-    </p>
+    <div className="mb-1 inline-flex max-w-full items-center gap-1.5 rounded-l border-l-2 border-cyan/50 bg-cyan/5 px-2 py-0.5">
+      <CornerDownRight className="h-3 w-3 shrink-0 text-cyan" />
+      {reply.author_nickname ? (
+        <Link
+          href={`/u/${reply.author_nickname}`}
+          className="text-[11px] font-semibold text-cyan hover:underline"
+        >
+          @{reply.author_nickname}
+        </Link>
+      ) : (
+        <span className="text-[11px] text-smoke">аноним</span>
+      )}
+      <span className="truncate text-[11px] text-smoke">
+        {reply.is_deleted ? "[удалено]" : reply.body}
+      </span>
+    </div>
   );
+}
+
+const MENTION_RE = /(^|[\s(\[{>«„"'\-])@([a-zA-Z0-9_.]{2,32})\b/g;
+
+function renderTextWithMentions(text: string, keyPrefix: string): React.ReactNode {
+  const out: React.ReactNode[] = [];
+  let last = 0;
+  let m: RegExpExecArray | null;
+  MENTION_RE.lastIndex = 0;
+  while ((m = MENTION_RE.exec(text)) !== null) {
+    const at = m.index + m[1].length;
+    if (at > last) out.push(text.slice(last, at));
+    const nick = m[2]!;
+    out.push(
+      <Link
+        key={`${keyPrefix}-${at}`}
+        href={`/u/${nick}`}
+        className="mention-pill rounded-md border border-plasma/30 bg-plasma/10 px-1 font-medium text-plasma transition-colors hover:border-plasma/60 hover:bg-plasma/20"
+      >
+        @{nick}
+      </Link>,
+    );
+    last = at + 1 + nick.length;
+  }
+  if (last < text.length) out.push(text.slice(last));
+  return out.length ? out : text;
+}
+
+function MessageBody({ body }: { body: string }) {
+  // Walk paragraphs in the result tree and substitute @mention runs in plain
+  // text nodes. We deliberately render only inline elements (no headings, no
+  // images) so chat messages can't break the layout.
+  return (
+    <div className="mt-0.5 text-sm leading-snug text-ash">
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        rehypePlugins={[[rehypeSanitize, MARKDOWN_SCHEMA]]}
+        components={{
+          p: ({ children }) => (
+            <p className="whitespace-pre-wrap break-words">
+              {walkMentions(children)}
+            </p>
+          ),
+          a: ({ href, children }) => (
+            <a
+              href={href}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="link-plasma break-all"
+            >
+              {children}
+            </a>
+          ),
+          code: ({ children }) => (
+            <code className="rounded bg-void/60 px-1 py-0.5 font-mono text-[12px] text-iridescent">
+              {children}
+            </code>
+          ),
+          strong: ({ children }) => (
+            <strong className="font-semibold text-bone">{children}</strong>
+          ),
+          em: ({ children }) => <em className="italic text-bone/90">{children}</em>,
+        }}
+      >
+        {body}
+      </ReactMarkdown>
+    </div>
+  );
+}
+
+function walkMentions(children: React.ReactNode): React.ReactNode {
+  return walkChildren(children, 0);
+}
+
+function walkChildren(node: React.ReactNode, depth: number): React.ReactNode {
+  if (depth > 4) return node;
+  if (typeof node === "string") return renderTextWithMentions(node, `m${depth}`);
+  if (Array.isArray(node)) {
+    return node.map((c, i) => (
+      <span key={i}>{walkChildren(c, depth + 1)}</span>
+    ));
+  }
+  return node;
 }
