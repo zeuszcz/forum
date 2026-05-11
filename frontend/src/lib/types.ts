@@ -352,10 +352,14 @@ export interface ModerationLogRead {
   expires_at: string | null;
   created_at: string;
   actor_id: number | null;
+  actor_nickname: string | null;
   target_user_id: number | null;
+  target_user_nickname: string | null;
   target_post_id: number | null;
   target_thread_id: number | null;
+  target_thread_title: string | null;
   target_section_id: number | null;
+  target_section_title: string | null;
 }
 
 export interface RoleAdminRead {

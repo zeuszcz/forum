@@ -10,6 +10,7 @@ import {
   XOctagon,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
+import Link from "next/link";
 
 import { apiServer } from "@/lib/api";
 import { exactTime, relativeTime } from "@/lib/format";
@@ -70,31 +71,80 @@ export default async function AuditPage() {
                     <span className="font-semibold text-bone">{meta.label}</span>
                     {row.target_user_id && (
                       <span className="text-xs text-smoke">
-                        → user #{row.target_user_id}
+                        →{" "}
+                        {row.target_user_nickname ? (
+                          <Link
+                            href={`/u/${row.target_user_nickname}`}
+                            className="font-medium text-plasma transition-colors hover:text-plasma/80"
+                          >
+                            @{row.target_user_nickname}
+                          </Link>
+                        ) : (
+                          <span className="text-smoke">user #{row.target_user_id}</span>
+                        )}
                       </span>
                     )}
                     {row.target_post_id && (
-                      <span className="text-xs text-smoke">→ post #{row.target_post_id}</span>
-                    )}
-                    {row.target_thread_id && (
                       <span className="text-xs text-smoke">
-                        → thread #{row.target_thread_id}
+                        →{" "}
+                        {row.target_thread_id ? (
+                          <Link
+                            href={`/t/${row.target_thread_id}#post-${row.target_post_id}`}
+                            className="text-cyan transition-colors hover:text-cyan/80"
+                          >
+                            пост #{row.target_post_id}
+                          </Link>
+                        ) : (
+                          <>пост #{row.target_post_id}</>
+                        )}
+                      </span>
+                    )}
+                    {row.target_thread_id && !row.target_post_id && (
+                      <span className="text-xs text-smoke">
+                        →{" "}
+                        <Link
+                          href={`/t/${row.target_thread_id}`}
+                          className="text-cyan transition-colors hover:text-cyan/80"
+                        >
+                          {row.target_thread_title
+                            ? `«${row.target_thread_title}»`
+                            : `тема #${row.target_thread_id}`}
+                        </Link>
                       </span>
                     )}
                     {row.target_section_id && (
                       <span className="text-xs text-smoke">
-                        → section #{row.target_section_id}
+                        →{" "}
+                        <span className="text-flame">
+                          {row.target_section_title
+                            ? `раздел «${row.target_section_title}»`
+                            : `section #${row.target_section_id}`}
+                        </span>
                       </span>
                     )}
                   </div>
                   {row.reason && (
-                    <p className="mt-0.5 text-xs italic text-ash">"{row.reason}"</p>
+                    <p className="mt-0.5 text-xs italic text-ash">&quot;{row.reason}&quot;</p>
                   )}
                   <div className="mt-1 flex flex-wrap gap-x-3 text-[11px] text-smoke">
                     <span title={exactTime(row.created_at)}>
                       {relativeTime(row.created_at)}
                     </span>
-                    {row.actor_id && <span>actor #{row.actor_id}</span>}
+                    {row.actor_id && (
+                      <span>
+                        actor:{" "}
+                        {row.actor_nickname ? (
+                          <Link
+                            href={`/u/${row.actor_nickname}`}
+                            className="font-medium text-ash transition-colors hover:text-bone"
+                          >
+                            @{row.actor_nickname}
+                          </Link>
+                        ) : (
+                          <>#{row.actor_id}</>
+                        )}
+                      </span>
+                    )}
                     {row.expires_at && (
                       <span className="text-flame">
                         истекает {relativeTime(row.expires_at)}

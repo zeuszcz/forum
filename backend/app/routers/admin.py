@@ -441,7 +441,55 @@ async def list_audit(
     offset: int = Query(0, ge=0),
 ) -> list[ModerationLogRead]:
     rows = await admin_service.list_audit(db, limit=limit, offset=offset)
-    return [ModerationLogRead.model_validate(r) for r in rows]
+
+    # Bulk-resolve display strings (nicknames / titles) so the UI doesn't
+    # have to render bare `user #3` / `section #9`. Three small batched
+    # queries — one per FK kind.
+    user_ids: set[int] = set()
+    thread_ids: set[int] = set()
+    section_ids: set[int] = set()
+    for r in rows:
+        if r.actor_id:
+            user_ids.add(r.actor_id)
+        if r.target_user_id:
+            user_ids.add(r.target_user_id)
+        if r.target_thread_id:
+            thread_ids.add(r.target_thread_id)
+        if r.target_section_id:
+            section_ids.add(r.target_section_id)
+
+    nicknames: dict[int, str] = {}
+    if user_ids:
+        ures = await db.execute(
+            select(User.id, User.nickname).where(User.id.in_(user_ids))
+        )
+        nicknames = {uid: nick for uid, nick in ures.all()}
+    thread_titles: dict[int, str] = {}
+    if thread_ids:
+        tres = await db.execute(
+            select(Thread.id, Thread.title).where(Thread.id.in_(thread_ids))
+        )
+        thread_titles = {tid: title for tid, title in tres.all()}
+    section_titles: dict[int, str] = {}
+    if section_ids:
+        sres = await db.execute(
+            select(Section.id, Section.title).where(Section.id.in_(section_ids))
+        )
+        section_titles = {sid: title for sid, title in sres.all()}
+
+    out: list[ModerationLogRead] = []
+    for r in rows:
+        m = ModerationLogRead.model_validate(r)
+        if m.actor_id:
+            m.actor_nickname = nicknames.get(m.actor_id)
+        if m.target_user_id:
+            m.target_user_nickname = nicknames.get(m.target_user_id)
+        if m.target_thread_id:
+            m.target_thread_title = thread_titles.get(m.target_thread_id)
+        if m.target_section_id:
+            m.target_section_title = section_titles.get(m.target_section_id)
+        out.append(m)
+    return out
 
 
 # -----------------------------------------------------------------------------

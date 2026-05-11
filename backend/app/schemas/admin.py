@@ -88,10 +88,14 @@ class ModerationLogRead(BaseModel):
     expires_at: datetime | None = None
     created_at: datetime
     actor_id: int | None = None
+    actor_nickname: str | None = None
     target_user_id: int | None = None
+    target_user_nickname: str | None = None
     target_post_id: int | None = None
     target_thread_id: int | None = None
+    target_thread_title: str | None = None
     target_section_id: int | None = None
+    target_section_title: str | None = None
 
 
 class AdminStats(BaseModel):
