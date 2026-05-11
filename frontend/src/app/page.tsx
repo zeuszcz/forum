@@ -176,6 +176,29 @@ export default async function HomePage() {
         <DailyQuestsWidget />
       </div>
 
+      {/* === Wide chat band — chat is the social centerpiece ===
+          Two columns: a roomy Shoutbox on the left + an "interactions" rail
+          on the right (server status + online roster). Below this band the
+          existing forum-grid (sections / threads / sidebar widgets) renders
+          unchanged. */}
+      <div className="container pt-6">
+        <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_300px]">
+          <ScrollReveal>
+            <div className="h-[70vh] lg:h-[calc(100vh-9rem)] lg:min-h-[640px]">
+              <Shoutbox initialMessages={shoutbox} />
+            </div>
+          </ScrollReveal>
+          <div className="space-y-4 lg:max-h-[calc(100vh-9rem)] lg:overflow-y-auto lg:pr-1">
+            <ScrollReveal delay={0.05}>
+              <ServerStatusWidget />
+            </ScrollReveal>
+            <ScrollReveal delay={0.1}>
+              <OnlineList users={online} />
+            </ScrollReveal>
+          </div>
+        </div>
+      </div>
+
       {/* === Main grid === */}
       <div className="container py-6 md:py-8">
         <div className="grid gap-6 lg:grid-cols-[1fr_360px]">
@@ -275,21 +298,14 @@ export default async function HomePage() {
             </ScrollReveal>
           </div>
 
-          {/* === Sticky sidebar === */}
+          {/* === Sticky sidebar — chat / server / online moved to the top
+              wide-chat band, this rail keeps the slower-rotating widgets. */}
           <aside className="space-y-6 lg:sticky lg:top-20 lg:self-start">
-            <ScrollReveal>
-              <div className="h-[70vh] lg:h-[calc(100vh-5.5rem)]">
-                <Shoutbox initialMessages={shoutbox} />
-              </div>
-            </ScrollReveal>
             {birthdays.length > 0 && (
               <ScrollReveal delay={0.03}>
                 <BirthdaysWidget users={birthdays} />
               </ScrollReveal>
             )}
-            <ScrollReveal delay={0.05}>
-              <ServerStatusWidget />
-            </ScrollReveal>
             <ScrollReveal delay={0.1}>
               <HotThreads threads={hotThreads} />
             </ScrollReveal>
@@ -298,9 +314,6 @@ export default async function HomePage() {
                 <TopPodium users={top} />
               </ScrollReveal>
             )}
-            <ScrollReveal delay={0.18}>
-              <OnlineList users={online} />
-            </ScrollReveal>
             <ScrollReveal delay={0.22}>
               <RecentVisitorsWidget users={recentVisitors} hours={24} />
             </ScrollReveal>

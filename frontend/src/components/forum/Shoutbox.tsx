@@ -1013,7 +1013,7 @@ export function Shoutbox({ initialMessages }: { initialMessages: ShoutboxMessage
                     void send();
                   }
                 }}
-                placeholder="Написать в чат… (Shift+Enter — перенос)"
+                placeholder="Написать в чат…"
                 maxLength={500}
                 disabled={sending}
                 rows={1}
@@ -1050,12 +1050,12 @@ export function Shoutbox({ initialMessages }: { initialMessages: ShoutboxMessage
                 <Send className="h-4 w-4" />
               </button>
             </div>
-            <div className="flex items-center justify-between text-[10px] text-smoke">
-              <span>
-                {slashHint
-                  ? `${slashHint.cmd} — ${slashHint.desc}`
-                  : "Markdown: **жирный**, *курсив*, `код`, [текст](url), @ник"}
-              </span>
+            <div className="flex items-center justify-end gap-3 text-[10px] text-smoke">
+              {slashHint && (
+                <span className="text-plasma">
+                  {slashHint.cmd} — {slashHint.desc}
+                </span>
+              )}
               <span
                 className={cn(
                   "font-mono",

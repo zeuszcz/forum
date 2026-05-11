@@ -77,14 +77,35 @@ _RE_FREEDAY = re.compile(r"\b(freeday|фридей|фрайдей|фрі)\b", re
 _RE_LR = re.compile(r"\b(lr|last\s*request|лр|ласт)\b", re.IGNORECASE)
 _RE_BUNT = re.compile(r"\b(бунт|bunt|rebel|rebels|восстание)\b", re.IGNORECASE)
 
-# --- jbf_uaio_menu admin actions ----------------------------------------------
-# The plugin currently uses AMX client_print (per-player console) which is not
-# captured by mp_logmessages — but if a sister plugin dups the action via
-# log_amx, we'd see lines like:
-#   "[JBF-UAIO] admin=\"NICK\" action=\"enabled\" feature=\"immortality\" scope=\"basic\" target=\"self\""
-# OR a plain say echoed back by AMX:
-#   "Admin<5><STEAM><TEAM>" say "* Вы включили бессмертие себе"
-# Both are caught defensively here.
+# --- jbf_uaio_modular admin actions -------------------------------------------
+# The plugin writes structured lines to its own AMXX log file under
+#   cstrike/addons/amxmodx/logs/jb_uaio_modular/jb_uaio_MM-YYYY.log
+# Format (real samples from prod):
+#   Админ <admin_name> <STEAM_0:0:X> <IP:PORT> возродил(а) <target> <STEAM_..> <IP:PORT>
+#   Админ <admin_name> <STEAM_..> <IP:PORT> выдал(а) микрофон <target> <STEAM_..> <IP:PORT>
+#   Админ <admin_name> <STEAM_..> <IP:PORT> включил(а) скрытые стены себе
+#   Админ <admin_name> <STEAM_..> <IP:PORT> установил(а) 10000 hp <target> <STEAM_..> <IP:PORT>
+#   Админ <admin_name> <STEAM_..> <IP:PORT> отключил(а) искажение экрана у <target> <STEAM_..> <IP:PORT>
+#   Админ <admin_name> <STEAM_..> <IP:PORT> убил(а) себя
+#
+# Admin nicknames may contain spaces ("задоджил аборт") and unicode; the regex
+# is greedy through anything-but-< up to the first STEAM_ block.
+_STEAM_RE = r"STEAM_\d+:\d+:\d+"
+_IP_RE = r"[\d.]+:\d+"
+_RE_JBF_FILE = re.compile(
+    rf"^Админ\s+(?P<admin>[^<]+?)\s+<(?P<admin_steam>{_STEAM_RE})>"
+    rf"\s+<(?P<admin_ip>{_IP_RE})>\s+"
+    r"(?P<verb>\S+?)\(а\)\s+(?P<rest>.+)$"
+)
+_RE_JBF_REST_OTHER = re.compile(
+    rf"^(?P<action>.+?)\s+(?P<target>[^<]+?)\s+<(?P<target_steam>{_STEAM_RE})>"
+    rf"\s+<(?P<target_ip>{_IP_RE})>\s*$"
+)
+_RE_JBF_REST_SELF = re.compile(
+    r"^(?:(?P<action>.+?)\s+)?(?P<self>себе|себя|у\s+себя)\s*$"
+)
+
+# Legacy hooks kept (sister-plugin path, if/when someone wires AMX log_amx):
 _RE_JBF_LOG_AMX = re.compile(
     r"\[(?:JBF[-_]?UAIO|JBF[-_]?MENU|ADMIN[-_]?MENU)\]\s+(?P<rest>.+)$",
     re.IGNORECASE,
@@ -273,6 +294,69 @@ def _handle_admin_log_amx(rest: str) -> None:
     _post(" ".join(pieces)[:480], tag="JBF-UAIO", category="admin_action")
 
 
+def _verb_emoji(verb: str) -> str:
+    """Map Russian past-tense verbs (already stripped of (а)) from
+    jb_uaio_modular to a one-glyph icon for the admin panel."""
+    v = verb.lower()
+    return {
+        "возродил": "💚",
+        "выдал": "🎁",
+        "включил": "⚡",
+        "выключил": "⚫",
+        "отключил": "⚫",
+        "установил": "⚙️",
+        "телепортировал": "📍",
+        "убил": "💀",
+        "заморозил": "🧊",
+        "разморозил": "💧",
+        "закопал": "⛏",
+        "раскопал": "🪦",
+        "исказил": "📺",
+        "сменил": "🔄",
+        "обновил": "♻️",
+        "скрыл": "👻",
+        "выдала": "🎁",
+    }.get(v, "⚙️")
+
+
+def _handle_jbf_modular(m: "re.Match[str]") -> None:
+    """Parse a line from cstrike/addons/amxmodx/logs/jb_uaio_modular/*.log
+    that has reached us — either via UDP (sister-plugin echo) or via the
+    FTP poller posting raw lines back through this listener.
+
+    Format: `Админ <admin> <STEAM> <IP> <verb>(а) <rest>` where <rest> is
+    either `<action> <target_nick> <STEAM> <IP>` or `<action> себе/себя`."""
+    admin = m["admin"].strip()
+    admin_steam = m["admin_steam"]
+    verb = m["verb"].strip()
+    rest = m["rest"].strip()
+
+    target_label = "себе"
+    target_nick: str | None = None
+    target_steam: str | None = None
+    action = rest
+
+    if om := _RE_JBF_REST_OTHER.match(rest):
+        action = om["action"].strip()
+        target_nick = om["target"].strip()
+        target_steam = om["target_steam"]
+        target_label = target_nick
+    elif sm := _RE_JBF_REST_SELF.match(rest):
+        action = (sm["action"] or "").strip()
+        target_label = sm["self"]
+
+    emoji = _verb_emoji(verb)
+    body_parts = [f"{emoji} **{admin}** {verb}"]
+    if action:
+        body_parts.append(action)
+    body_parts.append(f"→ **{target_label}**")
+    _post(" ".join(body_parts)[:480], tag="JB-UAIO", category="admin_action")
+    # `admin_steam` / `target_steam` are unused for now — would feed structured
+    # meta if the schema gains an `extra` field. Kept in the locals so future
+    # work is one-line away.
+    _ = admin_steam, target_steam
+
+
 def _parse_event(line: str) -> None:
     log.debug("event: %s", line)
 
@@ -287,7 +371,11 @@ def _parse_event(line: str) -> None:
     if m := _RE_TEAM_SCORED.match(line):
         _handle_team_scored(m["team"], m["score"])
         return
-    # Admin-menu log_amx envelope wins over generic say parsing.
+    # jb_uaio_modular file format (Админ-prefixed) — most specific.
+    if m := _RE_JBF_FILE.match(line):
+        _handle_jbf_modular(m)
+        return
+    # Admin-menu log_amx envelope (alternative path).
     if m := _RE_JBF_LOG_AMX.search(line):
         _handle_admin_log_amx(m["rest"])
         return
