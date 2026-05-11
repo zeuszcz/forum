@@ -141,6 +141,7 @@ export function Shoutbox({ initialMessages }: { initialMessages: ShoutboxMessage
   const listRef = useRef<HTMLDivElement | null>(null);
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
   const wsConnectedRef = useRef(false);
+  const didInitialScrollRef = useRef(false);
 
   // -------- WebSocket --------
   useEffect(() => {
@@ -320,9 +321,17 @@ export function Shoutbox({ initialMessages }: { initialMessages: ShoutboxMessage
   }, []);
 
   // -------- Autoscroll --------
+  // First mount with content: jump straight to the latest message so users
+  // land at the newest line instead of having to scroll down past history.
+  // Subsequent renders only follow if user is already near the bottom.
   useEffect(() => {
     const el = listRef.current;
     if (!el) return;
+    if (!didInitialScrollRef.current && messages.length > 0) {
+      el.scrollTop = el.scrollHeight;
+      didInitialScrollRef.current = true;
+      return;
+    }
     const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
     if (nearBottom) el.scrollTop = el.scrollHeight;
   }, [messages.length]);
