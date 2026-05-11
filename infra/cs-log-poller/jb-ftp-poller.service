@@ -1,0 +1,28 @@
+[Unit]
+Description=jb_uaio_modular FTP log poller → /shoutbox/system
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=i48ptgvnis
+Group=i48ptgvnis
+WorkingDirectory=/opt/cs-log-poller
+EnvironmentFile=/opt/cs-log-poller/poller.env
+ExecStart=/usr/bin/python3 /opt/cs-log-poller/poller.py
+Restart=on-failure
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+# State directory under /var/lib (writable by service user)
+StateDirectory=cs-log-poller
+StateDirectoryMode=0750
+
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
