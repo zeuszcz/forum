@@ -42,7 +42,15 @@ async def list_recent(
     limit: int = TAIL_LIMIT,
     before_id: int | None = None,
 ) -> list[ShoutboxMessage]:
-    stmt = select(ShoutboxMessage).where(ShoutboxMessage.is_deleted.is_(False))
+    # Public chat hides kind="system" — those events are admin-only via
+    # /shoutbox/system-log. Without this filter, a burst of bot-cast events
+    # (kills/joins/leaves) can fill the latest N rows so the public chat
+    # frontend (which filters system out) ends up showing zero messages.
+    stmt = (
+        select(ShoutboxMessage)
+        .where(ShoutboxMessage.is_deleted.is_(False))
+        .where(ShoutboxMessage.kind != "system")
+    )
     if before_id is not None:
         stmt = stmt.where(ShoutboxMessage.id < before_id)
     stmt = stmt.order_by(desc(ShoutboxMessage.id)).limit(limit)

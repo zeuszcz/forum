@@ -272,12 +272,22 @@ export function Shoutbox({ initialMessages }: { initialMessages: ShoutboxMessage
   }, [user?.id]);
 
   // -------- Polling fallback --------
+  // Merge latest N into existing state instead of overwriting — otherwise a
+  // WS hiccup wipes any older messages the user loaded via "старше" and the
+  // perceived chat history disappears every 5s of polling.
   const refresh = useCallback(async () => {
     try {
       const next = await api<ShoutboxMessage[]>(`/shoutbox?limit=${PAGE_SIZE}`);
       const live = next.filter((m) => !m.is_deleted && m.kind !== "system");
       setPinned(live.find((m) => m.is_pinned) ?? null);
-      setMessages(live.filter((m) => !m.is_pinned));
+      const incoming = live.filter((m) => !m.is_pinned);
+      setMessages((prev) => {
+        if (prev.length === 0) return incoming;
+        const byId = new Map<number, ShoutboxMessage>();
+        for (const m of prev) byId.set(m.id, m);
+        for (const m of incoming) byId.set(m.id, m);
+        return Array.from(byId.values()).sort((a, b) => a.id - b.id);
+      });
     } catch {
       /* swallow */
     }
