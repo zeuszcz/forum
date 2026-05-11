@@ -238,3 +238,292 @@ export function defaultFlagsFor(cmd: JbfCommand): Record<string, FlagState> {
   }
   return out;
 }
+
+/** Build a `flags` map from an explicit preset spec — every listed flag
+ *  is enabled, the rest of the command's flags stay disabled. */
+export function flagsFromPreset(
+  cmd: JbfCommand,
+  preset: Record<string, string>,
+): Record<string, FlagState> {
+  const out: Record<string, FlagState> = {};
+  for (const f of cmd.flags) {
+    const v = preset[f.flag];
+    out[f.flag] = {
+      enabled: v !== undefined,
+      value: v ?? "",
+    };
+  }
+  return out;
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Jail presets — ready-made bind chains for common начальник scenarios
+// ─────────────────────────────────────────────────────────────────────
+
+export interface JbfPreset {
+  slug: string;
+  label: string;
+  emoji: string;
+  description: string;
+  /** Suggested key — user can override. Used when applying the preset. */
+  suggestedKey?: string;
+  /** Command chain — each entry references a slug from JBF_COMMANDS + the
+   *  flag values that should be enabled. */
+  blocks: Array<{ cmd: string; flags: Record<string, string> }>;
+  /** UI grouping for the preset grid. */
+  group: "punish" | "control" | "games" | "utility";
+}
+
+export const JBF_PRESET_GROUP_LABEL: Record<JbfPreset["group"], string> = {
+  punish: "Наказания / разбор",
+  control: "Контроль T (порядок)",
+  games: "Игры и развлечения",
+  utility: "Утилиты",
+};
+
+export const JBF_PRESETS: JbfPreset[] = [
+  // ── punish ─────────────────────────────────────────────────────────
+  {
+    slug: "kill-aim",
+    label: "Убить цель",
+    emoji: "💀",
+    description:
+      "Мгновенно убивает игрока под прицелом. Бесшумно: -sk 0. Для быстрой раздачи нарушителю.",
+    suggestedKey: "F5",
+    group: "punish",
+    blocks: [
+      { cmd: "jbf_uaio_kill", flags: { "-g": "Aim" } },
+    ],
+  },
+  {
+    slug: "freeze-aim",
+    label: "Заморозить цель на 10 с",
+    emoji: "🧊",
+    description:
+      "Замораживает игрока под прицелом на 10 секунд. Для удержания возможного читера или нарушителя до выяснения.",
+    suggestedKey: "F6",
+    group: "punish",
+    blocks: [
+      { cmd: "jbf_uaio_freeze", flags: { "-g": "Aim", "-b": "1", "-t": "10" } },
+    ],
+  },
+  {
+    slug: "bury-aim",
+    label: "Закопать цель",
+    emoji: "⛏️",
+    description:
+      "Закапывает игрока под прицелом на 8 секунд. Для разговора по душам с нарушителем.",
+    suggestedKey: "F4",
+    group: "punish",
+    blocks: [
+      { cmd: "jbf_uaio_bury", flags: { "-g": "Aim", "-b": "1", "-t": "8" } },
+    ],
+  },
+  {
+    slug: "disarm-aim",
+    label: "Обезоружить цель",
+    emoji: "🤚",
+    description:
+      "Снимает с игрока под прицелом основной слот и пистолет. Для дисциплины или начала LR.",
+    suggestedKey: "F3",
+    group: "punish",
+    blocks: [
+      {
+        cmd: "jbf_uaio_disarm",
+        flags: { "-g": "Aim", "-s1": "1", "-s2": "1" },
+      },
+    ],
+  },
+
+  // ── control ────────────────────────────────────────────────────────
+  {
+    slug: "lineup-t",
+    label: "Сикс — заморозить всех T",
+    emoji: "⛓️",
+    description:
+      "Замораживает всех заключённых до отмены. Для построения в шеренгу или прекращения бунта.",
+    suggestedKey: "F1",
+    group: "control",
+    blocks: [
+      { cmd: "jbf_uaio_freeze", flags: { "-g": "T", "-b": "1" } },
+    ],
+  },
+  {
+    slug: "unlineup-t",
+    label: "Снять сикс с T",
+    emoji: "🔓",
+    description:
+      "Размораживает T и снимает все наказательные эффекты (закопка, землетрясение, искажение экрана).",
+    suggestedKey: "F2",
+    group: "control",
+    blocks: [
+      { cmd: "jbf_uaio_freeze", flags: { "-g": "T", "-b": "0" } },
+      { cmd: "jbf_uaio_clear_punitive", flags: { "-g": "T" } },
+    ],
+  },
+  {
+    slug: "chat-mute-t",
+    label: "Заткнуть чат T (60 с)",
+    emoji: "🤐",
+    description:
+      "Блокирует общий чат всем заключённым на минуту. Для тишины во время речи начальника / правил игры.",
+    suggestedKey: "F12",
+    group: "control",
+    blocks: [
+      {
+        cmd: "jbf_uaio_block_chat",
+        flags: { "-g": "T", "-b": "1", "-t": "60", "-tych": "0" },
+      },
+    ],
+  },
+
+  // ── games ─────────────────────────────────────────────────────────
+  {
+    slug: "freeday-all-t",
+    label: "Freeday — god T на 2 мин",
+    emoji: "🆓",
+    description:
+      "Объявляет фридей: все T получают бессмертие на 2 минуты + чистятся все наказания. Стоит выкрикнуть «фридей!» в микрофон.",
+    suggestedKey: "F7",
+    group: "games",
+    blocks: [
+      {
+        cmd: "jbf_uaio_god",
+        flags: { "-g": "T", "-b": "1", "-t": "120", "-cn": "1" },
+      },
+      { cmd: "jbf_uaio_clear_punitive", flags: { "-g": "T" } },
+    ],
+  },
+  {
+    slug: "lr-duel",
+    label: "LR-дуэль для цели",
+    emoji: "🎲",
+    description:
+      "Готовит игрока под прицелом к LR-дуэли: god, 100 HP, беск. патроны на минуту. Применять обоим участникам по очереди.",
+    suggestedKey: "F8",
+    group: "games",
+    blocks: [
+      {
+        cmd: "jbf_uaio_god",
+        flags: { "-g": "Aim", "-b": "1", "-t": "60" },
+      },
+      { cmd: "jbf_uaio_health", flags: { "-g": "Aim", "-i": "100" } },
+      {
+        cmd: "jbf_uaio_infinity_ammo",
+        flags: { "-g": "Aim", "-b": "1", "-t": "60" },
+      },
+    ],
+  },
+  {
+    slug: "race-day",
+    label: "День гонок — буст T",
+    emoji: "🚀",
+    description:
+      "Все T получают скорость 350 + распрыжку на 90 секунд. Для гонки до точки.",
+    suggestedKey: "F9",
+    group: "games",
+    blocks: [
+      { cmd: "jbf_uaio_speed", flags: { "-g": "T", "-i": "350", "-t": "90" } },
+      { cmd: "jbf_uaio_bhop", flags: { "-g": "T", "-b": "1", "-t": "90" } },
+    ],
+  },
+  {
+    slug: "jump-day",
+    label: "День прыжков",
+    emoji: "🦘",
+    description:
+      "Все T получают 5 доп. прыжков + bhop на 90 секунд. Для jump-challenge или достичь высокой точки.",
+    suggestedKey: "F10",
+    group: "games",
+    blocks: [
+      { cmd: "jbf_uaio_double_jump", flags: { "-g": "T", "-v": "5", "-t": "90" } },
+      { cmd: "jbf_uaio_bhop", flags: { "-g": "T", "-b": "1", "-t": "90" } },
+    ],
+  },
+  {
+    slug: "hide-seek",
+    label: "Прятки T (60 с)",
+    emoji: "👻",
+    description:
+      "T становятся полу-невидимыми (alpha 30) и пропадают с радара. Для hide-and-seek или ниндзя-побега.",
+    suggestedKey: "F11",
+    group: "games",
+    blocks: [
+      {
+        cmd: "jbf_uaio_invisibility",
+        flags: { "-g": "T", "-i": "30", "-t": "60" },
+      },
+      {
+        cmd: "jbf_uaio_hide_from_radar",
+        flags: { "-g": "T", "-b": "1", "-t": "60" },
+      },
+    ],
+  },
+  {
+    slug: "low-grav-t",
+    label: "Луна — низкая грав. T",
+    emoji: "🌙",
+    description:
+      "Гравитация T = 30% на 60 секунд. Для прыжковых челленджей или просто потехи.",
+    suggestedKey: "KP_PGUP",
+    group: "games",
+    blocks: [
+      { cmd: "jbf_uaio_gravity", flags: { "-g": "T", "-i": "30", "-t": "60" } },
+    ],
+  },
+  {
+    slug: "give-awp-aim",
+    label: "Выдать AWP цели",
+    emoji: "🎯",
+    description:
+      "Даёт игроку под прицелом AWP с полной обоймой. Для дуэлей или особых дней.",
+    suggestedKey: "MOUSE3",
+    group: "games",
+    blocks: [
+      {
+        cmd: "jbf_uaio_give_weapon",
+        flags: { "-g": "Aim", "-wn": "awp", "-ty": "2" },
+      },
+    ],
+  },
+
+  // ── utility ───────────────────────────────────────────────────────
+  {
+    slug: "round-reset",
+    label: "Старт раунда — очистка",
+    emoji: "🚦",
+    description:
+      "Снимает все эффекты со всех игроков (основные + наказательные + другие). Для чистого старта нового дня.",
+    suggestedKey: "KP_END",
+    group: "utility",
+    blocks: [
+      { cmd: "jbf_uaio_clear_basic", flags: { "-g": "All" } },
+      { cmd: "jbf_uaio_clear_punitive", flags: { "-g": "All" } },
+      { cmd: "jbf_uaio_clear_other", flags: { "-g": "All" } },
+    ],
+  },
+  {
+    slug: "respawn-t",
+    label: "Поднять мёртвых T",
+    emoji: "🪦",
+    description:
+      "Воскрешает всех мёртвых заключённых на их обычной точке. Если день требует полного состава.",
+    suggestedKey: "KP_HOME",
+    group: "utility",
+    blocks: [
+      { cmd: "jbf_uaio_respawn", flags: { "-g": "T", "-ty": "0" } },
+    ],
+  },
+  {
+    slug: "heal-aim",
+    label: "Полное HP цели",
+    emoji: "💉",
+    description:
+      "Восстанавливает 100 HP игроку под прицелом. Для LR-победителя или после раздачи виновному.",
+    suggestedKey: "KP_INS",
+    group: "utility",
+    blocks: [
+      { cmd: "jbf_uaio_health", flags: { "-g": "Aim", "-i": "100" } },
+    ],
+  },
+];

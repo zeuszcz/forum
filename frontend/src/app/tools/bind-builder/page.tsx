@@ -22,11 +22,15 @@ import {
   type BindBlockState,
   type BindState,
   type EnumOption,
+  type JbfPreset,
   buildBind,
   defaultFlagsFor,
   emptyBlock,
   extractEnumOptions,
+  flagsFromPreset,
   inferFlagType,
+  JBF_PRESET_GROUP_LABEL,
+  JBF_PRESETS,
   KEY_GROUPS,
   newBlockId,
   validateBindState,
@@ -107,6 +111,34 @@ export default function BindBuilderPage() {
     setState({ key: "", blocks: [{ id: newBlockId(), cmd: "", flags: {} }] });
   }, []);
 
+  const applyPreset = useCallback(
+    (preset: JbfPreset) => {
+      const hasContent =
+        state.key.trim() !== "" ||
+        state.blocks.some((b) => b.cmd !== "");
+      if (
+        hasContent &&
+        !window.confirm(`Заменить текущую сборку на «${preset.label}»?`)
+      ) {
+        return;
+      }
+      const blocks: BindBlockState[] = preset.blocks.map((spec) => {
+        const cmd = JBF_COMMANDS.find((c) => c.cmd === spec.cmd);
+        return {
+          id: newBlockId(),
+          cmd: spec.cmd,
+          flags: cmd ? flagsFromPreset(cmd, spec.flags) : {},
+        };
+      });
+      setState({
+        key: preset.suggestedKey ?? state.key,
+        blocks: blocks.length > 0 ? blocks : [emptyBlock()],
+      });
+      toast.success(`Сборка «${preset.label}» применена`);
+    },
+    [state.key, state.blocks],
+  );
+
   // ── output actions ─────────────────────────────────────────────────
   const copyBind = useCallback(() => {
     if (!bindString) return;
@@ -159,6 +191,9 @@ export default function BindBuilderPage() {
           </Link>
         </p>
       </header>
+
+      {/* ─── Presets ──────────────────────────────────────────── */}
+      <PresetsPanel onApply={applyPreset} />
 
       {/* ─── Key picker ───────────────────────────────────────── */}
       <section className="mb-6 rounded-lg border border-border bg-card/60 p-4">
@@ -824,5 +859,129 @@ function Triplet({
         </div>
       ))}
     </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Presets panel — ready-made jail-day bind chains
+// ─────────────────────────────────────────────────────────────────────
+
+const PRESET_GROUP_TONE: Record<JbfPreset["group"], string> = {
+  punish: "border-ember/40 bg-ember/5 text-ember",
+  control: "border-plasma/40 bg-plasma/5 text-plasma",
+  games: "border-flame/40 bg-flame/5 text-flame",
+  utility: "border-cyan/40 bg-cyan/5 text-cyan",
+};
+
+function PresetsPanel({ onApply }: { onApply: (p: JbfPreset) => void }) {
+  const [open, setOpen] = useState(true);
+  const grouped = useMemo(() => {
+    const out: Record<JbfPreset["group"], JbfPreset[]> = {
+      punish: [],
+      control: [],
+      games: [],
+      utility: [],
+    };
+    for (const p of JBF_PRESETS) out[p.group].push(p);
+    return out;
+  }, []);
+
+  return (
+    <section className="mb-6 rounded-lg border border-border bg-card/60 p-4">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="flex w-full items-baseline justify-between text-left"
+      >
+        <h2 className="text-xs font-semibold uppercase tracking-widest text-bone">
+          ⭐ Готовые сборки для начальника
+        </h2>
+        <span className="flex items-center gap-1.5 text-[10px] text-smoke">
+          {JBF_PRESETS.length} пресетов
+          <ChevronDown
+            className={cn(
+              "h-3 w-3 transition-transform",
+              open && "rotate-180",
+            )}
+          />
+        </span>
+      </button>
+
+      {open && (
+        <>
+          <p className="mt-1 text-[11px] text-smoke">
+            Тыкаешь — собираются готовая клавиша + цепочка команд. Дальше
+            можно подкрутить параметры под себя ниже. Применение перезапишет
+            текущую сборку.
+          </p>
+          <div className="mt-3 space-y-4">
+            {(Object.keys(grouped) as JbfPreset["group"][]).map((g) => {
+              const list = grouped[g];
+              if (list.length === 0) return null;
+              return (
+                <div key={g}>
+                  <div
+                    className={cn(
+                      "mb-1.5 inline-flex items-center rounded border px-1.5 font-mono text-[9px] uppercase tracking-widest",
+                      PRESET_GROUP_TONE[g],
+                    )}
+                  >
+                    {JBF_PRESET_GROUP_LABEL[g]}
+                  </div>
+                  <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                    {list.map((p) => (
+                      <PresetCard
+                        key={p.slug}
+                        preset={p}
+                        onApply={() => onApply(p)}
+                      />
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </>
+      )}
+    </section>
+  );
+}
+
+function PresetCard({
+  preset,
+  onApply,
+}: {
+  preset: JbfPreset;
+  onApply: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onApply}
+      className="group/p flex flex-col items-start gap-1 rounded-md border border-border bg-card/80 p-2.5 text-left transition-all hover:border-plasma/40 hover:bg-plasma/5"
+    >
+      <div className="flex w-full items-baseline justify-between gap-2">
+        <span className="flex items-baseline gap-1.5">
+          <span className="text-base leading-none">{preset.emoji}</span>
+          <span className="text-xs font-semibold text-bone">{preset.label}</span>
+        </span>
+        {preset.suggestedKey && (
+          <code className="shrink-0 rounded border border-border bg-void/60 px-1 font-mono text-[10px] text-smoke">
+            {preset.suggestedKey}
+          </code>
+        )}
+      </div>
+      <p className="text-[11px] leading-snug text-ash">{preset.description}</p>
+      <div className="mt-1 flex flex-wrap gap-1">
+        {preset.blocks.map((b, i) => (
+          <code
+            key={i}
+            className="rounded bg-void/40 px-1 font-mono text-[9px] text-plasma"
+          >
+            {b.cmd.replace(/^jbf_uaio_/, "")}
+          </code>
+        ))}
+      </div>
+    </button>
   );
 }
