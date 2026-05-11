@@ -26,6 +26,7 @@ FORUM_API = os.environ.get("FORUM_API", "http://127.0.0.1:8030").rstrip("/")
 TOKEN = os.environ.get("SHOUTBOX_SYSTEM_TOKEN", "")
 
 # Anti-spam: minimum seconds between two posts of the same category.
+# Admin-action has no cooldown — every action is an audit row we want.
 COOLDOWNS = {
     "rebel": 5,
     "killfeed": 8,
@@ -37,6 +38,7 @@ COOLDOWNS = {
     "lr": 5,
     "freeday": 5,
     "bunt": 5,
+    "admin_action": 0,
     "default": 8,
 }
 ECHO_ALL = os.environ.get("CS_ECHO_ALL", "0") == "1"
@@ -74,6 +76,26 @@ _RE_SAY = re.compile(
 _RE_FREEDAY = re.compile(r"\b(freeday|фридей|фрайдей|фрі)\b", re.IGNORECASE)
 _RE_LR = re.compile(r"\b(lr|last\s*request|лр|ласт)\b", re.IGNORECASE)
 _RE_BUNT = re.compile(r"\b(бунт|bunt|rebel|rebels|восстание)\b", re.IGNORECASE)
+
+# --- jbf_uaio_menu admin actions ----------------------------------------------
+# The plugin currently uses AMX client_print (per-player console) which is not
+# captured by mp_logmessages — but if a sister plugin dups the action via
+# log_amx, we'd see lines like:
+#   "[JBF-UAIO] admin=\"NICK\" action=\"enabled\" feature=\"immortality\" scope=\"basic\" target=\"self\""
+# OR a plain say echoed back by AMX:
+#   "Admin<5><STEAM><TEAM>" say "* Вы включили бессмертие себе"
+# Both are caught defensively here.
+_RE_JBF_LOG_AMX = re.compile(
+    r"\[(?:JBF[-_]?UAIO|JBF[-_]?MENU|ADMIN[-_]?MENU)\]\s+(?P<rest>.+)$",
+    re.IGNORECASE,
+)
+_RE_JBF_KV = re.compile(r'(\w+)="([^"]*)"')
+_RE_JBF_RU_SAY = re.compile(
+    r"^\*\s+Вы\s+"
+    r"(?P<verb>включили|выключили|выдали|установили|обновили|скрыли(?:\s+с\s+радаров)?|телепортировали|"
+    r"исправили|сменили)\s+"
+    r"(?P<rest>.+?)\s*$"
+)
 
 LOUD_WEAPONS: dict[str, tuple[str, str]] = {
     "knife": ("🔪", "NINJA"),
@@ -200,6 +222,14 @@ def _handle_team_scored(team: str, score: str) -> None:
 
 
 def _handle_say(name: str, team: str, msg: str) -> None:
+    # jbf_uaio AMX feedback line that occasionally lands in log via amx_chat
+    if m := _RE_JBF_RU_SAY.match(msg):
+        verb = m["verb"].strip()
+        rest = m["rest"].strip()
+        body = f"⚙️ **{name}** {verb} {rest}"[:480]
+        _post(body, tag="JBF-UAIO", category="admin_action")
+        return
+
     if _RE_FREEDAY.search(msg):
         _post(
             f"🆓 **{name}** говорит про freeday: «{msg[:60]}»",
@@ -222,6 +252,27 @@ def _handle_say(name: str, team: str, msg: str) -> None:
         )
 
 
+def _handle_admin_log_amx(rest: str) -> None:
+    """`[JBF-UAIO] admin="X" action="Y" feature="Z" scope="basic" target="self"`
+    style line produced by an accompanying log_amx call. Free-form kv parser
+    so the plugin author can add fields without breaking us."""
+    kv = dict(_RE_JBF_KV.findall(rest))
+    admin = kv.get("admin", "?")
+    action = kv.get("action", "?")
+    feature = kv.get("feature", "?")
+    scope = kv.get("scope", "basic")
+    target = kv.get("target", "self")
+    value = kv.get("value")
+    pieces = [f"⚙️ **{admin}** {action} **{feature}**"]
+    if value:
+        pieces.append(f"= {value}")
+    if scope and scope != "basic":
+        pieces.append(f"({scope})")
+    if target and target != "self":
+        pieces.append(f"→ {target}")
+    _post(" ".join(pieces)[:480], tag="JBF-UAIO", category="admin_action")
+
+
 def _parse_event(line: str) -> None:
     log.debug("event: %s", line)
 
@@ -235,6 +286,10 @@ def _parse_event(line: str) -> None:
         return
     if m := _RE_TEAM_SCORED.match(line):
         _handle_team_scored(m["team"], m["score"])
+        return
+    # Admin-menu log_amx envelope wins over generic say parsing.
+    if m := _RE_JBF_LOG_AMX.search(line):
+        _handle_admin_log_amx(m["rest"])
         return
     if m := _RE_SAY.match(line):
         _handle_say(m["name"], m["team"], m["msg"])

@@ -1,4 +1,4 @@
-import { ChevronRight, KeyRound, ScrollText, Settings, Shield, Users } from "lucide-react";
+import { ChevronRight, KeyRound, Radio, ScrollText, Settings, Shield, Users } from "lucide-react";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
@@ -16,6 +16,7 @@ const NAV = [
   { href: "/admin/users", label: "Пользователи", icon: Users },
   { href: "/admin/roles", label: "Роли", icon: KeyRound },
   { href: "/admin/sections", label: "Разделы", icon: Settings },
+  { href: "/admin/server-log", label: "Логи сервера", icon: Radio },
   { href: "/admin/audit", label: "Аудит", icon: ScrollText },
 ];
 

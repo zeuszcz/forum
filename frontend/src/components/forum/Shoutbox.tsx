@@ -103,8 +103,13 @@ export function Shoutbox({ initialMessages }: { initialMessages: ShoutboxMessage
     [user],
   );
 
+  // System messages (bot-cast events, admin actions) are visible only in the
+  // admin panel at /admin/server-log — never in the public chat.
   const initialChrono = useMemo(
-    () => initialMessages.filter((m) => !m.is_deleted && !m.is_pinned),
+    () =>
+      initialMessages.filter(
+        (m) => !m.is_deleted && !m.is_pinned && m.kind !== "system",
+      ),
     [initialMessages],
   );
 
@@ -154,6 +159,8 @@ export function Shoutbox({ initialMessages }: { initialMessages: ShoutboxMessage
           break;
         case "new": {
           const msg = evt.message;
+          // System events (bot-cast, admin) go only to the admin log page.
+          if (msg.kind === "system") break;
           if (msg.is_pinned) setPinned(msg);
           else
             setMessages((prev) =>
@@ -268,7 +275,7 @@ export function Shoutbox({ initialMessages }: { initialMessages: ShoutboxMessage
   const refresh = useCallback(async () => {
     try {
       const next = await api<ShoutboxMessage[]>(`/shoutbox?limit=${PAGE_SIZE}`);
-      const live = next.filter((m) => !m.is_deleted);
+      const live = next.filter((m) => !m.is_deleted && m.kind !== "system");
       setPinned(live.find((m) => m.is_pinned) ?? null);
       setMessages(live.filter((m) => !m.is_pinned));
     } catch {
@@ -321,7 +328,9 @@ export function Shoutbox({ initialMessages }: { initialMessages: ShoutboxMessage
       const older = await api<ShoutboxMessage[]>(
         `/shoutbox?limit=${PAGE_SIZE}&before_id=${beforeId}`,
       );
-      const filtered = older.filter((m) => !m.is_deleted && !m.is_pinned);
+      const filtered = older.filter(
+        (m) => !m.is_deleted && !m.is_pinned && m.kind !== "system",
+      );
       setMessages((prev) => [...filtered, ...prev]);
       setHasMore(filtered.length >= PAGE_SIZE);
       window.requestAnimationFrame(() => {

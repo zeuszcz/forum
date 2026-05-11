@@ -480,6 +480,41 @@ async def server_status() -> ServerStatus:
 
 
 # ---------------------------------------------------------------------------
+# Admin: server log view (staff only)
+# ---------------------------------------------------------------------------
+
+
+@router.get("/system-log", response_model=list[ShoutboxRead])
+async def list_system_log(
+    db: DbSession,
+    user: Annotated[User, Depends(get_current_user)],
+    limit: int = Query(default=100, ge=1, le=200),
+    before_id: int | None = Query(default=None),
+    category: str | None = Query(default=None),
+) -> list[ShoutboxRead]:
+    """All kind='system' messages — bot-cast events and admin actions — with
+    cursor pagination and an optional category filter. Staff-only since the
+    payload may include admin-action audit data we don't want in chat."""
+    if not await _is_chat_mod(db, user):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Только для модераторов"
+        )
+    stmt = select(ShoutboxMessage).where(ShoutboxMessage.kind == "system")
+    if before_id is not None:
+        stmt = stmt.where(ShoutboxMessage.id < before_id)
+    stmt = stmt.order_by(desc(ShoutboxMessage.id)).limit(limit)
+    result = await db.execute(stmt)
+    rows = list(result.scalars().all())
+    if category:
+        rows = [
+            r
+            for r in rows
+            if isinstance(r.meta, dict) and r.meta.get("category") == category
+        ]
+    return await _messages_to_read(db, rows, actor_id=user.id)
+
+
+# ---------------------------------------------------------------------------
 # Bulk clear (mod-only)
 # ---------------------------------------------------------------------------
 
