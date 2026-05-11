@@ -1,4 +1,5 @@
 from app.models.base import Base, TimestampMixin
+from app.models.cs_active_effect import CsActiveEffect
 from app.models.cs_rcon_log import CsRconLog
 from app.models.moderation import ModerationLog
 from app.models.notification import Notification
@@ -17,6 +18,7 @@ from app.models.user import User
 __all__ = [
     "Base",
     "ChatMute",
+    "CsActiveEffect",
     "CsRconLog",
     "ModerationLog",
     "Notification",

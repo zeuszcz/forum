@@ -362,6 +362,18 @@ export interface ModerationLogRead {
   target_section_title: string | null;
 }
 
+export interface ActiveEffect {
+  steamid: string;
+  effect_slug: string;
+  effect_label: string;
+  effect_emoji: string | null;
+  granted_by_id: number | null;
+  granted_by_nickname: string | null;
+  granted_at: string;
+  expires_at: string | null;
+  player_nick: string | null;
+}
+
 export interface CsPlayer {
   slot: number;
   name: string;

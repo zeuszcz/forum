@@ -27,6 +27,9 @@ from app.core.deps import CurrentUser, DbSession, get_current_user
 from app.models.cs_rcon_log import CsRconLog
 from app.models.user import User
 from app.schemas.cs_rcon import (
+    ActionRequest,
+    ActionResult,
+    ActiveEffectRead,
     CsPlayersResponse,
     RconBatch,
     RconCommand,
@@ -34,7 +37,7 @@ from app.schemas.cs_rcon import (
     RconResult,
 )
 from app.services import auth as auth_service
-from app.services import cs_rcon
+from app.services import cs_effects, cs_rcon
 
 router = APIRouter(prefix="/cs-rcon", tags=["cs-rcon"])
 
@@ -201,6 +204,165 @@ async def execute_batch(
     for cmd in payload.commands:
         await _check_rate_limit(user.id)
         out.append(await _run_one(db, user.id, cmd.strip()))
+    return out
+
+
+# Sanitize the forum-supplied announce text — strip anything that could
+# escape from the `say "..."` wrapper. CS chat accepts plain printable
+# text; we keep cyrillic + emoji but drop quotes / control chars / `;`.
+_ANNOUNCE_BAD_RE = re.compile(r"[\";`\n\r\x00]+")
+_ANNOUNCE_MAX = 160
+
+
+def _sanitize_announce(text: str) -> str:
+    return _ANNOUNCE_BAD_RE.sub(" ", text).strip()[:_ANNOUNCE_MAX]
+
+
+@router.post("/action", response_model=ActionResult)
+async def execute_action(
+    payload: ActionRequest,
+    user: CurrentUser,
+    db: DbSession,
+) -> ActionResult:
+    """Compound action: run a jbf_uaio command, optionally post a `say`
+    announcement using the forum user's nickname (anti-impersonation: the
+    nickname is sourced from auth, not from the frontend payload), and
+    sync the cs_active_effects row.
+
+    Counts as ONE rate-limit token even if it makes 2 RCON calls."""
+    if not await _is_staff(db, user):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Только для модераторов"
+        )
+    await _check_rate_limit(user.id)
+
+    command = payload.command.strip()
+    _validate_command(command)
+
+    # 1) Run the primary command.
+    try:
+        result = await cs_rcon.execute(command)
+        primary_response = result.output
+        primary_latency = result.latency_ms
+    except cs_rcon.RconError as e:
+        await _audit(
+            db,
+            actor_id=user.id,
+            command=command,
+            response=None,
+            success=False,
+            error=str(e),
+            latency_ms=None,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY, detail=f"RCON: {e}"
+        )
+    await _audit(
+        db,
+        actor_id=user.id,
+        command=command,
+        response=primary_response,
+        success=True,
+        error=None,
+        latency_ms=primary_latency,
+    )
+
+    # 2) Optional announce. Errors here don't fail the action — the
+    #    effect already landed; we just couldn't broadcast.
+    announce_sent = False
+    if payload.announce:
+        sanitized = _sanitize_announce(payload.announce)
+        if sanitized:
+            say_text = f"[FORUM {user.nickname}] {sanitized}"
+            # Re-sanitize the composite in case nickname has weird chars.
+            say_text = _sanitize_announce(say_text)
+            say_cmd = f'say "{say_text}"'
+            try:
+                say_res = await cs_rcon.execute(say_cmd)
+                await _audit(
+                    db,
+                    actor_id=user.id,
+                    command=say_cmd,
+                    response=say_res.output,
+                    success=True,
+                    error=None,
+                    latency_ms=say_res.latency_ms,
+                )
+                announce_sent = True
+            except cs_rcon.RconError as e:
+                await _audit(
+                    db,
+                    actor_id=user.id,
+                    command=say_cmd,
+                    response=None,
+                    success=False,
+                    error=str(e),
+                    latency_ms=None,
+                )
+
+    # 3) Effects state.
+    effect_state: str | None = None
+    if payload.effect_slug and payload.target_steamid and payload.state:
+        if payload.state == "grant":
+            await cs_effects.grant(
+                db,
+                steamid=payload.target_steamid,
+                effect_slug=payload.effect_slug,
+                effect_label=payload.effect_label or payload.effect_slug,
+                effect_emoji=payload.effect_emoji,
+                granted_by_id=user.id,
+                command=command,
+                player_nick=payload.target_nick,
+                duration_s=payload.duration_s,
+            )
+            effect_state = "granted"
+        elif payload.state == "revoke":
+            removed = await cs_effects.revoke(
+                db,
+                steamid=payload.target_steamid,
+                effect_slug=payload.effect_slug,
+            )
+            effect_state = "revoked" if removed else None
+
+    return ActionResult(
+        ok=True,
+        command=command,
+        response=primary_response,
+        announce_sent=announce_sent,
+        effect_state=effect_state,
+        latency_ms=primary_latency,
+    )
+
+
+@router.get("/effects", response_model=list[ActiveEffectRead])
+async def list_effects(
+    user: CurrentUser,
+    db: DbSession,
+    steamid: list[str] = Query(default_factory=list, max_length=64),
+) -> list[ActiveEffectRead]:
+    """All non-expired effect rows for the given steamids. Pass each
+    steamid as a repeated `?steamid=STEAM_0:0:X` query param."""
+    if not await _is_staff(db, user):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Только для модераторов"
+        )
+    if not steamid:
+        return []
+    rows = await cs_effects.list_active(db, steamid)
+    # Resolve granted_by nicknames in one batch.
+    user_ids = {r.granted_by_id for r in rows if r.granted_by_id is not None}
+    nicks: dict[int, str] = {}
+    if user_ids:
+        ures = await db.execute(
+            select(User.id, User.nickname).where(User.id.in_(user_ids))
+        )
+        nicks = {uid: nick for uid, nick in ures.all()}
+    out: list[ActiveEffectRead] = []
+    for r in rows:
+        item = ActiveEffectRead.model_validate(r)
+        if r.granted_by_id is not None:
+            item.granted_by_nickname = nicks.get(r.granted_by_id)
+        out.append(item)
     return out
 
 

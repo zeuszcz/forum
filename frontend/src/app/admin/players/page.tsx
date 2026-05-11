@@ -1,11 +1,11 @@
 "use client";
 
 import {
-  ChevronDown,
   Copy,
   Map as MapIcon,
   RotateCw,
   Users,
+  X,
   Zap,
 } from "lucide-react";
 import Link from "next/link";
@@ -15,22 +15,30 @@ import { toast } from "sonner";
 import { LetterAvatar } from "@/components/ui/avatar";
 import { api, ApiError } from "@/lib/api";
 import {
-  QUICK_ACTIONS,
-  QUICK_GROUP_LABEL,
-  QUICK_GROUP_TONE,
   type QuickAction,
+  type QuickGroup,
+  QUICK_ACTIONS,
+  QUICK_GROUPS_ORDER,
+  QUICK_GROUP_META,
+  actionsByGroup,
 } from "@/lib/jbf-quick-actions";
-import type { CsPlayer, CsPlayersResponse } from "@/lib/types";
+import type {
+  ActiveEffect,
+  CsPlayer,
+  CsPlayersResponse,
+} from "@/lib/types";
 import { cn } from "@/lib/utils";
 
-const POLL_MS = 15_000;
+const ROSTER_POLL_MS = 15_000;
+const EFFECTS_POLL_MS = 4_000;
 
 export default function PlayersPage() {
   const [data, setData] = useState<CsPlayersResponse | null>(null);
+  const [effects, setEffects] = useState<ActiveEffect[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [autoRefresh, setAutoRefresh] = useState(true);
-  const [busyPlayer, setBusyPlayer] = useState<string | null>(null);
+  const [busyKey, setBusyKey] = useState<string | null>(null);
 
   const fetchPlayers = useCallback(async (force = false) => {
     setLoading(true);
@@ -48,43 +56,131 @@ export default function PlayersPage() {
     }
   }, []);
 
+  const fetchEffects = useCallback(async (steamids: string[]) => {
+    if (steamids.length === 0) {
+      setEffects([]);
+      return;
+    }
+    try {
+      const qs = steamids
+        .map((s) => `steamid=${encodeURIComponent(s)}`)
+        .join("&");
+      const r = await api<ActiveEffect[]>(`/cs-rcon/effects?${qs}`);
+      setEffects(r);
+    } catch {
+      /* swallow — non-critical */
+    }
+  }, []);
+
+  // Initial roster + periodic poll.
   useEffect(() => {
     void fetchPlayers();
   }, [fetchPlayers]);
 
   useEffect(() => {
     if (!autoRefresh) return;
-    const id = window.setInterval(() => void fetchPlayers(), POLL_MS);
+    const id = window.setInterval(() => void fetchPlayers(), ROSTER_POLL_MS);
     return () => window.clearInterval(id);
   }, [autoRefresh, fetchPlayers]);
 
+  // Effects poll — only when there are players to ask about.
+  const playerSteamIds = useMemo(
+    () =>
+      (data?.players ?? [])
+        .map((p) => p.steamid)
+        .filter((s) => s && s !== "BOT"),
+    [data?.players],
+  );
+  const steamIdsKey = playerSteamIds.join("|");
+
+  useEffect(() => {
+    void fetchEffects(playerSteamIds);
+    if (!autoRefresh) return;
+    const id = window.setInterval(
+      () => void fetchEffects(playerSteamIds),
+      EFFECTS_POLL_MS,
+    );
+    return () => window.clearInterval(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [steamIdsKey, autoRefresh, fetchEffects]);
+
+  // Group effects by steamid for fast per-player lookup.
+  const effectsByPlayer = useMemo(() => {
+    const out: Record<string, ActiveEffect[]> = {};
+    for (const e of effects) {
+      (out[e.steamid] ||= []).push(e);
+    }
+    return out;
+  }, [effects]);
+
   const runAction = useCallback(
-    async (player: CsPlayer, action: QuickAction) => {
-      const command = action.build(player.name);
+    async (player: CsPlayer, action: QuickAction, mode: "on" | "off") => {
+      const builder = action.build[mode];
+      if (!builder) return;
+      const command = builder(player.name);
+      const verb = mode === "on" ? "выдать" : "снять";
       if (
         !window.confirm(
-          `${action.emoji} ${action.label} для «${player.name}»?\n\n${action.hint}.\n\n${command}`,
+          `${action.emoji} ${verb} «${action.label}» → ${player.name}?\n\n${command}`,
         )
       ) {
         return;
       }
-      setBusyPlayer(player.name);
+      const key = `${player.userid}:${action.slug}:${mode}`;
+      setBusyKey(key);
       try {
-        await api("/cs-rcon/execute", {
+        const announce =
+          mode === "on"
+            ? `${action.emoji} ${action.label} → ${player.name}`
+            : `${action.emoji} снят ${action.label} → ${player.name}`;
+        await api("/cs-rcon/action", {
           method: "POST",
-          body: JSON.stringify({ command }),
+          body: JSON.stringify({
+            command,
+            announce,
+            effect_slug: action.oneShot ? null : action.effectSlug,
+            effect_label: action.oneShot ? null : action.label,
+            effect_emoji: action.oneShot ? null : action.emoji,
+            target_steamid: action.oneShot ? null : player.steamid,
+            target_nick: action.oneShot ? null : player.name,
+            state: action.oneShot ? null : mode === "on" ? "grant" : "revoke",
+            duration_s:
+              action.oneShot || mode === "off" ? null : action.duration ?? null,
+          }),
         });
-        toast.success(`${action.emoji} ${action.label} → ${player.name}`);
-        // Force-refresh so the player's frag/ping update on next tick.
+        toast.success(
+          `${action.emoji} ${
+            mode === "on" ? action.label : "снят " + action.label
+          } → ${player.name}`,
+        );
+        // Refresh effects immediately so UI reflects the new state.
+        setTimeout(() => void fetchEffects(playerSteamIds), 300);
         setTimeout(() => void fetchPlayers(true), 800);
       } catch (e) {
         if (e instanceof ApiError) toast.error(e.detail);
         else toast.error("Ошибка запуска");
       } finally {
-        setBusyPlayer(null);
+        setBusyKey(null);
       }
     },
-    [fetchPlayers],
+    [fetchEffects, fetchPlayers, playerSteamIds],
+  );
+
+  const revokeEffect = useCallback(
+    async (player: CsPlayer, effect: ActiveEffect) => {
+      // Find the matching action so we can use its off-builder.
+      const action = QUICK_ACTIONS.find(
+        (a) => a.effectSlug === effect.effect_slug && a.build.off,
+      );
+      if (!action || !action.build.off) {
+        toast.error(
+          "Нет команды для снятия — используй «Снять основные» внизу",
+        );
+        return;
+      }
+      await runAction(player, action, "off");
+    },
+    [runAction],
   );
 
   return (
@@ -96,11 +192,10 @@ export default function PlayersPage() {
             Игроки на сервере
           </h1>
           <p className="text-xs text-smoke">
-            Live-снимок с CS-сервера через RCON{" "}
-            <code className="font-mono text-ash">status</code>. Тыкаешь на
-            кнопку — действие летит на сервер. Каждое действие пишется в{" "}
+            Тыкаешь на эффект — он летит на сервер + в чат CS-сервера пишется
+            анонс «[FORUM ник]: ...». Все действия в{" "}
             <Link href="/admin/cs-rcon-log" className="link-plasma">
-              RCON-аудит
+              RCON-аудите
             </Link>
             .
           </p>
@@ -114,11 +209,14 @@ export default function PlayersPage() {
               className="h-3 w-3 accent-cyan"
             />
             <Zap className="h-3 w-3" />
-            авто-обновление (15 с)
+            авто
           </label>
           <button
             type="button"
-            onClick={() => fetchPlayers(true)}
+            onClick={() => {
+              void fetchPlayers(true);
+              void fetchEffects(playerSteamIds);
+            }}
             disabled={loading}
             className="inline-flex items-center gap-1 rounded-md border border-border bg-card px-2 py-1 text-[11px] text-ash hover:border-plasma/40 hover:text-bone disabled:opacity-50"
           >
@@ -141,6 +239,11 @@ export default function PlayersPage() {
             <span className="inline-flex items-center gap-1 text-cyan">
               <MapIcon className="h-3.5 w-3.5" />
               <span className="font-mono">{data.map}</span>
+            </span>
+          )}
+          {effects.length > 0 && (
+            <span className="ml-auto text-[10px] text-smoke">
+              эффектов активно: {effects.length}
             </span>
           )}
         </div>
@@ -175,8 +278,10 @@ export default function PlayersPage() {
             <PlayerCard
               key={p.userid}
               player={p}
-              busy={busyPlayer === p.name}
-              onAction={(a) => runAction(p, a)}
+              effects={effectsByPlayer[p.steamid] ?? []}
+              busyKey={busyKey}
+              onAction={(a, mode) => runAction(p, a, mode)}
+              onRevoke={(e) => revokeEffect(p, e)}
             />
           ))}
         </div>
@@ -191,24 +296,24 @@ export default function PlayersPage() {
 
 function PlayerCard({
   player,
-  busy,
+  effects,
+  busyKey,
   onAction,
+  onRevoke,
 }: {
   player: CsPlayer;
-  busy: boolean;
-  onAction: (a: QuickAction) => void;
+  effects: ActiveEffect[];
+  busyKey: string | null;
+  onAction: (a: QuickAction, mode: "on" | "off") => void;
+  onRevoke: (e: ActiveEffect) => void;
 }) {
-  const [expanded, setExpanded] = useState(false);
+  const [tab, setTab] = useState<QuickGroup>("frequent");
 
-  const groupedActions = useMemo(() => {
-    const out: Record<QuickAction["group"], QuickAction[]> = {
-      punish: [],
-      help: [],
-      fun: [],
-    };
-    for (const a of QUICK_ACTIONS) out[a.group].push(a);
+  const activeBySlug = useMemo(() => {
+    const out: Record<string, ActiveEffect> = {};
+    for (const e of effects) out[e.effect_slug] = e;
     return out;
-  }, []);
+  }, [effects]);
 
   const pingTone =
     player.ping >= 200
@@ -224,12 +329,7 @@ function PlayerCard({
   }
 
   return (
-    <div
-      className={cn(
-        "rounded-lg border bg-card transition-all",
-        busy ? "border-plasma/60 opacity-70" : "border-border",
-      )}
-    >
+    <div className="rounded-lg border border-border bg-card">
       <div className="flex items-start gap-3 p-3">
         <LetterAvatar nickname={player.name} size={42} />
         <div className="min-w-0 flex-1">
@@ -260,52 +360,147 @@ function PlayerCard({
         </div>
       </div>
 
-      <div className="border-t border-border px-3 py-2">
-        {(Object.keys(groupedActions) as QuickAction["group"][]).map((g) => {
-          const list = expanded ? groupedActions[g] : groupedActions[g].slice(0, 3);
-          if (list.length === 0) return null;
+      {/* Active effects strip */}
+      {effects.length > 0 && (
+        <div className="border-t border-border bg-void/30 px-3 py-2">
+          <div className="mb-1 text-[9px] uppercase tracking-widest text-smoke">
+            активные эффекты ({effects.length})
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            {effects.map((e) => (
+              <ActiveEffectBadge
+                key={e.effect_slug}
+                effect={e}
+                onRevoke={() => onRevoke(e)}
+              />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Tabs */}
+      <div className="flex items-center gap-0 border-t border-border bg-card/60 px-1.5">
+        {QUICK_GROUPS_ORDER.map((g) => {
+          const meta = QUICK_GROUP_META[g];
+          const active = tab === g;
           return (
-            <div key={g} className="mb-1.5 last:mb-0">
-              <div
-                className={cn(
-                  "mb-1 text-[9px] font-semibold uppercase tracking-widest",
-                  QUICK_GROUP_TONE[g],
-                )}
-              >
-                {QUICK_GROUP_LABEL[g]}
-              </div>
-              <div className="flex flex-wrap gap-1">
-                {list.map((a) => (
-                  <button
-                    key={a.slug}
-                    type="button"
-                    onClick={() => onAction(a)}
-                    disabled={busy}
-                    title={a.hint}
-                    className={cn(
-                      "inline-flex items-center gap-1 rounded-md border bg-card px-2 py-1 text-[11px] transition-colors disabled:cursor-not-allowed disabled:opacity-50",
-                      a.tone,
-                    )}
-                  >
-                    <span aria-hidden>{a.emoji}</span>
-                    <span>{a.label}</span>
-                  </button>
-                ))}
-              </div>
-            </div>
+            <button
+              key={g}
+              type="button"
+              onClick={() => setTab(g)}
+              className={cn(
+                "inline-flex items-center gap-1 border-b-2 px-2.5 py-1.5 text-[11px] transition-colors",
+                active
+                  ? `${meta.tone.split(" ").find((c) => c.startsWith("text-")) ?? "text-bone"} border-current`
+                  : "border-transparent text-smoke hover:text-ash",
+              )}
+            >
+              <span>{meta.emoji}</span>
+              {meta.label}
+            </button>
           );
         })}
-        <button
-          type="button"
-          onClick={() => setExpanded((v) => !v)}
-          className="mt-1 inline-flex items-center gap-1 text-[10px] text-smoke hover:text-ash"
-        >
-          <ChevronDown
-            className={cn("h-3 w-3 transition-transform", expanded && "rotate-180")}
-          />
-          {expanded ? "свернуть" : "ещё действия"}
-        </button>
+      </div>
+
+      {/* Tab content */}
+      <div className="border-t border-border px-3 py-2.5">
+        <div className="flex flex-wrap gap-1.5">
+          {actionsByGroup(tab).map((a) => {
+            const active = activeBySlug[a.effectSlug];
+            const isActive = !a.oneShot && active != null;
+            const mode: "on" | "off" = isActive ? "off" : "on";
+            const key = `${player.userid}:${a.slug}:${mode}`;
+            const busy = busyKey === key;
+            return (
+              <button
+                key={a.slug}
+                type="button"
+                onClick={() => onAction(a, mode)}
+                disabled={busy || (mode === "off" && !a.build.off)}
+                title={a.hint}
+                className={cn(
+                  "inline-flex items-center gap-1 rounded-md border px-2 py-1 text-[11px] transition-colors disabled:cursor-not-allowed disabled:opacity-50",
+                  isActive
+                    ? "border-flame/60 bg-flame/15 text-flame"
+                    : a.tone,
+                )}
+              >
+                <span aria-hidden>{a.emoji}</span>
+                <span>{a.label}</span>
+                {isActive && (
+                  <span className="font-mono text-[9px] uppercase tracking-widest">
+                    ON
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </div>
       </div>
     </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Active effect badge (with live countdown)
+// ─────────────────────────────────────────────────────────────────────
+
+function ActiveEffectBadge({
+  effect,
+  onRevoke,
+}: {
+  effect: ActiveEffect;
+  onRevoke: () => void;
+}) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!effect.expires_at) return;
+    const id = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(id);
+  }, [effect.expires_at]);
+
+  const expiresAt = effect.expires_at ? new Date(effect.expires_at).getTime() : null;
+  const remainingSec =
+    expiresAt != null ? Math.max(0, Math.floor((expiresAt - now) / 1000)) : null;
+  const isPermanent = expiresAt == null;
+  const isExpiring = remainingSec != null && remainingSec <= 5;
+
+  return (
+    <span
+      className={cn(
+        "group inline-flex items-center gap-1.5 rounded-md border bg-card pl-1.5 pr-0.5 py-0.5 text-[11px] transition-colors",
+        isPermanent
+          ? "border-plasma/40 text-plasma"
+          : isExpiring
+            ? "border-ember/50 text-ember animate-pulse"
+            : "border-flame/40 text-flame",
+      )}
+      title={
+        effect.granted_by_nickname
+          ? `Выдал @${effect.granted_by_nickname}`
+          : undefined
+      }
+    >
+      {effect.effect_emoji && <span aria-hidden>{effect.effect_emoji}</span>}
+      <span>{effect.effect_label}</span>
+      {remainingSec != null && (
+        <span className="font-mono text-[10px] opacity-80">
+          {Math.floor(remainingSec / 60)}:
+          {String(remainingSec % 60).padStart(2, "0")}
+        </span>
+      )}
+      {isPermanent && (
+        <span className="font-mono text-[9px] opacity-80 uppercase">∞</span>
+      )}
+      <button
+        type="button"
+        onClick={onRevoke}
+        title="Снять эффект"
+        className="ml-0.5 rounded p-0.5 opacity-50 transition-opacity hover:bg-void/40 hover:opacity-100"
+        aria-label="Снять"
+      >
+        <X className="h-2.5 w-2.5" />
+      </button>
+    </span>
   );
 }
