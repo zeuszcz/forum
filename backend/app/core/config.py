@@ -65,6 +65,10 @@ class Settings(BaseSettings):
     # If empty, the system endpoint is disabled. Generate with `openssl rand -hex 32`.
     shoutbox_system_token: str = ""
 
+    # rcon_password for the CS 1.6 server (used by /cs-rcon/execute). If empty
+    # the endpoint returns 503 — never silently fall back to unauth'd commands.
+    cs_rcon_password: str = ""
+
     @computed_field  # type: ignore[prop-decorator]
     @property
     def database_url(self) -> str:

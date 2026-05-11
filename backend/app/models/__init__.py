@@ -1,4 +1,5 @@
 from app.models.base import Base, TimestampMixin
+from app.models.cs_rcon_log import CsRconLog
 from app.models.moderation import ModerationLog
 from app.models.notification import Notification
 from app.models.poll import Poll, PollOption, PollVote
@@ -16,6 +17,7 @@ from app.models.user import User
 __all__ = [
     "Base",
     "ChatMute",
+    "CsRconLog",
     "ModerationLog",
     "Notification",
     "Poll",

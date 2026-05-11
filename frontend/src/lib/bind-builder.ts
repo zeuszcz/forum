@@ -114,7 +114,7 @@ export function extractEnumOptions(flag: JbfFlag): EnumOption[] {
     return out;
   }
 
-  // Pattern B: "All / T / CT / Color / Aim" or "w / b / p / o / gr / g / r"
+  // Pattern B: "All / T / CT / Color" or "w / b / p / o / gr / g / r"
   return v.split(/\s*\/\s*/).map((s) => {
     const t = s.trim();
     return { value: t, label: t };
@@ -145,13 +145,13 @@ export interface BindState {
   blocks: BindBlockState[];
 }
 
-/** Build the final `bind "K" "cmd args; cmd args"` string. Returns "" if
- *  there's nothing to bind yet (no commands picked). */
-export function buildBind(
+/** Compose the per-command argv strings ready to ship to RCON or join into
+ *  a bind. Skips blocks without a selected command. */
+export function blocksToCommands(
   state: BindState,
   commands: JbfCommand[],
-): string {
-  const parts: string[] = [];
+): string[] {
+  const out: string[] = [];
   for (const block of state.blocks) {
     if (!block.cmd) continue;
     const cmd = commands.find((c) => c.cmd === block.cmd);
@@ -164,8 +164,18 @@ export function buildBind(
       if (!val) continue;
       args.push(`${f.flag} ${val}`);
     }
-    parts.push(args.length ? `${cmd.cmd} ${args.join(" ")}` : cmd.cmd);
+    out.push(args.length ? `${cmd.cmd} ${args.join(" ")}` : cmd.cmd);
   }
+  return out;
+}
+
+/** Build the final `bind "K" "cmd args; cmd args"` string. Returns "" if
+ *  there's nothing to bind yet (no commands picked). */
+export function buildBind(
+  state: BindState,
+  commands: JbfCommand[],
+): string {
+  const parts = blocksToCommands(state, commands);
   if (parts.length === 0) return "";
   const keyLabel = state.key.trim() || "<КЛАВИША>";
   return `bind "${keyLabel}" "${parts.join("; ")}"`;
@@ -283,54 +293,56 @@ export const JBF_PRESET_GROUP_LABEL: Record<JbfPreset["group"], string> = {
 
 export const JBF_PRESETS: JbfPreset[] = [
   // ── punish ─────────────────────────────────────────────────────────
+  // Single-target presets: «-n» flag enabled with empty value — UI prompts
+  // the staff member to fill in the nickname before run/copy.
   {
-    slug: "kill-aim",
-    label: "Убить цель",
+    slug: "kill-target",
+    label: "Убить (по нику)",
     emoji: "💀",
     description:
-      "Мгновенно убивает игрока под прицелом. Бесшумно: -sk 0. Для быстрой раздачи нарушителю.",
+      "Убивает указанного игрока. Заполни поле -n ником жертвы перед запуском.",
     suggestedKey: "F5",
     group: "punish",
     blocks: [
-      { cmd: "jbf_uaio_kill", flags: { "-g": "Aim" } },
+      { cmd: "jbf_uaio_kill", flags: { "-n": "" } },
     ],
   },
   {
-    slug: "freeze-aim",
-    label: "Заморозить цель на 10 с",
+    slug: "freeze-target",
+    label: "Заморозить (по нику) 10 с",
     emoji: "🧊",
     description:
-      "Замораживает игрока под прицелом на 10 секунд. Для удержания возможного читера или нарушителя до выяснения.",
+      "Замораживает указанного игрока на 10 секунд. Удобно держать читера до выяснения.",
     suggestedKey: "F6",
     group: "punish",
     blocks: [
-      { cmd: "jbf_uaio_freeze", flags: { "-g": "Aim", "-b": "1", "-t": "10" } },
+      { cmd: "jbf_uaio_freeze", flags: { "-n": "", "-b": "1", "-t": "10" } },
     ],
   },
   {
-    slug: "bury-aim",
-    label: "Закопать цель",
+    slug: "bury-target",
+    label: "Закопать (по нику) 8 с",
     emoji: "⛏️",
     description:
-      "Закапывает игрока под прицелом на 8 секунд. Для разговора по душам с нарушителем.",
+      "Закапывает указанного игрока на 8 секунд. Для дисциплинарной беседы.",
     suggestedKey: "F4",
     group: "punish",
     blocks: [
-      { cmd: "jbf_uaio_bury", flags: { "-g": "Aim", "-b": "1", "-t": "8" } },
+      { cmd: "jbf_uaio_bury", flags: { "-n": "", "-b": "1", "-t": "8" } },
     ],
   },
   {
-    slug: "disarm-aim",
-    label: "Обезоружить цель",
+    slug: "disarm-target",
+    label: "Обезоружить (по нику)",
     emoji: "🤚",
     description:
-      "Снимает с игрока под прицелом основной слот и пистолет. Для дисциплины или начала LR.",
+      "Снимает с указанного игрока основное оружие и пистолет. Для подготовки к LR.",
     suggestedKey: "F3",
     group: "punish",
     blocks: [
       {
         cmd: "jbf_uaio_disarm",
-        flags: { "-g": "Aim", "-s1": "1", "-s2": "1" },
+        flags: { "-n": "", "-s1": "1", "-s2": "1" },
       },
     ],
   },
@@ -396,21 +408,21 @@ export const JBF_PRESETS: JbfPreset[] = [
   },
   {
     slug: "lr-duel",
-    label: "LR-дуэль для цели",
+    label: "LR-дуэль (по нику)",
     emoji: "🎲",
     description:
-      "Готовит игрока под прицелом к LR-дуэли: god, 100 HP, беск. патроны на минуту. Применять обоим участникам по очереди.",
+      "Готовит указанного игрока к LR-дуэли: god, 100 HP, беск. патроны на минуту. Запускай по очереди для обоих участников.",
     suggestedKey: "F8",
     group: "games",
     blocks: [
       {
         cmd: "jbf_uaio_god",
-        flags: { "-g": "Aim", "-b": "1", "-t": "60" },
+        flags: { "-n": "", "-b": "1", "-t": "60" },
       },
-      { cmd: "jbf_uaio_health", flags: { "-g": "Aim", "-i": "100" } },
+      { cmd: "jbf_uaio_health", flags: { "-n": "", "-i": "100" } },
       {
         cmd: "jbf_uaio_infinity_ammo",
-        flags: { "-g": "Aim", "-b": "1", "-t": "60" },
+        flags: { "-n": "", "-b": "1", "-t": "60" },
       },
     ],
   },
@@ -472,17 +484,17 @@ export const JBF_PRESETS: JbfPreset[] = [
     ],
   },
   {
-    slug: "give-awp-aim",
-    label: "Выдать AWP цели",
+    slug: "give-awp-target",
+    label: "Выдать AWP (по нику)",
     emoji: "🎯",
     description:
-      "Даёт игроку под прицелом AWP с полной обоймой. Для дуэлей или особых дней.",
+      "Даёт указанному игроку AWP с полной обоймой. Для дуэлей или особых дней.",
     suggestedKey: "MOUSE3",
     group: "games",
     blocks: [
       {
         cmd: "jbf_uaio_give_weapon",
-        flags: { "-g": "Aim", "-wn": "awp", "-ty": "2" },
+        flags: { "-n": "", "-wn": "awp", "-ty": "2" },
       },
     ],
   },
@@ -515,15 +527,15 @@ export const JBF_PRESETS: JbfPreset[] = [
     ],
   },
   {
-    slug: "heal-aim",
-    label: "Полное HP цели",
+    slug: "heal-target",
+    label: "Полное HP (по нику)",
     emoji: "💉",
     description:
-      "Восстанавливает 100 HP игроку под прицелом. Для LR-победителя или после раздачи виновному.",
+      "Восстанавливает 100 HP указанному игроку. Для LR-победителя или после ошибочной раздачи.",
     suggestedKey: "KP_INS",
     group: "utility",
     blocks: [
-      { cmd: "jbf_uaio_health", flags: { "-g": "Aim", "-i": "100" } },
+      { cmd: "jbf_uaio_health", flags: { "-n": "", "-i": "100" } },
     ],
   },
 ];

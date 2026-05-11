@@ -13,6 +13,7 @@ from app.routers import (
     attachments,
     auth,
     cases,
+    cs_rcon,
     forum,
     health,
     notifications,
@@ -65,6 +66,7 @@ app.include_router(attachments.router)
 app.include_router(steam.router)
 app.include_router(quests.router)
 app.include_router(cases.router)
+app.include_router(cs_rcon.router)
 
 
 @app.get("/", include_in_schema=False)

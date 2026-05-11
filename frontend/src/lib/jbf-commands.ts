@@ -57,8 +57,10 @@ export const JBF_CATEGORY_TONE: Record<JbfCategory, string> = {
 // ─────────────────────────────────────────────────────────────────────
 
 const F_N: JbfFlag = { flag: "-n", label: "ник игрока" };
-const F_G_FULL: JbfFlag = { flag: "-g", label: "группа", values: "All / T / CT / Color / Aim" };
-const F_G_NOAIM: JbfFlag = { flag: "-g", label: "группа", values: "All / T / CT / Color" };
+// Aim removed: it requires the admin's in-game POV and never works when
+// the command is dispatched from the forum via RCON.
+const F_G_FULL: JbfFlag = { flag: "-g", label: "группа", values: "All / T / CT / Color" };
+const F_G_NOAIM: JbfFlag = F_G_FULL;
 const F_C: JbfFlag = {
   flag: "-c",
   label: "форма (для -g Color)",

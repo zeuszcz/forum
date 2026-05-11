@@ -362,6 +362,18 @@ export interface ModerationLogRead {
   target_section_title: string | null;
 }
 
+export interface CsRconLogRead {
+  id: number;
+  command: string;
+  response: string | null;
+  success: boolean;
+  error: string | null;
+  latency_ms: number | null;
+  created_at: string;
+  actor_id: number | null;
+  actor_nickname: string | null;
+}
+
 export interface RoleAdminRead {
   id: number;
   slug: string;
