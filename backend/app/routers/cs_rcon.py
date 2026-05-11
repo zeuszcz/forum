@@ -35,6 +35,8 @@ from app.schemas.cs_rcon import (
     RconCommand,
     RconLogRead,
     RconResult,
+    SayRequest,
+    SayResult,
 )
 from app.services import auth as auth_service
 from app.services import cs_effects, cs_rcon
@@ -359,6 +361,65 @@ async def execute_action(
         effect_state=effect_state,
         latency_ms=primary_latency,
     )
+
+
+@router.post("/say", response_model=SayResult)
+async def say_to_cs_chat(
+    payload: SayRequest,
+    user: CurrentUser,
+    db: DbSession,
+) -> SayResult:
+    """Push a free-form line into the CS server’s say channel.
+
+    Anti-impersonation: the forum nickname is sourced from auth, never
+    from the payload. Final shape is `[ FORUM ] <nick> :: <text>` so the
+    in-game viewer sees the author, not a bare ‘Console’."""
+    if not await _is_staff(db, user):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Только для модераторов"
+        )
+    await _check_rate_limit(user.id)
+
+    sanitized = _sanitize_announce(payload.text)
+    nick = _sanitize_announce(user.nickname)
+    if not sanitized:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Пустой текст после санитаризации (разрешен ASCII + Кириллица + стрелки)",
+        )
+    if not nick:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Не удалось нормализовать ник",
+        )
+    say_text = _sanitize_announce(f"[ FORUM ] {nick} :: {sanitized}")
+    say_cmd = f"say {say_text}"
+
+    try:
+        result = await cs_rcon.execute(say_cmd)
+    except cs_rcon.RconError as e:
+        await _audit(
+            db,
+            actor_id=user.id,
+            command=say_cmd,
+            response=None,
+            success=False,
+            error=str(e),
+            latency_ms=None,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY, detail=f"RCON: {e}"
+        )
+    await _audit(
+        db,
+        actor_id=user.id,
+        command=say_cmd,
+        response=result.output,
+        success=True,
+        error=None,
+        latency_ms=result.latency_ms,
+    )
+    return SayResult(ok=True, sent_text=say_text, latency_ms=result.latency_ms)
 
 
 @router.get("/effects", response_model=list[ActiveEffectRead])

@@ -9,6 +9,20 @@ class RconCommand(BaseModel):
     command: str = Field(min_length=1, max_length=500)
 
 
+class SayRequest(BaseModel):
+    """Free-form chat message from the forum admin into the CS server
+    `say` channel. Backend always prepends `[ FORUM ] <nickname> :: ` so the
+    in-game viewer can’t be tricked into thinking it came from someone else."""
+
+    text: str = Field(min_length=1, max_length=200)
+
+
+class SayResult(BaseModel):
+    ok: bool
+    sent_text: str  # what we actually pushed to RCON, post-sanitize + prefix
+    latency_ms: int
+
+
 class RconBatch(BaseModel):
     """Up to 10 commands fired sequentially as one batch. Total time-budget
     governed by the same rate limit as a single execute (counts as N
