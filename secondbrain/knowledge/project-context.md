@@ -89,6 +89,15 @@ forum/
 - **Single WS worker for shoutbox fanout**.
   `BROADCASTER` is in-process. Scaling past one uvicorn worker requires Redis
   pub/sub — track for Phase 2.
+- **High-frequency feeds → ephemeral broadcast, no DB**.
+  `POST /shoutbox/system` accepts `ephemeral=true`; the endpoint then
+  emits a WS event of `type: "ephemeral_system"` and **does not** call
+  `shoutbox_service.post_system` (no row in `shoutbox_messages`). Used
+  by `cs-log-listener` for in-game chat (`category="chat"`) — without
+  this branch every `say` line on the CS server would land in Postgres.
+  Consumers: `/admin/cs-chat` Live-toggle subscribes and filters by
+  `category`. Public `Shoutbox.tsx` ignores unknown WS event types so
+  it is silent on this path.
 - **Flood window 3 s** on chat post; 5 min edit window for own messages
   (mods bypass), `CLEAR_LIMIT=200` cap on `/clear`.
 - **Polling fallback merges, never replaces** the chat state — see
