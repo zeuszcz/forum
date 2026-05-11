@@ -9,6 +9,7 @@ from fastapi import (
     APIRouter,
     Cookie,
     Depends,
+    Header,
     HTTPException,
     Query,
     WebSocket,
@@ -18,6 +19,7 @@ from fastapi import (
 from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.core.database import get_db
 from app.core.deps import (
     COOKIE_NAME,
@@ -32,14 +34,19 @@ from app.models.user import User
 from app.schemas.shoutbox import (
     ChatMuteCreate,
     ChatMuteRead,
+    MapVoteCreate,
     ReactionToggleResult,
+    ServerStatus,
     ShoutboxCreate,
     ShoutboxRead,
     ShoutboxReplyPreview,
     ShoutboxUpdate,
+    SystemMessageCreate,
+    VoteRequest,
 )
 from app.schemas.user import RoleRead, UserPublic
 from app.services import auth as auth_service
+from app.services import cs_server as cs_server_service
 from app.services import shoutbox as shoutbox_service
 
 router = APIRouter(prefix="/shoutbox", tags=["shoutbox"])
@@ -176,6 +183,14 @@ async def _messages_to_read(
             db, msg_ids, actor_id
         )
 
+    poll_ids = [m.id for m in rows if m.kind == "mapvote"]
+    vote_counts_map = await shoutbox_service.vote_counts_for_messages(db, poll_ids)
+    my_votes_map: dict[int, int] = {}
+    if actor_id is not None and poll_ids:
+        my_votes_map = await shoutbox_service.my_votes_for_messages(
+            db, poll_ids, actor_id
+        )
+
     out: list[ShoutboxRead] = []
     for m in rows:
         author = users.get(m.author_id) if m.author_id else None
@@ -187,10 +202,14 @@ async def _messages_to_read(
                 edited_at=m.edited_at,
                 is_pinned=m.is_pinned,
                 is_deleted=m.is_deleted,
+                kind=m.kind,
+                meta=m.meta,
                 author=await _user_to_public(db, author) if author else None,
                 reply_to=reply_previews.get(m.reply_to_id) if m.reply_to_id else None,
                 reactions=counts_map.get(m.id, {}),
                 reacted=reacted_map.get(m.id, []),
+                vote_counts=vote_counts_map.get(m.id, {}),
+                my_vote=my_votes_map.get(m.id),
             )
         )
     return out
@@ -360,6 +379,104 @@ async def react_message(
         {"type": "react", "id": message_id, "reactions": counts}
     )
     return ReactionToggleResult(id=message_id, reactions=counts, reacted=reacted)
+
+
+# ---------------------------------------------------------------------------
+# Map vote
+# ---------------------------------------------------------------------------
+
+
+@router.post(
+    "/mapvote", response_model=ShoutboxRead, status_code=status.HTTP_201_CREATED
+)
+async def create_mapvote(
+    payload: MapVoteCreate,
+    user: Annotated[User, Depends(get_current_user)],
+    db: DbSession,
+) -> ShoutboxRead:
+    if not await _is_chat_mod(db, user):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Только для модераторов"
+        )
+    msg = await shoutbox_service.post_mapvote(db, author=user, payload=payload)
+    read = await _message_to_read(db, msg, actor_id=user.id)
+    await BROADCASTER.broadcast(
+        {"type": "new", "message": read.model_dump(mode="json")}
+    )
+    return read
+
+
+@router.post("/{message_id}/vote")
+async def vote_message(
+    message_id: int,
+    payload: VoteRequest,
+    user: CurrentUser,
+    db: DbSession,
+) -> dict[str, Any]:
+    counts = await shoutbox_service.cast_vote(
+        db,
+        message_id=message_id,
+        user_id=user.id,
+        option_idx=payload.option_idx,
+    )
+    await BROADCASTER.broadcast(
+        {
+            "type": "vote",
+            "id": message_id,
+            # JSON object keys must be strings; clients convert back to int.
+            "vote_counts": {str(k): v for k, v in counts.items()},
+        }
+    )
+    return {
+        "id": message_id,
+        "vote_counts": counts,
+        "my_vote": payload.option_idx,
+    }
+
+
+# ---------------------------------------------------------------------------
+# System bot-cast (HMAC token, no user auth)
+# ---------------------------------------------------------------------------
+
+
+@router.post(
+    "/system", response_model=ShoutboxRead, status_code=status.HTTP_201_CREATED
+)
+async def post_system_message(
+    payload: SystemMessageCreate,
+    db: DbSession,
+    x_shoutbox_token: Annotated[str | None, Header(alias="X-Shoutbox-Token")] = None,
+) -> ShoutboxRead:
+    expected = settings.shoutbox_system_token
+    if not expected:
+        # Endpoint disabled until an env token is configured.
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="System bot-cast disabled (set SHOUTBOX_SYSTEM_TOKEN)",
+        )
+    if not x_shoutbox_token or x_shoutbox_token != expected:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Bad system token"
+        )
+    msg = await shoutbox_service.post_system(
+        db, body=payload.body, tag=payload.tag, category=payload.category
+    )
+    read = await _message_to_read(db, msg, actor_id=None)
+    await BROADCASTER.broadcast(
+        {"type": "new", "message": read.model_dump(mode="json")}
+    )
+    return read
+
+
+# ---------------------------------------------------------------------------
+# CS server status snapshot (5s cached)
+# ---------------------------------------------------------------------------
+
+
+@router.get("/server-status", response_model=ServerStatus)
+async def server_status() -> ServerStatus:
+    data = await cs_server_service.get_server_status()
+    return ServerStatus(**data)
 
 
 # ---------------------------------------------------------------------------

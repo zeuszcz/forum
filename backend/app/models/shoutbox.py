@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Any
 
-from sqlalchemy import BigInteger, DateTime, ForeignKey, String
+from sqlalchemy import BigInteger, DateTime, ForeignKey, Integer, String
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base, TimestampMixin
@@ -29,6 +31,33 @@ class ShoutboxMessage(Base, TimestampMixin):
         index=True,
         nullable=True,
     )
+    # Discriminator for rendering: 'user' (default), 'system' (bot-cast),
+    # 'mapvote' (inline poll). 'meta' is the per-kind JSON payload.
+    kind: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="user", server_default="user", index=True
+    )
+    meta: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+
+
+class ShoutboxPollVote(Base, TimestampMixin):
+    """One vote per (message_id, user_id) on a mapvote-kind shoutbox message.
+    Re-voting on the same poll just UPDATEs option_idx — no audit history."""
+
+    __tablename__ = "shoutbox_poll_votes"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    message_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("shoutbox_messages.id", ondelete="CASCADE"),
+        index=True,
+        nullable=False,
+    )
+    user_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    option_idx: Mapped[int] = mapped_column(Integer, nullable=False)
 
 
 class ShoutboxReaction(Base, TimestampMixin):

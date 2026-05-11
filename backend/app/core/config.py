@@ -56,6 +56,15 @@ class Settings(BaseSettings):
     email_from: str = "noreply@endless-war.local"
     resend_api_key: str = ""
 
+    # --- CS 1.6 jail server (shoutbox Phase 3) ---
+    # Address the chat header + /connect button advertises. Set to the real
+    # public IP:PORT once the jail server is online.
+    cs_server_address: str = "ew-jail.innertalk.space:27015"
+    cs_server_name: str = "endless-war jail · #1"
+    # Bearer-style token expected in X-Shoutbox-Token on POST /shoutbox/system.
+    # If empty, the system endpoint is disabled. Generate with `openssl rand -hex 32`.
+    shoutbox_system_token: str = ""
+
     @computed_field  # type: ignore[prop-decorator]
     @property
     def database_url(self) -> str:

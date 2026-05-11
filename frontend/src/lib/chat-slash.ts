@@ -12,10 +12,16 @@
 
 export interface SlashCommandResult {
   /** Final body to send via POST /shoutbox. null = the command produced no
-   * message itself (e.g. /clear triggers a server call instead). */
+   * message itself (the side effect handles posting). */
   body: string | null;
   /** Side-effect to run (mod-only or otherwise). */
-  sideEffect?: "clear";
+  sideEffect?: "clear" | "mapvote";
+  /** Mapvote payload when sideEffect="mapvote". */
+  mapvote?: {
+    question: string;
+    options: string[];
+    durationMin: number;
+  };
   /** User-facing error if the command was malformed. */
   error?: string;
 }
@@ -100,6 +106,47 @@ export function applySlashCommand(
     case "clear": {
       return { body: null, sideEffect: "clear" };
     }
+    case "mapvote": {
+      // Format: /mapvote [optional "question?"] map1 map2 [map3 [map4 [map5]]] [Nmin]
+      // Trailing token with `min` suffix or pure integer 1..60 is treated as
+      // duration; everything before is options. The first token can be a
+      // quoted question; otherwise the question defaults to "Map vote".
+      if (!tok.rest) {
+        return {
+          body: null,
+          error: "Использование: /mapvote map1 map2 [map3 …] [Nm]",
+        };
+      }
+      let rest = tok.rest;
+      let question = "Map vote";
+      const qMatch = rest.match(/^"([^"]+)"\s*(.*)$/);
+      if (qMatch) {
+        question = qMatch[1]!;
+        rest = qMatch[2] ?? "";
+      }
+      const tokens = rest.split(/\s+/).filter(Boolean);
+      let durationMin = 3;
+      if (tokens.length > 0) {
+        const last = tokens[tokens.length - 1]!;
+        const m = last.match(/^(\d+)m?$/i);
+        if (m && tokens.length > 2) {
+          const n = parseInt(m[1]!, 10);
+          if (n >= 1 && n <= 60) {
+            durationMin = n;
+            tokens.pop();
+          }
+        }
+      }
+      if (tokens.length < 2) {
+        return { body: null, error: "Нужно минимум 2 карты" };
+      }
+      if (tokens.length > 5) tokens.length = 5;
+      return {
+        body: null,
+        sideEffect: "mapvote",
+        mapvote: { question, options: tokens, durationMin },
+      };
+    }
     default:
       return { body: raw };
   }
@@ -112,4 +159,9 @@ export const KNOWN_SLASH_HELP: { cmd: string; example: string; desc: string }[] 
   { cmd: "/afk", example: "/afk обед", desc: "Отойти" },
   { cmd: "/shrug", example: "/shrug", desc: "¯\\_(ツ)_/¯" },
   { cmd: "/clear", example: "/clear", desc: "Очистить чат (мод)" },
+  {
+    cmd: "/mapvote",
+    example: "/mapvote dust2 inferno nuke 5m",
+    desc: "Запустить голосование за карту (мод)",
+  },
 ];

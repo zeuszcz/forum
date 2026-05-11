@@ -3,16 +3,22 @@
 import {
   Check,
   ChevronUp,
+  Copy,
   CornerDownRight,
   Eraser,
+  ExternalLink,
   Pencil,
   Pin,
   PinOff,
+  Radio,
   Reply,
   Send,
+  Server,
   Smile,
   SmilePlus,
+  Sticker as StickerIcon,
   Trash2,
+  Vote,
   VolumeX,
   X,
 } from "lucide-react";
@@ -21,6 +27,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import rehypeSanitize, { defaultSchema } from "rehype-sanitize";
 import remarkGfm from "remark-gfm";
+import { toast } from "sonner";
 
 import { LetterAvatar } from "@/components/ui/avatar";
 import { api, ApiError } from "@/lib/api";
@@ -28,9 +35,12 @@ import { sfx } from "@/lib/audio";
 import { useAuth } from "@/lib/auth-context";
 import { EMOJI_GROUPS } from "@/lib/chat-emoji";
 import { applySlashCommand, KNOWN_SLASH_HELP } from "@/lib/chat-slash";
+import { canUseSticker, STICKERS } from "@/lib/chat-stickers";
 import { relativeTime } from "@/lib/format";
 import { avatarGlowColor, glowNickProps, nickColor } from "@/lib/perks";
 import {
+  type CsServerStatus,
+  type MapVoteMeta,
   REACTION_EMOJI,
   type ReactionKind,
   type ShoutboxMessage,
@@ -58,7 +68,8 @@ type WsEvent =
   | { type: "delete"; id: number }
   | { type: "pin"; message: ShoutboxMessage; unpinned: number[] }
   | { type: "unpin"; id: number; message: ShoutboxMessage }
-  | { type: "react"; id: number; reactions: Partial<Record<ReactionKind, number>> };
+  | { type: "react"; id: number; reactions: Partial<Record<ReactionKind, number>> }
+  | { type: "vote"; id: number; vote_counts: Record<string, number> };
 
 const MARKDOWN_SCHEMA = {
   ...defaultSchema,
@@ -66,13 +77,24 @@ const MARKDOWN_SCHEMA = {
   attributes: {
     ...defaultSchema.attributes,
     a: [
-      ["href", /^https?:\/\//, /^\/[^/]/],
+      ["href", /^https?:\/\//, /^\/[^/]/, /^steam:/],
       ["title"],
       ["target"],
       ["rel"],
     ],
   },
 };
+
+const CONNECT_RE =
+  /\bconnect\s+((?:[a-z0-9][a-z0-9.\-]*\.[a-z]{2,}|\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}):\d{1,5})\b/gi;
+
+/** Rewrite "connect host:port" runs to a markdown link with the steam://
+ * scheme so the markdown renderer's <a> override can style them as a button.
+ * Idempotent: anything already inside an existing markdown link is skipped
+ * because the regex requires the `connect` keyword on a word boundary. */
+function preprocessConnect(body: string): string {
+  return body.replace(CONNECT_RE, (_m, addr) => `[connect ${addr}](steam://connect/${addr})`);
+}
 
 export function Shoutbox({ initialMessages }: { initialMessages: ShoutboxMessage[] }) {
   const { user } = useAuth();
@@ -102,6 +124,8 @@ export function Shoutbox({ initialMessages }: { initialMessages: ShoutboxMessage
   const [muteOpenFor, setMuteOpenFor] = useState<number | null>(null);
   const [reactPickerFor, setReactPickerFor] = useState<number | null>(null);
   const [emojiOpen, setEmojiOpen] = useState(false);
+  const [stickerOpen, setStickerOpen] = useState(false);
+  const [serverStatus, setServerStatus] = useState<CsServerStatus | null>(null);
   const [mentionState, setMentionState] = useState<{
     query: string;
     start: number;
@@ -176,6 +200,17 @@ export function Shoutbox({ initialMessages }: { initialMessages: ShoutboxMessage
           );
           break;
         }
+        case "vote": {
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === evt.id ? { ...m, vote_counts: evt.vote_counts } : m,
+            ),
+          );
+          setPinned((p) =>
+            p && p.id === evt.id ? { ...p, vote_counts: evt.vote_counts } : p,
+          );
+          break;
+        }
       }
     };
 
@@ -247,6 +282,25 @@ export function Shoutbox({ initialMessages }: { initialMessages: ShoutboxMessage
     }, POLL_FALLBACK_MS);
     return () => window.clearInterval(id);
   }, [refresh]);
+
+  // -------- CS server status (5s cached server-side, refreshed every 15s) --------
+  useEffect(() => {
+    let alive = true;
+    const tick = async () => {
+      try {
+        const s = await api<CsServerStatus>("/shoutbox/server-status");
+        if (alive) setServerStatus(s);
+      } catch {
+        /* swallow */
+      }
+    };
+    void tick();
+    const id = window.setInterval(tick, 15_000);
+    return () => {
+      alive = false;
+      window.clearInterval(id);
+    };
+  }, []);
 
   // -------- Autoscroll --------
   useEffect(() => {
@@ -368,6 +422,26 @@ export function Shoutbox({ initialMessages }: { initialMessages: ShoutboxMessage
     if (cmd.sideEffect === "clear") {
       setBody("");
       await clearChat();
+      return;
+    }
+    if (cmd.sideEffect === "mapvote" && cmd.mapvote) {
+      if (!isStaff) {
+        setError("Только модераторы могут запускать голосование");
+        return;
+      }
+      setBody("");
+      try {
+        await api("/shoutbox/mapvote", {
+          method: "POST",
+          body: JSON.stringify({
+            question: cmd.mapvote.question,
+            options: cmd.mapvote.options,
+            duration_min: cmd.mapvote.durationMin,
+          }),
+        });
+      } catch (err) {
+        if (err instanceof ApiError) setError(err.detail);
+      }
       return;
     }
     const finalBody = cmd.body;
@@ -504,6 +578,50 @@ export function Shoutbox({ initialMessages }: { initialMessages: ShoutboxMessage
     }
   }
 
+  async function castVote(id: number, optionIdx: number) {
+    if (!user) return;
+    // Optimistic — bump local count + mark my_vote.
+    setMessages((prev) =>
+      prev.map((m) => {
+        if (m.id !== id) return m;
+        const next: Record<string, number> = { ...(m.vote_counts ?? {}) };
+        if (m.my_vote != null) {
+          const prevKey = String(m.my_vote);
+          next[prevKey] = Math.max(0, (next[prevKey] ?? 0) - 1);
+        }
+        const newKey = String(optionIdx);
+        next[newKey] = (next[newKey] ?? 0) + 1;
+        return { ...m, vote_counts: next, my_vote: optionIdx };
+      }),
+    );
+    try {
+      const r = await api<{
+        id: number;
+        vote_counts: Record<string, number>;
+        my_vote: number;
+      }>(`/shoutbox/${id}/vote`, {
+        method: "POST",
+        body: JSON.stringify({ option_idx: optionIdx }),
+      });
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === id
+            ? { ...m, vote_counts: r.vote_counts, my_vote: r.my_vote }
+            : m,
+        ),
+      );
+    } catch (err) {
+      if (err instanceof ApiError) setError(err.detail);
+      // Reload state from server to drop the optimistic change.
+      void refresh();
+    }
+  }
+
+  function insertStickerBody(body: string) {
+    insertAtCaret(body);
+    setStickerOpen(false);
+  }
+
   // -------- Render --------
   const charsLeft = 500 - body.length;
   const charsLow = charsLeft < 50;
@@ -513,18 +631,21 @@ export function Shoutbox({ initialMessages }: { initialMessages: ShoutboxMessage
 
   return (
     <section className="flex h-full min-h-0 flex-col rounded-lg border border-border bg-card">
-      <header className="flex items-center justify-between border-b border-border px-4 py-3">
-        <div className="flex items-center gap-2">
+      <header className="flex items-center justify-between gap-2 border-b border-border px-3 py-2">
+        <div className="flex min-w-0 items-center gap-2">
           <span
             className={cn(
-              "h-2 w-2 rounded-full",
+              "h-2 w-2 shrink-0 rounded-full",
               wsConnected ? "bg-cyan animate-pulse-slow" : "bg-smoke",
             )}
             title={wsConnected ? "Realtime подключен" : "Polling fallback"}
           />
-          <h2 className="text-sm font-semibold tracking-tight text-bone">Общий чат</h2>
+          <h2 className="shrink-0 text-sm font-semibold tracking-tight text-bone">
+            Общий чат
+          </h2>
+          {serverStatus && <ServerStatusPill status={serverStatus} />}
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex shrink-0 items-center gap-1.5">
           {isStaff && (
             <button
               type="button"
@@ -583,6 +704,28 @@ export function Shoutbox({ initialMessages }: { initialMessages: ShoutboxMessage
         )}
 
         {messages.map((m) => {
+          if (m.kind === "system") {
+            return (
+              <SystemMessageRow
+                key={m.id}
+                msg={m}
+                canDelete={isStaff}
+                onDelete={() => deleteMsg(m.id)}
+              />
+            );
+          }
+          if (m.kind === "mapvote") {
+            return (
+              <MapVoteRow
+                key={m.id}
+                msg={m}
+                canVote={!!user}
+                canDelete={isStaff || m.author?.id === user?.id}
+                onVote={(idx) => castVote(m.id, idx)}
+                onDelete={() => deleteMsg(m.id)}
+              />
+            );
+          }
           const isOwn = m.author?.id === user?.id;
           const ageMs = Date.now() - new Date(m.created_at).getTime();
           const canEdit = isOwn && ageMs < EDIT_WINDOW_MS;
@@ -869,7 +1012,21 @@ export function Shoutbox({ initialMessages }: { initialMessages: ShoutboxMessage
               />
               <button
                 type="button"
-                onClick={() => setEmojiOpen((v) => !v)}
+                onClick={() => {
+                  setStickerOpen((v) => !v);
+                  setEmojiOpen(false);
+                }}
+                className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-border bg-card text-smoke transition-colors hover:border-flame/40 hover:text-bone"
+                title="Стикеры"
+              >
+                <StickerIcon className="h-4 w-4" />
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setEmojiOpen((v) => !v);
+                  setStickerOpen(false);
+                }}
                 className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-border bg-card text-smoke transition-colors hover:border-plasma/40 hover:text-bone"
                 title="Эмодзи"
               >
@@ -956,6 +1113,53 @@ export function Shoutbox({ initialMessages }: { initialMessages: ShoutboxMessage
                     </div>
                   </div>
                 ))}
+              </div>
+            )}
+
+            {stickerOpen && (
+              <div className="absolute bottom-[68px] right-24 z-20 w-72 overflow-hidden rounded-md border border-border bg-card shadow-xl">
+                <div className="border-b border-border px-2 py-1.5">
+                  <div className="text-[10px] uppercase tracking-widest text-smoke">
+                    CS·стикеры
+                  </div>
+                  <p className="text-[9px] text-smoke/80">
+                    🔒 — нужен VIP/Premium на сервере
+                  </p>
+                </div>
+                <div className="grid grid-cols-3 gap-1 p-2">
+                  {STICKERS.map((s) => {
+                    const unlocked = canUseSticker(
+                      s,
+                      user?.granted_perks ?? [],
+                    );
+                    return (
+                      <button
+                        key={s.slug}
+                        type="button"
+                        disabled={!unlocked}
+                        onClick={() => insertStickerBody(s.body)}
+                        className={cn(
+                          "flex flex-col items-center gap-0.5 rounded-md border border-border bg-void/30 p-2 text-center text-[10px] transition-all",
+                          unlocked
+                            ? "cursor-pointer text-ash hover:scale-105 hover:border-flame/40 hover:bg-flame/5 hover:text-bone"
+                            : "cursor-not-allowed opacity-50",
+                        )}
+                        title={
+                          unlocked
+                            ? s.label
+                            : `Нужен perk ${s.perkRequired}`
+                        }
+                      >
+                        <span className="text-lg leading-none">
+                          {s.body.match(/[\p{Emoji_Presentation}\u{1F3FB}-\u{1F3FF}]/u)?.[0] ?? "🎯"}
+                        </span>
+                        <span className="font-mono uppercase tracking-widest">
+                          {unlocked ? s.label : `🔒 ${s.label}`}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
             )}
           </>
@@ -1069,9 +1273,7 @@ function renderTextWithMentions(text: string, keyPrefix: string): React.ReactNod
 }
 
 function MessageBody({ body }: { body: string }) {
-  // Walk paragraphs in the result tree and substitute @mention runs in plain
-  // text nodes. We deliberately render only inline elements (no headings, no
-  // images) so chat messages can't break the layout.
+  const processed = useMemo(() => preprocessConnect(body), [body]);
   return (
     <div className="mt-0.5 text-sm leading-snug text-ash">
       <ReactMarkdown
@@ -1083,16 +1285,21 @@ function MessageBody({ body }: { body: string }) {
               {walkMentions(children)}
             </p>
           ),
-          a: ({ href, children }) => (
-            <a
-              href={href}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="link-plasma break-all"
-            >
-              {children}
-            </a>
-          ),
+          a: ({ href, children }) => {
+            if (href && href.startsWith("steam:")) {
+              return <ConnectButton href={href}>{children}</ConnectButton>;
+            }
+            return (
+              <a
+                href={href}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="link-plasma break-all"
+              >
+                {children}
+              </a>
+            );
+          },
           code: ({ children }) => (
             <code className="rounded bg-void/60 px-1 py-0.5 font-mono text-[12px] text-iridescent">
               {children}
@@ -1104,9 +1311,45 @@ function MessageBody({ body }: { body: string }) {
           em: ({ children }) => <em className="italic text-bone/90">{children}</em>,
         }}
       >
-        {body}
+        {processed}
       </ReactMarkdown>
     </div>
+  );
+}
+
+function ConnectButton({
+  href,
+  children,
+}: {
+  href: string;
+  children: React.ReactNode;
+}) {
+  const addr = href.replace(/^steam:\/\/connect\//, "");
+  function copyConnect() {
+    if (navigator.clipboard) {
+      void navigator.clipboard.writeText(`connect ${addr}`);
+      toast.success("connect-команда в буфере");
+    }
+  }
+  return (
+    <span className="inline-flex flex-wrap items-center gap-1 align-middle">
+      <a
+        href={href}
+        className="inline-flex items-center gap-1 rounded-md border border-cyan/40 bg-cyan/10 px-2 py-0.5 font-mono text-xs font-semibold text-cyan transition-colors hover:border-cyan/70 hover:bg-cyan/20"
+        title="Открыть Steam → connect"
+      >
+        <ExternalLink className="h-3 w-3" />
+        {children}
+      </a>
+      <button
+        type="button"
+        onClick={copyConnect}
+        title="Скопировать connect-команду"
+        className="inline-flex h-5 w-5 items-center justify-center rounded-md border border-border text-smoke transition-colors hover:border-cyan/40 hover:text-cyan"
+      >
+        <Copy className="h-2.5 w-2.5" />
+      </button>
+    </span>
   );
 }
 
@@ -1123,4 +1366,202 @@ function walkChildren(node: React.ReactNode, depth: number): React.ReactNode {
     ));
   }
   return node;
+}
+
+// -----------------------------------------------------------------------------
+// Server status pill
+// -----------------------------------------------------------------------------
+
+function ServerStatusPill({ status }: { status: CsServerStatus }) {
+  function copyConnect() {
+    if (navigator.clipboard) {
+      void navigator.clipboard.writeText(`connect ${status.address}`);
+      toast.success("connect-команда в буфере");
+    }
+  }
+  if (!status.online) {
+    return (
+      <button
+        type="button"
+        onClick={copyConnect}
+        title={`Сервер недоступен · ${status.address}`}
+        className="inline-flex min-w-0 items-center gap-1.5 rounded-md border border-border bg-card/60 px-2 py-0.5 text-[10px] text-smoke transition-colors hover:border-cyan/40 hover:text-ash"
+      >
+        <Server className="h-3 w-3" />
+        <span className="font-mono">offline</span>
+      </button>
+    );
+  }
+  return (
+    <button
+      type="button"
+      onClick={copyConnect}
+      title={`${status.name} · клик → копировать connect ${status.address}`}
+      className="inline-flex min-w-0 items-center gap-1.5 rounded-md border border-cyan/40 bg-cyan/5 px-2 py-0.5 text-[10px] text-cyan transition-colors hover:bg-cyan/10"
+    >
+      <Radio className="h-3 w-3" />
+      <span className="font-mono font-semibold">
+        {status.players}/{status.max_players}
+      </span>
+      {status.map && (
+        <span className="hidden truncate font-mono text-smoke sm:inline">
+          · {status.map}
+        </span>
+      )}
+    </button>
+  );
+}
+
+// -----------------------------------------------------------------------------
+// System message row (bot-cast / game events)
+// -----------------------------------------------------------------------------
+
+function SystemMessageRow({
+  msg,
+  canDelete,
+  onDelete,
+}: {
+  msg: ShoutboxMessage;
+  canDelete: boolean;
+  onDelete: () => void;
+}) {
+  const meta = (msg.meta as { tag?: string; category?: string } | null) ?? null;
+  return (
+    <div
+      id={`chat-${msg.id}`}
+      className="group/sys relative rounded-md border border-border bg-void/40 px-3 py-1.5 font-mono text-[12px]"
+    >
+      <div className="flex items-baseline gap-2">
+        <span className="inline-flex shrink-0 items-center gap-1 rounded border border-cyan/30 bg-cyan/10 px-1.5 text-[9px] font-bold uppercase tracking-widest text-cyan">
+          {meta?.tag ?? "system"}
+        </span>
+        <span className="min-w-0 flex-1 break-words text-smoke">{msg.body}</span>
+        <span className="shrink-0 text-[9px] text-smoke/60">
+          {relativeTime(msg.created_at)}
+        </span>
+        {canDelete && (
+          <button
+            type="button"
+            onClick={onDelete}
+            title="Удалить"
+            className="shrink-0 text-smoke opacity-0 transition-opacity hover:text-ember group-hover/sys:opacity-100"
+          >
+            <Trash2 className="h-3 w-3" />
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// -----------------------------------------------------------------------------
+// Map-vote inline widget
+// -----------------------------------------------------------------------------
+
+function MapVoteRow({
+  msg,
+  canVote,
+  canDelete,
+  onVote,
+  onDelete,
+}: {
+  msg: ShoutboxMessage;
+  canVote: boolean;
+  canDelete: boolean;
+  onVote: (idx: number) => void;
+  onDelete: () => void;
+}) {
+  const meta = (msg.meta as MapVoteMeta | null) ?? null;
+  const options = meta?.options ?? [];
+  const counts = msg.vote_counts ?? {};
+  const total = Object.values(counts).reduce((a, b) => a + Number(b ?? 0), 0);
+  const closesAt = meta?.closes_at ? new Date(meta.closes_at) : null;
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const id = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(id);
+  }, []);
+  const closed = closesAt ? closesAt.getTime() <= now : false;
+  const secondsLeft = closesAt
+    ? Math.max(0, Math.floor((closesAt.getTime() - now) / 1000))
+    : 0;
+
+  return (
+    <div
+      id={`chat-${msg.id}`}
+      className="group/vote relative rounded-md border border-flame/40 bg-flame/5 px-3 py-2.5"
+    >
+      <div className="mb-2 flex items-center gap-2">
+        <Vote className="h-3.5 w-3.5 text-flame" />
+        <span className="text-[10px] font-bold uppercase tracking-widest text-flame">
+          {meta?.question ?? "map vote"}
+        </span>
+        {!closed ? (
+          <span className="ml-auto rounded border border-flame/30 px-1.5 py-px font-mono text-[10px] text-flame">
+            ⌛ {Math.floor(secondsLeft / 60)}:
+            {String(secondsLeft % 60).padStart(2, "0")}
+          </span>
+        ) : (
+          <span className="ml-auto rounded border border-border px-1.5 py-px font-mono text-[10px] text-smoke">
+            закрыто
+          </span>
+        )}
+        {canDelete && (
+          <button
+            type="button"
+            onClick={onDelete}
+            className="opacity-0 transition-opacity hover:text-ember group-hover/vote:opacity-100"
+            title="Удалить голосование"
+          >
+            <Trash2 className="h-3 w-3 text-smoke" />
+          </button>
+        )}
+      </div>
+
+      <div className="space-y-1">
+        {options.map((opt, idx) => {
+          const count = Number(counts[String(idx)] ?? 0);
+          const pct = total > 0 ? (count / total) * 100 : 0;
+          const mine = msg.my_vote === idx;
+          return (
+            <button
+              key={idx}
+              type="button"
+              disabled={!canVote || closed}
+              onClick={() => onVote(idx)}
+              className={cn(
+                "group/opt relative flex w-full items-center justify-between overflow-hidden rounded-md border px-2.5 py-1.5 text-left text-xs transition-colors disabled:cursor-not-allowed",
+                mine
+                  ? "border-flame/60 bg-flame/10 text-bone"
+                  : "border-border bg-card text-ash hover:border-flame/40 hover:text-bone",
+              )}
+            >
+              <span
+                aria-hidden
+                className="absolute inset-y-0 left-0 transition-[width] duration-300"
+                style={{
+                  width: `${pct}%`,
+                  background: mine
+                    ? "rgb(var(--flame-rgb) / 0.18)"
+                    : "rgb(var(--flame-rgb) / 0.08)",
+                }}
+              />
+              <span className="relative z-10 font-mono font-semibold">
+                {mine ? "✓ " : ""}
+                {opt}
+              </span>
+              <span className="relative z-10 font-mono text-[11px] text-smoke">
+                {count} · {Math.round(pct)}%
+              </span>
+            </button>
+          );
+        })}
+      </div>
+
+      <p className="mt-2 text-[10px] text-smoke">
+        {total} {total === 1 ? "голос" : "голосов"}
+        {msg.author && <> · от @{msg.author.nickname}</>}
+      </p>
+    </div>
+  );
 }

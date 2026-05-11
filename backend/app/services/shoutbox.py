@@ -3,15 +3,21 @@ from __future__ import annotations
 import re
 from collections import defaultdict
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 from fastapi import HTTPException, status
 from sqlalchemy import and_, asc, delete, desc, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.notification import Notification
-from app.models.shoutbox import ChatMute, ShoutboxMessage, ShoutboxReaction
+from app.models.shoutbox import (
+    ChatMute,
+    ShoutboxMessage,
+    ShoutboxPollVote,
+    ShoutboxReaction,
+)
 from app.models.user import User
-from app.schemas.shoutbox import ShoutboxCreate, ShoutboxUpdate
+from app.schemas.shoutbox import MapVoteCreate, ShoutboxCreate, ShoutboxUpdate
 
 TAIL_LIMIT = 50
 EDIT_WINDOW = timedelta(minutes=5)
@@ -234,6 +240,172 @@ async def unmute_user(db: AsyncSession, *, target_user_id: int) -> None:
 
 
 # -----------------------------------------------------------------------------
+# System bot-cast (game events)
+# -----------------------------------------------------------------------------
+
+
+async def post_system(
+    db: AsyncSession,
+    *,
+    body: str,
+    tag: str | None,
+    category: str | None,
+) -> ShoutboxMessage:
+    """Create a kind='system' message. Used by the bot-cast endpoint
+    (HMAC-authed), so we skip flood checks and never attach an author."""
+    meta: dict[str, Any] = {}
+    if tag:
+        meta["tag"] = tag
+    if category:
+        meta["category"] = category
+    msg = ShoutboxMessage(
+        author_id=None,
+        body=body.strip(),
+        kind="system",
+        meta=meta or None,
+    )
+    db.add(msg)
+    await db.commit()
+    await db.refresh(msg)
+    return msg
+
+
+# -----------------------------------------------------------------------------
+# Map vote
+# -----------------------------------------------------------------------------
+
+
+async def post_mapvote(
+    db: AsyncSession,
+    *,
+    author: User,
+    payload: MapVoteCreate,
+) -> ShoutboxMessage:
+    options = [o.strip() for o in payload.options if o.strip()]
+    if len(options) < 2:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Нужно минимум 2 варианта",
+        )
+    if len(options) > 5:
+        options = options[:5]
+    closes_at = datetime.now(UTC) + timedelta(minutes=payload.duration_min)
+    summary = f"🗳️ {payload.question}: " + " · ".join(options)
+    msg = ShoutboxMessage(
+        author_id=author.id,
+        body=summary[:500],
+        kind="mapvote",
+        meta={
+            "question": payload.question,
+            "options": options,
+            "closes_at": closes_at.isoformat(),
+        },
+    )
+    db.add(msg)
+    await db.commit()
+    await db.refresh(msg)
+    return msg
+
+
+async def cast_vote(
+    db: AsyncSession,
+    *,
+    message_id: int,
+    user_id: int,
+    option_idx: int,
+) -> dict[int, int]:
+    msg = await db.get(ShoutboxMessage, message_id)
+    if msg is None or msg.is_deleted or msg.kind != "mapvote":
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Голосование не найдено"
+        )
+    meta = msg.meta or {}
+    options = meta.get("options") or []
+    if option_idx < 0 or option_idx >= len(options):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Неверный вариант"
+        )
+    closes_at_str = meta.get("closes_at")
+    if closes_at_str:
+        try:
+            closes_at = datetime.fromisoformat(closes_at_str)
+            if datetime.now(UTC) > closes_at:
+                raise HTTPException(
+                    status_code=status.HTTP_410_GONE,
+                    detail="Голосование закрыто",
+                )
+        except ValueError:
+            pass
+
+    existing_q = await db.execute(
+        select(ShoutboxPollVote).where(
+            and_(
+                ShoutboxPollVote.message_id == message_id,
+                ShoutboxPollVote.user_id == user_id,
+            )
+        )
+    )
+    existing = existing_q.scalar_one_or_none()
+    if existing is None:
+        db.add(
+            ShoutboxPollVote(
+                message_id=message_id, user_id=user_id, option_idx=option_idx
+            )
+        )
+    else:
+        existing.option_idx = option_idx
+    await db.commit()
+    return await vote_counts_for_message(db, message_id)
+
+
+async def vote_counts_for_message(
+    db: AsyncSession, message_id: int
+) -> dict[int, int]:
+    rows = await db.execute(
+        select(ShoutboxPollVote.option_idx, func.count(ShoutboxPollVote.id))
+        .where(ShoutboxPollVote.message_id == message_id)
+        .group_by(ShoutboxPollVote.option_idx)
+    )
+    return {int(idx): int(c) for idx, c in rows.all()}
+
+
+async def vote_counts_for_messages(
+    db: AsyncSession, message_ids: list[int]
+) -> dict[int, dict[int, int]]:
+    if not message_ids:
+        return {}
+    rows = await db.execute(
+        select(
+            ShoutboxPollVote.message_id,
+            ShoutboxPollVote.option_idx,
+            func.count(ShoutboxPollVote.id),
+        )
+        .where(ShoutboxPollVote.message_id.in_(message_ids))
+        .group_by(ShoutboxPollVote.message_id, ShoutboxPollVote.option_idx)
+    )
+    out: dict[int, dict[int, int]] = defaultdict(dict)
+    for mid, idx, c in rows.all():
+        out[int(mid)][int(idx)] = int(c)
+    return dict(out)
+
+
+async def my_votes_for_messages(
+    db: AsyncSession, message_ids: list[int], user_id: int
+) -> dict[int, int]:
+    if not message_ids:
+        return {}
+    rows = await db.execute(
+        select(ShoutboxPollVote.message_id, ShoutboxPollVote.option_idx).where(
+            and_(
+                ShoutboxPollVote.message_id.in_(message_ids),
+                ShoutboxPollVote.user_id == user_id,
+            )
+        )
+    )
+    return {int(mid): int(idx) for mid, idx in rows.all()}
+
+
+# -----------------------------------------------------------------------------
 # Reactions
 # -----------------------------------------------------------------------------
 
@@ -395,6 +567,7 @@ __all__ = [
     "EDIT_WINDOW",
     "REACTION_KINDS",
     "TAIL_LIMIT",
+    "cast_vote",
     "clear_recent",
     "counts_for_message",
     "get_active_chat_mute",
@@ -402,7 +575,10 @@ __all__ = [
     "list_pinned",
     "list_recent",
     "mute_user",
+    "my_votes_for_messages",
     "post",
+    "post_mapvote",
+    "post_system",
     "reacted_kinds_for_user",
     "reactions_for_messages",
     "set_pinned",
@@ -410,4 +586,6 @@ __all__ = [
     "toggle_reaction",
     "unmute_user",
     "update_message",
+    "vote_counts_for_message",
+    "vote_counts_for_messages",
 ]

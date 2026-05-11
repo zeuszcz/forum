@@ -4,7 +4,12 @@ from app.models.notification import Notification
 from app.models.poll import Poll, PollOption, PollVote
 from app.models.role import Role, UserRole
 from app.models.section import Section
-from app.models.shoutbox import ChatMute, ShoutboxMessage, ShoutboxReaction
+from app.models.shoutbox import (
+    ChatMute,
+    ShoutboxMessage,
+    ShoutboxPollVote,
+    ShoutboxReaction,
+)
 from app.models.thread import Post, Reaction, Thread
 from app.models.user import User
 
@@ -21,6 +26,7 @@ __all__ = [
     "Role",
     "Section",
     "ShoutboxMessage",
+    "ShoutboxPollVote",
     "ShoutboxReaction",
     "Thread",
     "TimestampMixin",

@@ -210,6 +210,20 @@ export interface ShoutboxReplyPreview {
   is_deleted: boolean;
 }
 
+export type ShoutboxKind = "user" | "system" | "mapvote";
+
+export interface MapVoteMeta {
+  question?: string;
+  options: string[];
+  closes_at: string;
+  server?: string | null;
+}
+
+export interface SystemMeta {
+  tag?: string;
+  category?: string;
+}
+
 export interface ShoutboxMessage {
   id: number;
   body: string;
@@ -217,10 +231,26 @@ export interface ShoutboxMessage {
   edited_at: string | null;
   is_pinned: boolean;
   is_deleted: boolean;
+  kind?: ShoutboxKind;
+  meta?: MapVoteMeta | SystemMeta | Record<string, unknown> | null;
   author: UserPublic | null;
   reply_to?: ShoutboxReplyPreview | null;
   reactions?: Partial<Record<ReactionKind, number>>;
   reacted?: ReactionKind[];
+  vote_counts?: Record<string, number>;
+  my_vote?: number | null;
+}
+
+export interface CsServerStatus {
+  address: string;
+  name: string;
+  map: string | null;
+  players: number;
+  max_players: number;
+  online: boolean;
+  ping_ms: number | null;
+  score_ct: number | null;
+  score_t: number | null;
 }
 
 export interface AuthResponse {
