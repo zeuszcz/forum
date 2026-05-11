@@ -219,25 +219,6 @@ _NON_PRINTABLE_RE = re.compile(r"[^\x20-\x7EЀ-ӿ←-⇿\s]")
 _WS_COLLAPSE_RE = re.compile(r"\s{2,}")
 _ANNOUNCE_MAX = 160
 
-# AMX-X `amx_tsay <color> <text>` colors. Normalize aliases so the
-# frontend can pass tailwind-style names ("ember" / "flame" / "plasma")
-# and we map them to the AMX vocabulary.
-_ALLOWED_COLORS: dict[str, str] = {
-    "red": "red",
-    "ember": "red",
-    "green": "green",
-    "success": "green",
-    "cyan": "blue",
-    "blue": "blue",
-    "yellow": "yellow",
-    "flame": "yellow",
-    "plasma": "yellow",
-    "white": "white",
-    "grey": "grey",
-    "gray": "grey",
-    "dgreen": "dgreen",
-}
-
 
 def _sanitize_announce(text: str) -> str:
     text = _ANNOUNCE_BAD_RE.sub(" ", text)
@@ -295,14 +276,14 @@ async def execute_action(
         latency_ms=primary_latency,
     )
 
-    # 2) Optional announce — TWO RCON calls in sequence:
-    #    a) `say <text>` — plain chat record (no colours possible via
-    #       vanilla `say`; the engine just appends `<HostName> <text>`).
-    #    b) `amx_tsay <color> "<text>"` — coloured HUD banner in the
-    #       top-left corner. Server has amx_tsay (verified via
-    #       `cmdlist amx_`). Color codes: red/green/yellow/blue/white/
-    #       grey/dgreen. Failure here is non-fatal — the effect
-    #       already landed.
+    # 2) Optional chat announce via `say <text>` — plain chat record.
+    #    Colors via vanilla `say` aren't possible: ColorChat-style codes
+    #    are only processed when a plugin uses `client_print` (with the
+    #    actual say hooked), and `amx_tsay`/`amx_csay` is hijacked on
+    #    this server by hudchat.amxx which crashes on `id=0` console
+    #    callers. So we lean on a distinctive ASCII frame instead.
+    #    `announce_color` is accepted for forward compatibility (if the
+    #    user installs a helper plugin later we can promote to colored).
     announce_sent = False
     if payload.announce:
         sanitized = _sanitize_announce(payload.announce)
@@ -313,12 +294,15 @@ async def execute_action(
             else None
         )
         if sanitized and nick:
-            target_part = f" -> {target}" if target else ""
+            target_part = f" → {target}" if target else ""
+            # Plain ASCII frame so the line stands out among player
+            # chatter. Stars / triangles / box-drawing chars would be
+            # stripped by the sanitiser's allow-list (and most wouldn't
+            # render in the CS chat font anyway).
             say_text = _sanitize_announce(
-                f"[FORUM] {nick}{target_part} | {sanitized}"
+                f"[ FORUM ] {nick}{target_part} :: {sanitized}"
             )
 
-            # 2a) Plain chat — engine takes the whole tail unquoted.
             say_cmd = f"say {say_text}"
             try:
                 say_res = await cs_rcon.execute(say_cmd)
@@ -337,35 +321,6 @@ async def execute_action(
                     db,
                     actor_id=user.id,
                     command=say_cmd,
-                    response=None,
-                    success=False,
-                    error=str(e),
-                    latency_ms=None,
-                )
-
-            # 2b) Coloured HUD banner (top-left). amx_tsay parses args
-            #     space-separated — wrap in quotes so the message stays
-            #     one arg.
-            color = _ALLOWED_COLORS.get(
-                (payload.announce_color or "").lower(), "green"
-            )
-            tsay_cmd = f'amx_tsay {color} "{say_text}"'
-            try:
-                tsay_res = await cs_rcon.execute(tsay_cmd)
-                await _audit(
-                    db,
-                    actor_id=user.id,
-                    command=tsay_cmd,
-                    response=tsay_res.output,
-                    success=True,
-                    error=None,
-                    latency_ms=tsay_res.latency_ms,
-                )
-            except cs_rcon.RconError as e:
-                await _audit(
-                    db,
-                    actor_id=user.id,
-                    command=tsay_cmd,
                     response=None,
                     success=False,
                     error=str(e),
