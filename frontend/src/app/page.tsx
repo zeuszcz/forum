@@ -278,7 +278,9 @@ export default async function HomePage() {
           {/* === Sticky sidebar === */}
           <aside className="space-y-6 lg:sticky lg:top-20 lg:self-start">
             <ScrollReveal>
-              <Shoutbox initialMessages={shoutbox} />
+              <div className="h-[70vh] lg:h-[calc(100vh-5.5rem)]">
+                <Shoutbox initialMessages={shoutbox} />
+              </div>
             </ScrollReveal>
             {birthdays.length > 0 && (
               <ScrollReveal delay={0.03}>

@@ -1,23 +1,86 @@
 from __future__ import annotations
 
+import asyncio
+import json
 from datetime import UTC, datetime, timedelta
+from typing import Annotated, Any
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import (
+    APIRouter,
+    Cookie,
+    Depends,
+    HTTPException,
+    Query,
+    WebSocket,
+    WebSocketDisconnect,
+    status,
+)
 from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.deps import CurrentUser, DbSession
+from app.core.database import get_db
+from app.core.deps import COOKIE_NAME, CurrentUser, DbSession, get_current_user
+from app.core.security import decode_token
 from app.models.shoutbox import ShoutboxMessage
 from app.models.user import User
-from app.schemas.shoutbox import ShoutboxCreate, ShoutboxRead
+from app.schemas.shoutbox import (
+    ChatMuteCreate,
+    ChatMuteRead,
+    ShoutboxCreate,
+    ShoutboxRead,
+    ShoutboxUpdate,
+)
 from app.schemas.user import RoleRead, UserPublic
 from app.services import auth as auth_service
 from app.services import shoutbox as shoutbox_service
 
 router = APIRouter(prefix="/shoutbox", tags=["shoutbox"])
 
-# Simple in-process flood control: 1 message per 3 seconds per user
+# Per-user flood control: 1 message per 3 seconds (besides global rate limits).
 _FLOOD_WINDOW = timedelta(seconds=3)
+
+
+# ---------------------------------------------------------------------------
+# Broadcasting (in-process). Single uvicorn worker handles WS fanout. With
+# multiple workers we'd need Redis pub/sub here — left as a follow-up.
+# ---------------------------------------------------------------------------
+
+
+class _Broadcaster:
+    def __init__(self) -> None:
+        self._sockets: set[WebSocket] = set()
+        self._lock = asyncio.Lock()
+
+    async def connect(self, ws: WebSocket) -> None:
+        async with self._lock:
+            self._sockets.add(ws)
+
+    async def disconnect(self, ws: WebSocket) -> None:
+        async with self._lock:
+            self._sockets.discard(ws)
+
+    async def broadcast(self, event: dict[str, Any]) -> None:
+        payload = json.dumps(event, default=str)
+        async with self._lock:
+            sockets = list(self._sockets)
+        dead: list[WebSocket] = []
+        for ws in sockets:
+            try:
+                await ws.send_text(payload)
+            except Exception:
+                dead.append(ws)
+        if dead:
+            async with self._lock:
+                for ws in dead:
+                    self._sockets.discard(ws)
+
+
+BROADCASTER = _Broadcaster()
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
 
 
 async def _user_to_public(db: AsyncSession, user: User | None) -> UserPublic | None:
@@ -47,10 +110,28 @@ async def _user_to_public(db: AsyncSession, user: User | None) -> UserPublic | N
     )
 
 
-@router.get("", response_model=list[ShoutboxRead])
-async def list_messages(db: DbSession, limit: int = 50) -> list[ShoutboxRead]:
-    rows = await shoutbox_service.list_recent(db, limit=min(limit, 100))
-    user_ids = {m.author_id for m in rows if m.author_id}
+async def _message_to_read(
+    db: AsyncSession, msg: ShoutboxMessage
+) -> ShoutboxRead:
+    author = None
+    if msg.author_id is not None:
+        result = await db.execute(select(User).where(User.id == msg.author_id))
+        author = result.scalar_one_or_none()
+    return ShoutboxRead(
+        id=msg.id,
+        body=msg.body,
+        created_at=msg.created_at,
+        edited_at=msg.edited_at,
+        is_pinned=msg.is_pinned,
+        is_deleted=msg.is_deleted,
+        author=await _user_to_public(db, author) if author else None,
+    )
+
+
+async def _messages_to_read(
+    db: AsyncSession, rows: list[ShoutboxMessage]
+) -> list[ShoutboxRead]:
+    user_ids = {m.author_id for m in rows if m.author_id is not None}
     users: dict[int, User] = {}
     if user_ids:
         ures = await db.execute(select(User).where(User.id.in_(user_ids)))
@@ -63,20 +144,57 @@ async def list_messages(db: DbSession, limit: int = 50) -> list[ShoutboxRead]:
                 id=m.id,
                 body=m.body,
                 created_at=m.created_at,
+                edited_at=m.edited_at,
+                is_pinned=m.is_pinned,
+                is_deleted=m.is_deleted,
                 author=await _user_to_public(db, author) if author else None,
             )
         )
     return out
 
 
+async def _is_chat_mod(db: AsyncSession, user: User) -> bool:
+    """Chat-mod = any staff role. Aligns with the public `Role.is_staff` flag
+    the frontend already exposes; avoids leaking fine-grained perms client-side."""
+    roles = await auth_service.get_user_roles(db, user.id)
+    return any(getattr(r, "is_staff", False) for r in roles)
+
+
+# ---------------------------------------------------------------------------
+# GET endpoints
+# ---------------------------------------------------------------------------
+
+
+@router.get("", response_model=list[ShoutboxRead])
+async def list_messages(
+    db: DbSession,
+    limit: int = Query(default=50, ge=1, le=100),
+    before_id: int | None = Query(default=None),
+) -> list[ShoutboxRead]:
+    rows = await shoutbox_service.list_recent(db, limit=limit, before_id=before_id)
+    return await _messages_to_read(db, rows)
+
+
+@router.get("/pinned", response_model=list[ShoutboxRead])
+async def list_pinned(db: DbSession) -> list[ShoutboxRead]:
+    rows = await shoutbox_service.list_pinned(db)
+    return await _messages_to_read(db, rows)
+
+
+# ---------------------------------------------------------------------------
+# Mutation endpoints
+# ---------------------------------------------------------------------------
+
+
 @router.post("", response_model=ShoutboxRead, status_code=status.HTTP_201_CREATED)
 async def post_message(
     payload: ShoutboxCreate, user: CurrentUser, db: DbSession
 ) -> ShoutboxRead:
-    # flood check — last own message
+    # Flood check — last own non-deleted message
     last_q = await db.execute(
         select(ShoutboxMessage)
         .where(ShoutboxMessage.author_id == user.id)
+        .where(ShoutboxMessage.is_deleted.is_(False))
         .order_by(desc(ShoutboxMessage.created_at))
         .limit(1)
     )
@@ -88,9 +206,163 @@ async def post_message(
         )
 
     msg = await shoutbox_service.post(db, author=user, payload=payload)
-    return ShoutboxRead(
-        id=msg.id,
-        body=msg.body,
-        created_at=msg.created_at,
-        author=await _user_to_public(db, user),
+    read = await _message_to_read(db, msg)
+    await BROADCASTER.broadcast({"type": "new", "message": read.model_dump(mode="json")})
+    return read
+
+
+@router.patch("/{message_id}", response_model=ShoutboxRead)
+async def edit_message(
+    message_id: int,
+    payload: ShoutboxUpdate,
+    user: CurrentUser,
+    db: DbSession,
+) -> ShoutboxRead:
+    msg = await shoutbox_service.get_message(db, message_id)
+    is_mod = await _is_chat_mod(db, user)
+    updated = await shoutbox_service.update_message(
+        db, message=msg, actor=user, payload=payload, bypass_window=is_mod
     )
+    read = await _message_to_read(db, updated)
+    await BROADCASTER.broadcast({"type": "edit", "message": read.model_dump(mode="json")})
+    return read
+
+
+@router.delete("/{message_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_message(
+    message_id: int, user: CurrentUser, db: DbSession
+) -> None:
+    msg = await shoutbox_service.get_message(db, message_id)
+    is_mod = await _is_chat_mod(db, user)
+    await shoutbox_service.soft_delete(db, message=msg, actor=user, is_staff=is_mod)
+    await BROADCASTER.broadcast({"type": "delete", "id": message_id})
+
+
+@router.post("/{message_id}/pin", response_model=ShoutboxRead)
+async def pin_message(
+    message_id: int,
+    user: Annotated[User, Depends(get_current_user)],
+    db: DbSession,
+) -> ShoutboxRead:
+    if not await _is_chat_mod(db, user):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Только для модераторов"
+        )
+    msg = await shoutbox_service.get_message(db, message_id)
+    pinned, unpinned_ids = await shoutbox_service.set_pinned(
+        db, message=msg, pinned=True
+    )
+    read = await _message_to_read(db, pinned)
+    await BROADCASTER.broadcast(
+        {
+            "type": "pin",
+            "message": read.model_dump(mode="json"),
+            "unpinned": unpinned_ids,
+        }
+    )
+    return read
+
+
+@router.delete("/{message_id}/pin", response_model=ShoutboxRead)
+async def unpin_message(
+    message_id: int,
+    user: Annotated[User, Depends(get_current_user)],
+    db: DbSession,
+) -> ShoutboxRead:
+    if not await _is_chat_mod(db, user):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Только для модераторов"
+        )
+    msg = await shoutbox_service.get_message(db, message_id)
+    unpinned, _ = await shoutbox_service.set_pinned(db, message=msg, pinned=False)
+    read = await _message_to_read(db, unpinned)
+    await BROADCASTER.broadcast(
+        {"type": "unpin", "id": message_id, "message": read.model_dump(mode="json")}
+    )
+    return read
+
+
+# ---------------------------------------------------------------------------
+# Chat mutes (staff only)
+# ---------------------------------------------------------------------------
+
+
+@router.post("/mute", response_model=ChatMuteRead, status_code=status.HTTP_201_CREATED)
+async def mute_user_endpoint(
+    payload: ChatMuteCreate,
+    user: Annotated[User, Depends(get_current_user)],
+    db: DbSession,
+) -> ChatMuteRead:
+    if not await _is_chat_mod(db, user):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Только для модераторов"
+        )
+    target = await db.get(User, payload.user_id)
+    if target is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Пользователь не найден"
+        )
+    row = await shoutbox_service.mute_user(
+        db,
+        target_user_id=payload.user_id,
+        duration_min=payload.duration_min,
+        reason=payload.reason,
+        actor_id=user.id,
+    )
+    return ChatMuteRead.model_validate(row)
+
+
+@router.delete("/mute/{target_user_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def unmute_user_endpoint(
+    target_user_id: int,
+    user: Annotated[User, Depends(get_current_user)],
+    db: DbSession,
+) -> None:
+    if not await _is_chat_mod(db, user):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Только для модераторов"
+        )
+    await shoutbox_service.unmute_user(db, target_user_id=target_user_id)
+
+
+# ---------------------------------------------------------------------------
+# WebSocket — broadcast-only firehose. Server does NOT accept inbound payloads
+# (clients still POST via HTTP); inbound messages are ignored. Auth is best-effort:
+# anonymous viewers are allowed (read-only), but server keeps `user_id` for
+# future per-user filtering (DMs/rooms in later phases).
+# ---------------------------------------------------------------------------
+
+
+@router.websocket("/ws")
+async def shoutbox_ws(
+    ws: WebSocket,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    session_cookie: Annotated[str | None, Cookie(alias=COOKIE_NAME)] = None,
+    token_qs: Annotated[str | None, Query(alias="token")] = None,
+) -> None:
+    user_id: int | None = None
+    token = session_cookie or token_qs
+    if token:
+        payload = decode_token(token)
+        if payload and payload.get("type") in {"access", "refresh"}:
+            try:
+                user_id = int(payload.get("sub") or 0) or None
+            except (TypeError, ValueError):
+                user_id = None
+    await ws.accept()
+    await BROADCASTER.connect(ws)
+    try:
+        # Send a small hello so clients can confirm auth state.
+        await ws.send_text(
+            json.dumps({"type": "hello", "user_id": user_id})
+        )
+        while True:
+            # We don't consume client messages; receiving keeps the loop alive
+            # and detects disconnects.
+            _ = await ws.receive_text()
+    except WebSocketDisconnect:
+        pass
+    except Exception:
+        pass
+    finally:
+        await BROADCASTER.disconnect(ws)

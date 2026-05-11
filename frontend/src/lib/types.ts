@@ -207,6 +207,9 @@ export interface ShoutboxMessage {
   id: number;
   body: string;
   created_at: string;
+  edited_at: string | null;
+  is_pinned: boolean;
+  is_deleted: boolean;
   author: UserPublic | null;
 }
 
