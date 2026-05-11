@@ -26,15 +26,34 @@ export type JbfCategory =
 
 export type JbfKind = "toggle" | "setter" | "action" | "give" | "clear";
 
+export interface JbfFlag {
+  /** Flag name as the plugin expects it, e.g. "-n", "-g", "-b". */
+  flag: string;
+  /** Human-readable description of what the flag controls. */
+  label: string;
+  /** Value vocabulary or example, e.g. "All / T / CT / Color / Aim". */
+  values?: string;
+}
+
 export interface JbfCommand {
   cmd: string;
   label: string;
   category: JbfCategory;
   kind: JbfKind;
-  params: string;
+  /** Authoritative parameter list parsed from the plugin's own usage hint
+   *  (printed when the command is invoked from a player's console with no
+   *  args). Populated by infra/cs-log-poller/parse_usage_dump.py from a
+   *  condump produced via `exec cfg/uaio_usage_dump.cfg`. */
+  flags?: JbfFlag[];
+  /** Example invocation the plugin shows after the flag list. */
+  example?: string;
+  /** Legacy convention-based hint, shown if `flags` isn't populated yet. */
+  params?: string;
   /** Past-tense verb the plugin uses when announcing this action in logs. */
   verb?: string;
   notes?: string;
+  /** True once flags have been verified against real plugin output. */
+  verified?: boolean;
 }
 
 export const JBF_CATEGORY_LABEL: Record<JbfCategory, string> = {
@@ -97,7 +116,23 @@ const CLEAR: JbfCommand[] = [
 
 const BASIC: JbfCommand[] = [
   { cmd: "jbf_uaio_respawn", label: "Возродить", category: "basic", kind: "action", params: "<player>", verb: "возродил" },
-  { cmd: "jbf_uaio_god", label: "Бессмертие", category: "basic", kind: "toggle", params: "<player> [0|1]", verb: "включил" },
+  {
+    cmd: "jbf_uaio_god",
+    label: "Бессмертие",
+    category: "basic",
+    kind: "toggle",
+    verified: true,
+    verb: "включил",
+    flags: [
+      { flag: "-n", label: "ник игрока" },
+      { flag: "-g", label: "группа", values: "All / T / CT / Color / Aim" },
+      { flag: "-c", label: "форма (для -g Color)", values: "w / b / p / o / gr / g / r" },
+      { flag: "-t", label: "время действия (сек.)", values: "число" },
+      { flag: "-cn", label: "оповещение в чате", values: "0 / 1" },
+      { flag: "-b", label: "действие", values: "0 / 1" },
+    ],
+    example: "jbf_uaio_god -n Player -b 1",
+  },
   { cmd: "jbf_uaio_noclip", label: "Скрытые стены (noclip)", category: "basic", kind: "toggle", params: "<player> [0|1]", verb: "включил" },
   {
     cmd: "jbf_uaio_speed",

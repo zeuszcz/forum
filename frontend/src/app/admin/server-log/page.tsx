@@ -534,26 +534,69 @@ function JbfCommandCard({ cmd }: { cmd: JbfCommand }) {
   return (
     <div
       className={cn(
-        "flex flex-col gap-1.5 rounded-md border bg-card/60 p-3 transition-colors",
+        "flex flex-col gap-2 rounded-md border bg-card/60 p-3 transition-colors",
         tone.split(" ").filter((c) => c.startsWith("border-"))[0],
       )}
     >
       <div className="flex flex-wrap items-baseline justify-between gap-x-2 gap-y-1">
         <code className="font-mono text-xs text-bone break-all">{cmd.cmd}</code>
-        <span
-          className={cn(
-            "shrink-0 rounded border px-1.5 font-mono text-[9px] uppercase tracking-widest",
-            kindMeta.tone,
+        <span className="flex shrink-0 items-center gap-1">
+          {cmd.verified ? (
+            <span
+              className="rounded border border-success/40 bg-success/10 px-1 font-mono text-[8px] uppercase tracking-widest text-success"
+              title="Параметры подтверждены реальным выводом плагина"
+            >
+              verified
+            </span>
+          ) : (
+            <span
+              className="rounded border border-smoke/40 px-1 font-mono text-[8px] uppercase tracking-widest text-smoke"
+              title="Параметры угаданы по конвенции — нужен дамп от плагина"
+            >
+              guess
+            </span>
           )}
-          title={kindMeta.label}
-        >
-          {kindMeta.label}
+          <span
+            className={cn(
+              "rounded border px-1.5 font-mono text-[9px] uppercase tracking-widest",
+              kindMeta.tone,
+            )}
+          >
+            {kindMeta.label}
+          </span>
         </span>
       </div>
       <div className="text-xs font-semibold text-ash">{cmd.label}</div>
-      <code className="rounded bg-void/40 px-1.5 py-0.5 font-mono text-[11px] text-iridescent">
-        {cmd.cmd} {cmd.params}
-      </code>
+
+      {cmd.flags && cmd.flags.length > 0 ? (
+        <div className="space-y-1">
+          <table className="w-full text-[11px]">
+            <tbody>
+              {cmd.flags.map((f) => (
+                <tr key={f.flag} className="align-top">
+                  <td className="pr-2 align-top font-mono text-plasma">{f.flag}</td>
+                  <td className="text-ash">
+                    {f.label}
+                    {f.values && (
+                      <span className="ml-1 font-mono text-smoke">({f.values})</span>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {cmd.example && (
+            <code className="block rounded bg-void/40 px-1.5 py-0.5 font-mono text-[11px] text-iridescent">
+              {cmd.example}
+            </code>
+          )}
+        </div>
+      ) : cmd.params ? (
+        <code className="rounded bg-void/40 px-1.5 py-0.5 font-mono text-[11px] text-iridescent">
+          {cmd.cmd} {cmd.params}
+        </code>
+      ) : null}
+
       {(cmd.verb || cmd.notes) && (
         <div className="space-y-0.5 text-[11px] text-smoke">
           {cmd.verb && (
