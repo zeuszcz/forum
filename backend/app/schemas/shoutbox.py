@@ -50,6 +50,10 @@ class SystemMessageCreate(BaseModel):
     body: str = Field(min_length=1, max_length=500)
     tag: str | None = Field(default=None, max_length=24)
     category: str | None = Field(default=None, max_length=24)
+    # ephemeral=True → broadcast over WS only, do not persist to
+    # shoutbox_messages. Used for high-frequency feeds (in-game chat)
+    # where keeping every line in Postgres would be wasteful.
+    ephemeral: bool = False
 
 
 class MapVoteCreate(BaseModel):

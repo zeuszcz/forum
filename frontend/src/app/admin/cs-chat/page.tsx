@@ -1,6 +1,12 @@
 "use client";
 
-import { MessageSquare, RefreshCw, Send } from "lucide-react";
+import {
+  MessageSquare,
+  Radio,
+  RadioTower,
+  RefreshCw,
+  Send,
+} from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
@@ -13,6 +19,8 @@ import { cn } from "@/lib/utils";
 const TEXT_MAX = 200;
 const PREFIX_TEMPLATE = "[ FORUM ] {nick} :: ";
 const RECENT_LIMIT = 30;
+const LIVE_BUFFER_MAX = 200;
+const LIVE_TOGGLE_KEY = "admin:cs-chat:live";
 
 type SayResult = {
   ok: boolean;
@@ -20,13 +28,46 @@ type SayResult = {
   latency_ms: number;
 };
 
+type LiveChatLine = {
+  uid: string;
+  body: string;
+  tag: string | null;
+  created_at: string;
+};
+
+type WsEvent =
+  | { type: "hello"; user_id: number | null }
+  | {
+      type: "ephemeral_system";
+      body: string;
+      tag: string | null;
+      category: string | null;
+      created_at: string;
+    }
+  | { type: string; [k: string]: unknown };
+
 export default function CsChatPage() {
   const { user } = useAuth();
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
   const [log, setLog] = useState<CsRconLogRead[]>([]);
   const [loadingLog, setLoadingLog] = useState(false);
+  const [liveOn, setLiveOn] = useState(false);
+  const [wsConnected, setWsConnected] = useState(false);
+  const [live, setLive] = useState<LiveChatLine[]>([]);
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
+  const liveRef = useRef<HTMLDivElement | null>(null);
+  const wsRef = useRef<WebSocket | null>(null);
+
+  // Restore the live-toggle preference from localStorage on mount.
+  useEffect(() => {
+    try {
+      const saved = window.localStorage.getItem(LIVE_TOGGLE_KEY);
+      if (saved === "1") setLiveOn(true);
+    } catch {
+      /* ignore */
+    }
+  }, []);
 
   const previewPrefix = useMemo(
     () => PREFIX_TEMPLATE.replace("{nick}", user?.nickname ?? "..."),
@@ -34,8 +75,6 @@ export default function CsChatPage() {
   );
   const previewFull = useMemo(() => previewPrefix + text.trim(), [previewPrefix, text]);
   const previewLen = previewFull.length;
-  // The backend caps the final sanitized string at 160 chars, so it is the
-  // most useful counter for users (not the raw 200 input cap).
   const remaining = 160 - previewLen;
 
   const refreshLog = useCallback(async () => {
@@ -44,7 +83,6 @@ export default function CsChatPage() {
       const rows = await api<CsRconLogRead[]>(
         `/cs-rcon/log?limit=${RECENT_LIMIT}`,
       );
-      // Show only `say ...` lines (omit jbf_uaio_* and other RCON traffic).
       setLog(rows.filter((r) => r.command.startsWith("say ")));
     } catch (e) {
       if (e instanceof ApiError) toast.error(e.detail);
@@ -56,6 +94,126 @@ export default function CsChatPage() {
   useEffect(() => {
     void refreshLog();
   }, [refreshLog]);
+
+  // -------- Live WS subscription --------
+  useEffect(() => {
+    if (!liveOn) {
+      // Make sure any prior socket is closed when the toggle flips off.
+      if (wsRef.current) {
+        try {
+          wsRef.current.close();
+        } catch {
+          /* ignore */
+        }
+        wsRef.current = null;
+      }
+      setWsConnected(false);
+      return;
+    }
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || "";
+    if (!apiUrl) return;
+    const wsUrl = apiUrl.replace(/^http(s?):/, "ws$1:") + "/shoutbox/ws";
+
+    let ws: WebSocket | null = null;
+    let alive = true;
+    let backoff = 1000;
+    let reconnectTimer: number | null = null;
+
+    const handle = (evt: WsEvent) => {
+      if (evt.type !== "ephemeral_system") return;
+      const cat = (evt as { category?: string | null }).category;
+      if (cat !== "chat") return;
+      const tag = (evt as { tag?: string | null }).tag ?? null;
+      const body = String((evt as { body?: string }).body ?? "");
+      const created_at = String(
+        (evt as { created_at?: string }).created_at ?? new Date().toISOString(),
+      );
+      // Stable id — created_at is ISO with sub-second precision per event.
+      // Suffix with body hash so simultaneous events do not collide.
+      const uid = `${created_at}#${body.length}-${body.slice(-12)}`;
+      setLive((prev) => {
+        const next = [...prev, { uid, body, tag, created_at }];
+        if (next.length > LIVE_BUFFER_MAX) next.splice(0, next.length - LIVE_BUFFER_MAX);
+        return next;
+      });
+    };
+
+    const connect = () => {
+      if (!alive) return;
+      try {
+        ws = new WebSocket(wsUrl);
+      } catch {
+        scheduleReconnect();
+        return;
+      }
+      wsRef.current = ws;
+      ws.onopen = () => {
+        setWsConnected(true);
+        backoff = 1000;
+      };
+      ws.onmessage = (e) => {
+        try {
+          handle(JSON.parse(e.data) as WsEvent);
+        } catch {
+          /* ignore */
+        }
+      };
+      ws.onclose = () => {
+        setWsConnected(false);
+        ws = null;
+        wsRef.current = null;
+        scheduleReconnect();
+      };
+      ws.onerror = () => {
+        try {
+          ws?.close();
+        } catch {
+          /* ignore */
+        }
+      };
+    };
+
+    const scheduleReconnect = () => {
+      if (!alive) return;
+      reconnectTimer = window.setTimeout(connect, backoff);
+      backoff = Math.min(backoff * 2, 30_000);
+    };
+
+    connect();
+
+    return () => {
+      alive = false;
+      if (reconnectTimer) window.clearTimeout(reconnectTimer);
+      try {
+        ws?.close();
+      } catch {
+        /* ignore */
+      }
+      wsRef.current = null;
+      setWsConnected(false);
+    };
+  }, [liveOn]);
+
+  // Autoscroll the live stream to the latest line.
+  useEffect(() => {
+    const el = liveRef.current;
+    if (!el) return;
+    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+    if (nearBottom) el.scrollTop = el.scrollHeight;
+  }, [live.length]);
+
+  function toggleLive() {
+    setLiveOn((v) => {
+      const next = !v;
+      try {
+        window.localStorage.setItem(LIVE_TOGGLE_KEY, next ? "1" : "0");
+      } catch {
+        /* ignore */
+      }
+      if (!next) setLive([]); // drop buffer when turning off, no stale state
+      return next;
+    });
+  }
 
   async function send(e?: React.FormEvent) {
     if (e) e.preventDefault();
@@ -152,9 +310,90 @@ export default function CsChatPage() {
       </section>
 
       <section className="rounded-lg border border-border bg-card">
+        <header className="flex items-center justify-between gap-3 border-b border-border px-4 py-3">
+          <div className="flex items-center gap-2">
+            <RadioTower
+              className={cn(
+                "h-4 w-4",
+                liveOn ? (wsConnected ? "text-cyan" : "text-flame") : "text-smoke",
+              )}
+            />
+            <h2 className="text-sm font-semibold tracking-tight text-bone">
+              Live из CS
+            </h2>
+            {liveOn && (
+              <span
+                className={cn(
+                  "font-mono text-[10px] uppercase tracking-widest",
+                  wsConnected ? "text-cyan" : "text-flame",
+                )}
+              >
+                {wsConnected ? "online" : "connecting…"}
+              </span>
+            )}
+            {liveOn && live.length > 0 && (
+              <span className="font-mono text-[10px] text-smoke">
+                · {live.length}
+              </span>
+            )}
+          </div>
+          <button
+            type="button"
+            onClick={toggleLive}
+            className={cn(
+              "inline-flex h-7 items-center gap-1.5 rounded-md border px-2.5 text-[10px] uppercase tracking-widest transition-colors",
+              liveOn
+                ? "border-cyan/40 bg-cyan/10 text-cyan hover:bg-cyan/15"
+                : "border-border text-smoke hover:border-cyan/40 hover:text-bone",
+            )}
+            title={
+              liveOn
+                ? "Отключить live-стрим (закроет WS, ничего не нагружает)"
+                : "Включить live-стрим (откроет WS на shoutbox)"
+            }
+          >
+            <Radio className={cn("h-3 w-3", liveOn && wsConnected && "animate-pulse-slow")} />
+            {liveOn ? "вкл" : "выкл"}
+          </button>
+        </header>
+
+        {!liveOn ? (
+          <p className="px-4 py-8 text-center text-xs text-smoke">
+            Live-стрим выключен. Включи, чтобы видеть игровой чат в реальном времени —
+            WS откроется только пока тумблер ON.
+          </p>
+        ) : live.length === 0 ? (
+          <p className="px-4 py-8 text-center text-xs text-smoke">
+            Слушаю сервер… первое сообщение появится здесь.
+          </p>
+        ) : (
+          <div
+            ref={liveRef}
+            className="max-h-[360px] space-y-1.5 overflow-y-auto px-4 py-3 font-mono text-[12px]"
+          >
+            {live.map((row) => (
+              <div
+                key={row.uid}
+                className="flex items-baseline gap-2 break-words"
+              >
+                <span className="shrink-0 text-[10px] text-smoke/70">
+                  {new Date(row.created_at).toLocaleTimeString([], {
+                    hour: "2-digit",
+                    minute: "2-digit",
+                    second: "2-digit",
+                  })}
+                </span>
+                <span className="text-ash">{row.body}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+
+      <section className="rounded-lg border border-border bg-card">
         <header className="flex items-center justify-between border-b border-border px-4 py-3">
           <h2 className="text-sm font-semibold tracking-tight text-bone">
-            Последние сообщения
+            Последние сообщения от админов
           </h2>
           <button
             type="button"
@@ -174,7 +413,6 @@ export default function CsChatPage() {
         ) : (
           <ul className="divide-y divide-border">
             {log.map((row) => {
-              // Strip the literal "say " prefix for cleaner reading.
               const body = row.command.replace(/^say\s+/, "");
               return (
                 <li

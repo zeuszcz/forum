@@ -458,6 +458,35 @@ async def post_system_message(
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="Bad system token"
         )
+
+    # Ephemeral path — WS fanout, no DB row. Used by cs-log-listener for
+    # high-frequency feeds (in-game chat) that would otherwise bloat the
+    # shoutbox_messages table for no archival benefit.
+    if payload.ephemeral:
+        now = datetime.now(UTC)
+        await BROADCASTER.broadcast(
+            {
+                "type": "ephemeral_system",
+                "body": payload.body,
+                "tag": payload.tag,
+                "category": payload.category,
+                "created_at": now.isoformat(),
+            }
+        )
+        # Return a stub ShoutboxRead so the schema stays uniform. id=0
+        # signals the row never landed in DB.
+        return ShoutboxRead(
+            id=0,
+            body=payload.body,
+            created_at=now,
+            kind="system",
+            meta={
+                "tag": payload.tag,
+                "category": payload.category,
+                "ephemeral": True,
+            },
+        )
+
     msg = await shoutbox_service.post_system(
         db, body=payload.body, tag=payload.tag, category=payload.category
     )
