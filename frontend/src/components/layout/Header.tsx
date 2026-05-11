@@ -120,7 +120,7 @@ export function Header() {
                 href={`/u/${user.nickname}`}
                 className="group inline-flex items-center gap-2 rounded-md border border-transparent px-2 py-1.5 transition-colors hover:border-border hover:bg-slate"
               >
-                <LetterAvatar nickname={user.nickname} size={26} glowColor={avatarGlowColor(user)} />
+                <LetterAvatar nickname={user.nickname} size={26} glowColor={avatarGlowColor(user)} avatarUrl={user.avatar_url ?? null} />
                 <span className="hidden flex-col leading-tight sm:flex">
                   {(() => {
                     const glow = glowNickProps(user);

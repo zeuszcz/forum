@@ -47,6 +47,7 @@ export function PersonalCard() {
           percent={rank.percent}
           color={rank.color}
           glowColor={glowColor}
+          avatarUrl={user.avatar_url ?? null}
         />
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1 text-[10px] uppercase tracking-widest text-smoke">

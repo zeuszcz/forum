@@ -162,6 +162,7 @@ function FeedRow({ event }: { event: FeedEvent }) {
                   nickname={actor.nickname}
                   size={14}
                   glowColor={avatarGlowColor(actor)}
+                  avatarUrl={actor.avatar_url ?? null}
                 />
                 <span
                   className="font-semibold"

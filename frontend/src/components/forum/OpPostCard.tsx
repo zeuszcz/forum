@@ -90,6 +90,7 @@ export function OpPostCard({ post, thread, onQuote }: OpPostCardProps) {
                     nickname={author.nickname}
                     size={56}
                     glowColor={glowColor}
+                    avatarUrl={author.avatar_url ?? null}
                   />
                   {/* OP-specific plasma→flame ring (only when user has no
                       personal glow override). */}

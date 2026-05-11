@@ -40,7 +40,7 @@ export function UserBadge({ user, size = 28, showRole = true, className, noHover
       href={`/u/${user.nickname}`}
       className={cn("group inline-flex items-center gap-2", className)}
     >
-      <LetterAvatar nickname={user.nickname} size={size} glowColor={aGlow} />
+      <LetterAvatar nickname={user.nickname} size={size} glowColor={aGlow} avatarUrl={user.avatar_url ?? null} />
       <span className="flex flex-col leading-tight">
         <span
           className={cn(
@@ -77,7 +77,7 @@ export function UserPill({ user, noHover }: { user: UserPublic | null; noHover?:
       )}
       style={{ color, ...glow.style }}
     >
-      <LetterAvatar nickname={user.nickname} size={18} glowColor={aGlow} />
+      <LetterAvatar nickname={user.nickname} size={18} glowColor={aGlow} avatarUrl={user.avatar_url ?? null} />
       {user.nickname}
     </Link>
   );

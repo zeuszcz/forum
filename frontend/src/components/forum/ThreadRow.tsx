@@ -13,7 +13,7 @@ export function ThreadRow({ thread }: { thread: Thread }) {
       className="group flex items-start gap-4 border-b border-border px-5 py-4 transition-colors duration-150 ease-premium last:border-b-0 hover:bg-void"
     >
       {thread.author ? (
-        <LetterAvatar nickname={thread.author.nickname} size={40} />
+        <LetterAvatar nickname={thread.author.nickname} size={40} avatarUrl={thread.author.avatar_url ?? null} />
       ) : (
         <div className="h-10 w-10 shrink-0 rounded-full bg-slate" />
       )}
@@ -64,7 +64,7 @@ export function ThreadRowCompact({ thread }: { thread: Thread }) {
       href={`/t/${thread.id}`}
       className="group flex items-center gap-3 border-b border-border/60 px-3 py-2.5 transition-colors hover:bg-void last:border-b-0"
     >
-      {thread.author && <LetterAvatar nickname={thread.author.nickname} size={20} />}
+      {thread.author && <LetterAvatar nickname={thread.author.nickname} size={20} avatarUrl={thread.author.avatar_url ?? null} />}
       <div className="min-w-0 flex-1">
         <div className="truncate text-sm font-medium text-bone transition-colors group-hover:text-plasma-bright">
           {thread.title}

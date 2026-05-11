@@ -43,7 +43,7 @@ export function UserHoverCard({ user, children }: UserHoverCardProps) {
           >
             <div className="hero-mesh relative px-4 pb-3 pt-4">
               <div className="flex items-start gap-3">
-                <LetterAvatar nickname={user.nickname} size={48} glowColor={avatarGlowColor(user)} />
+                <LetterAvatar nickname={user.nickname} size={48} glowColor={avatarGlowColor(user)} avatarUrl={user.avatar_url ?? null} />
                 <div className="min-w-0 flex-1">
                   <Link
                     href={`/u/${user.nickname}`}

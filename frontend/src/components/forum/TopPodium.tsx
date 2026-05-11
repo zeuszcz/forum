@@ -9,7 +9,7 @@ export interface TopUser {
   id: number;
   rank: number;
   nickname: string;
-  avatar_url: string | null;
+  avatar_url?: string | null;
   title: string | null;
   posts: number;
   reactions: number;
@@ -90,6 +90,7 @@ export function TopPodium({ users }: { users: TopUser[] }) {
                     nickname={u.nickname}
                     size={style.avatarSize}
                     glowColor={avatarGlowColor(u)}
+                    avatarUrl={u.avatar_url ?? null}
                   />
                   <span
                     className="line-clamp-1 text-xs font-semibold"

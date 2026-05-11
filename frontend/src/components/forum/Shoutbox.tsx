@@ -93,6 +93,7 @@ export function Shoutbox({ initialMessages }: { initialMessages: ShoutboxMessage
                   nickname={m.author.nickname}
                   size={24}
                   glowColor={avatarGlowColor(m.author)}
+                  avatarUrl={m.author.avatar_url ?? null}
                 />
               )}
               <div className="min-w-0 flex-1">

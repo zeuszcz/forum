@@ -151,7 +151,7 @@ export const MentionTextarea = React.forwardRef<
                   i === active ? "bg-plasma/15 text-bone" : "text-ash hover:bg-slate",
                 )}
               >
-                <LetterAvatar nickname={u.nickname} size={20} glowColor={avatarGlowColor(u)} />
+                <LetterAvatar nickname={u.nickname} size={20} glowColor={avatarGlowColor(u)} avatarUrl={u.avatar_url ?? null} />
                 <span
                   className="flex-1 truncate font-semibold"
                   style={{ color }}

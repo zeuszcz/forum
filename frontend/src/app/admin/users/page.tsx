@@ -94,7 +94,7 @@ export default async function UsersAdminPage({
                           href={`/u/${u.nickname}`}
                           className="inline-flex items-center gap-2"
                         >
-                          <LetterAvatar nickname={u.nickname} size={28} />
+                          <LetterAvatar nickname={u.nickname} size={28} avatarUrl={u.avatar_url ?? null} />
                           <span
                             className="font-semibold"
                             style={{ color: nickColor(u) }}
