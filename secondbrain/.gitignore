@@ -1,0 +1,21 @@
+# Локальное / воспроизводимое из скриптов — не в коммитах
+scripts/state.json
+scripts/last-flush.json
+scripts/docs-state.json
+scripts/maintenance-state.json
+scripts/memory-state.json
+scripts/last-memory-sync.json
+scripts/context-dirty.json
+scripts/flush.log
+scripts/compile.log
+scripts/hook.log
+scripts/context-update.log
+scripts/tmp/
+*.pyc
+__pycache__/
+
+# Отчёты lint пересобираются maintenance/lint
+reports/
+
+# Локальный бэкап Obsidian (не мешает git pull)
+.obsidian.local-backup/

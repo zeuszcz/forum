@@ -1,0 +1,3 @@
+# Пути относительно каталога secondbrain/ (см. man gitattributes)
+daily/**/*.md merge=union
+knowledge/log.md merge=union
