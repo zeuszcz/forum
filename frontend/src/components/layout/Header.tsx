@@ -35,6 +35,7 @@ const NAV = [
 ];
 
 const FORUM_SECTIONS = [
+  { href: "/f/rules", label: "📜 Правила сервера" },
   { href: "/f/ban-appeals", label: "Бан-апелляции" },
   { href: "/f/player-reports", label: "Жалобы на игроков" },
   { href: "/f/admin-applications", label: "Заявки в администрацию" },
