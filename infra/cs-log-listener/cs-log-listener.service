@@ -1,0 +1,26 @@
+[Unit]
+Description=endless-war jail HLDS log_redirect_address -> forum chat bridge
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=i48ptgvnis
+Group=i48ptgvnis
+WorkingDirectory=/opt/cs-log-listener
+EnvironmentFile=/opt/cs-log-listener/listener.env
+ExecStart=/usr/bin/python3 /opt/cs-log-listener/listener.py
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+# Light hardening — listener does only UDP recv + outbound HTTP to localhost.
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=
+
+[Install]
+WantedBy=multi-user.target
