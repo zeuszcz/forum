@@ -38,3 +38,26 @@ keeps merges painless across branches.
   real concept landing post-bootstrap; index updated.
 - Live verify deferred — player left T/CT before retest. Manual check when
   next player joins.
+
+## [2026-05-12] ingest | ProcessCmds anti-speedhack kicked the headless spec
+
+- Symptom: forum_spectator vanished from `rcon status` while xash3d
+  process stayed alive on VPS (systemd never failed). User saw a
+  frozen frame on /live with "Server issued disconnect, Reason:
+  Banned for move commands flooding (burst)" in the dev console.
+- Root cause: ProcessCmds v1.2.0.6 (meta-mod) caps the rate of
+  usercmd packets per client. Headless xash3d at fps_max 30 still
+  emitted bursty cmd packets when chase-cam was active (engine ticks
+  decoupled from render fps). After enough rounds, ProcessCmds
+  caught a burst and kicked.
+- Fix: userconfig.cfg v3 (commit `02861c5`) — explicit
+  `cl_cmdrate 15`, `cl_updaterate 15`, `rate 7500`, plus `sensitivity 0`
+  on the mouse axes. Three-minute persistence poll confirmed the
+  throttle holds — same userid / socket across 3 successive `status`
+  reads.
+- Auto-recovery from a future kick still needs Phase S6 (external
+  rcon-polling watchdog that bounces cs-spectator.service when the
+  spec falls off).
+- Captured as `concepts/headless-spec-anti-flood.md`; cross-linked
+  with the v0.6 plugin concept since the two regressions touch the
+  same domain.
