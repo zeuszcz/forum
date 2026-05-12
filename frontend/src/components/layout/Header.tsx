@@ -29,6 +29,7 @@ import { cn } from "@/lib/utils";
 
 const NAV = [
   { href: "/", label: "Главная" },
+  { href: "/live", label: "Live" },
   { href: "/privileges", label: "Привилегии" },
   { href: "/models", label: "Модели" },
   { href: "/cases", label: "Кейсы" },
