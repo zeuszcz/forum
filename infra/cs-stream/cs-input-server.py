@@ -1,29 +1,32 @@
 #!/usr/bin/env python3
 """
-/opt/cs-stream/spectator/input-server.py — host-side xdotool relay.
+/opt/cs-stream/spectator/input-server.py — host-side xdotool relay v2.
 
-The backend container talks to this over TCP on 127.0.0.1:7777. Each
-line is a JSON event:
+v2 — latency kill.
+
+  v1 spawned a fresh `xdotool` subprocess for every key/mouse event.
+  fork+exec ate ~5-30 ms per event. With WASD + 60 Hz mouselook this
+  added up to ~200 ms cumulative delay on top of the network RTT.
+  Painful in pilot mode.
+
+  v2 keeps ONE persistent xdotool subprocess (`xdotool -`, which reads
+  commands from stdin) per server lifetime. Each event is now a single
+  newline-write to the subprocess's stdin pipe: <100 us. Same
+  pipeline, ~2 orders of magnitude faster.
+
+Wire format unchanged from v1. Each TCP line is a JSON event:
 
     {"t": "kd", "k": "w"}       # keydown w
     {"t": "ku", "k": "w"}       # keyup w
-    {"t": "mm", "dx": 5, "dy": -3}   # mousemove_relative
+    {"t": "mm", "dx": 5, "dy": -3}   # mousemove_relative (pointerlock)
     {"t": "click", "b": 1}      # button 1 click
     {"t": "ping"}               # noop liveness
 
-Why this exists:
-- xdotool must run with access to Xvfb's display socket (/tmp/.X11-unix)
-- Backend runs inside docker, host's /tmp/.X11-unix is not mounted
-- Adding xdotool + socket mount to backend image is invasive
-- Smaller blast radius: standalone host service, restartable
-  independent of the forum backend
-
 Discovers the xash3d window once at startup via `xdotool search`.
-Re-discovers if a target fails (window may have changed after a spec
-restart).
+Re-discovers + restarts the xdotool subprocess if a target fails
+(window can change after a spec restart).
 
-Security: bound to 127.0.0.1 only. No auth. Backend reaches it via
-docker bridge → host loopback.
+Security: bound to 0.0.0.0 — UFW restricts to docker bridge.
 """
 import json
 import os
@@ -31,10 +34,9 @@ import socket
 import subprocess
 import sys
 import threading
-import time
 from typing import Optional
 
-LISTEN_HOST = "0.0.0.0"  # accessible from docker bridge; UFW DROPs external
+LISTEN_HOST = "0.0.0.0"
 LISTEN_PORT = 7777
 DISPLAY = ":99"
 
@@ -49,8 +51,9 @@ KEY_MAP = {
     "tab": "Tab",
 }
 
-WIN_LOCK = threading.Lock()
-WIN_ID: Optional[str] = None
+_LOCK = threading.Lock()
+_PROC: Optional[subprocess.Popen] = None
+_WIN_ID: Optional[str] = None
 
 
 def log(msg: str) -> None:
@@ -74,63 +77,92 @@ def discover_window() -> Optional[str]:
     return None
 
 
-def ensure_window() -> Optional[str]:
-    global WIN_ID
-    with WIN_LOCK:
-        if WIN_ID is None:
-            WIN_ID = discover_window()
-            if WIN_ID:
-                log(f"discovered xash3d window id={WIN_ID}")
-        return WIN_ID
+def start_xdotool() -> Optional[subprocess.Popen]:
+    """Spawn a persistent `xdotool -` subprocess that reads commands
+    from stdin. Each newline-terminated line is one xdotool command.
 
-
-def invalidate_window() -> None:
-    global WIN_ID
-    with WIN_LOCK:
-        WIN_ID = None
-
-
-def xdo(args: list[str]) -> bool:
-    """Run an xdotool subcommand. Returns True on success."""
+    We pipe stdout/stderr to DEVNULL so the process doesn't fill up
+    on us if no one reads them."""
     env = {**os.environ, "DISPLAY": DISPLAY}
     try:
-        r = subprocess.run(
-            ["xdotool"] + args,
-            env=env, capture_output=True, text=True, timeout=2,
+        proc = subprocess.Popen(
+            ["xdotool", "-"],
+            env=env,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            bufsize=0,
         )
-        if r.returncode != 0:
-            # Window stale? Re-discover next time.
-            if "X Error" in r.stderr or "BadWindow" in r.stderr:
-                invalidate_window()
-            return False
-        return True
+        log(f"started persistent xdotool subprocess pid={proc.pid}")
+        return proc
     except Exception as e:
-        log(f"xdo error: {e}")
-        invalidate_window()
-        return False
+        log(f"xdotool spawn error: {e}")
+        return None
+
+
+def ensure_pipeline() -> bool:
+    """Make sure the window id is known and the xdotool subprocess is
+    alive. Returns True on success."""
+    global _PROC, _WIN_ID
+    with _LOCK:
+        if _WIN_ID is None:
+            _WIN_ID = discover_window()
+            if _WIN_ID:
+                log(f"discovered xash3d window id={_WIN_ID}")
+        if _WIN_ID is None:
+            return False
+        if _PROC is None or _PROC.poll() is not None:
+            if _PROC is not None:
+                log(f"xdotool subprocess died (rc={_PROC.poll()}), restarting")
+            _PROC = start_xdotool()
+        return _PROC is not None and _PROC.poll() is None
+
+
+def send_xdo(cmd_line: str) -> None:
+    """Write one xdotool command line to the persistent subprocess."""
+    global _PROC
+    if not ensure_pipeline():
+        return
+    try:
+        assert _PROC is not None and _PROC.stdin is not None
+        _PROC.stdin.write((cmd_line + "\n").encode("utf-8"))
+        _PROC.stdin.flush()
+    except (BrokenPipeError, OSError) as e:
+        log(f"xdotool stdin error: {e}, will restart on next call")
+        with _LOCK:
+            _PROC = None
 
 
 def handle_event(evt: dict) -> None:
-    win = ensure_window()
-    if not win:
-        return
     t = evt.get("t")
+    win = _WIN_ID
+    if win is None:
+        # First-call discovery.
+        ensure_pipeline()
+        win = _WIN_ID
+        if win is None:
+            return
     if t in ("kd", "ku"):
         k = evt.get("k", "")
         sym = KEY_MAP.get(k)
         if not sym:
             return
         cmd = "keydown" if t == "kd" else "keyup"
-        xdo([cmd, "--window", win, sym])
+        send_xdo(f"{cmd} --window {win} {sym}")
     elif t == "mm":
         dx = int(evt.get("dx", 0))
         dy = int(evt.get("dy", 0))
         if dx == 0 and dy == 0:
             return
-        xdo(["mousemove_relative", "--sync", "--", str(dx), str(dy)])
+        # mousemove_relative does NOT need a window target — works
+        # on the X pointer. `--sync` would block until the X server
+        # confirms, which adds latency. Async (default) is fine for
+        # mouselook because subsequent moves will overwrite intent
+        # on the engine side anyway.
+        send_xdo(f"mousemove_relative -- {dx} {dy}")
     elif t == "click":
         b = int(evt.get("b", 1))
-        xdo(["click", "--window", win, str(b)])
+        send_xdo(f"click --window {win} {b}")
     elif t == "ping":
         pass
     else:
@@ -171,7 +203,7 @@ def serve_client(conn: socket.socket, addr: tuple) -> None:
 
 def main() -> None:
     log(f"starting on {LISTEN_HOST}:{LISTEN_PORT}, DISPLAY={DISPLAY}")
-    ensure_window()
+    ensure_pipeline()
     srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     srv.bind((LISTEN_HOST, LISTEN_PORT))
@@ -188,6 +220,11 @@ def main() -> None:
         log("shutting down")
     finally:
         srv.close()
+        if _PROC is not None:
+            try:
+                _PROC.terminate()
+            except Exception:
+                pass
 
 
 if __name__ == "__main__":

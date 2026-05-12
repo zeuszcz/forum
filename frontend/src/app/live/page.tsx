@@ -1071,24 +1071,27 @@ export default function LivePage() {
   }, [mapName]);
 
   // ---------------------------------------------------------------------------
-  // Phase C — WASD pilot mode
+  // Phase C — WASD pilot mode (v2 with mouselook)
   //
   // When `pilotOn` is true we open a WebSocket to /live/spec/control/ws
-  // and forward keyboard events to the headless xash3d via xdotool on
-  // the VPS. The backend switches the spec into free-roam mode on WS
-  // connect and releases back to autodirector on disconnect.
+  // and forward keyboard + mouse events to the headless xash3d via
+  // xdotool on the VPS. The backend switches the spec into free-roam
+  // mode on WS connect and releases back to autodirector on disconnect.
   //
-  // Capture window:
+  // Keyboard capture:
   //   - WASD + space + ctrl + shift + e + q + arrow keys
-  //   - Only when /live canvas has focus or the body has focus and the
-  //     active element is not an input/textarea/contenteditable
-  //   - preventDefault so the keys do not scroll the page
+  //   - SPACE = jump = move UP in spec free-fly
+  //   - CTRL  = duck = move DOWN in spec free-fly
+  //   - Arrows = yaw / pitch turn (CS default binds)
+  //   - Only when no input/textarea/contenteditable is focused
+  //   - preventDefault so keys don't scroll the page
   //
-  // Mousepointer-lock is intentionally NOT engaged in v1 — adds
-  // complexity (mouselook deltas batched at 60Hz). Spec free-roam
-  // accepts WASD + space/ctrl alone for vertical movement; the camera
-  // auto-orients via spec_autodirector when no explicit yaw input is
-  // provided.
+  // Mouselook:
+  //   - Click the stream-player container to engage Pointer Lock
+  //   - Mouse-relative deltas captured at native rate, batched per
+  //     animation frame (~60 Hz), sent as "mm" events
+  //   - Sensitivity divisor below trades raw delta scale for fluidity
+  //   - Escape exits pointer lock but stays in pilot mode
   // ---------------------------------------------------------------------------
   useEffect(() => {
     if (!pilotOn || !isStaff) return;
@@ -1107,6 +1110,24 @@ export default function LivePage() {
       "ArrowUp": "up", "ArrowDown": "down",
       "ArrowLeft": "left", "ArrowRight": "right",
       "Tab": "tab",
+    };
+
+    // Mouse sensitivity divisor — raw movementX of 1px maps to 1/MOUSE_DIV
+    // xdotool mickeys. Smaller divisor = more sensitive. xash3d at default
+    // sensitivity 1 feels OK around 1.0; tune if needed.
+    const MOUSE_DIV = 1.0;
+
+    let mouseDx = 0;
+    let mouseDy = 0;
+    let mouseRaf = 0;
+    const flushMouse = () => {
+      mouseRaf = 0;
+      if ((mouseDx === 0 && mouseDy === 0) || ws.readyState !== WebSocket.OPEN) return;
+      const dx = Math.round(mouseDx / MOUSE_DIV);
+      const dy = Math.round(mouseDy / MOUSE_DIV);
+      mouseDx = 0; mouseDy = 0;
+      if (dx === 0 && dy === 0) return;
+      ws.send(JSON.stringify({ t: "mm", dx, dy }));
     };
 
     const inFormField = () => {
@@ -1136,19 +1157,35 @@ export default function LivePage() {
     const onDown = (e: KeyboardEvent) => onKey(e, true);
     const onUp = (e: KeyboardEvent) => onKey(e, false);
 
+    const onMouseMove = (e: MouseEvent) => {
+      // Only active when we hold pointer lock — guarantees the deltas
+      // are relative motion (movementX/Y) instead of absolute coords.
+      if (document.pointerLockElement == null) return;
+      mouseDx += e.movementX;
+      mouseDy += e.movementY;
+      if (mouseRaf === 0) {
+        mouseRaf = requestAnimationFrame(flushMouse);
+      }
+    };
+
     ws.onopen = () => {
       if (!alive) { ws.close(); return; }
-      toast.success("Pilot mode → spec in free-roam");
+      toast.success("Pilot mode → click stream to mouselook");
       window.addEventListener("keydown", onDown);
       window.addEventListener("keyup", onUp);
+      document.addEventListener("mousemove", onMouseMove);
     };
     ws.onclose = (e) => {
       window.removeEventListener("keydown", onDown);
       window.removeEventListener("keyup", onUp);
+      document.removeEventListener("mousemove", onMouseMove);
       if (e.code === 4401) toast.error("Pilot: auth required");
       else if (e.code === 4403) toast.error("Pilot: staff only");
       else if (e.code === 5002) toast.error("Pilot: input-server down");
       else if (alive) toast.message("Pilot disconnected");
+      if (document.pointerLockElement) {
+        try { document.exitPointerLock(); } catch { /* ignore */ }
+      }
     };
     ws.onerror = () => {
       // Errors bubble to onclose; nothing to do.
@@ -1156,8 +1193,10 @@ export default function LivePage() {
 
     return () => {
       alive = false;
+      if (mouseRaf !== 0) cancelAnimationFrame(mouseRaf);
       window.removeEventListener("keydown", onDown);
       window.removeEventListener("keyup", onUp);
+      document.removeEventListener("mousemove", onMouseMove);
       // Best-effort key-release for keys held when we tear down — avoids
       // a stuck "moving forward forever" in the spec if user toggles off
       // while pressing W.
@@ -1169,6 +1208,9 @@ export default function LivePage() {
         }
       }
       try { ws.close(); } catch { /* ignore */ }
+      if (document.pointerLockElement) {
+        try { document.exitPointerLock(); } catch { /* ignore */ }
+      }
     };
   }, [pilotOn, isStaff]);
 
@@ -1500,8 +1542,29 @@ export default function LivePage() {
 
       {/* Live spectator video stream */}
       {streamOn && (
-        <section className="mt-6">
+        <section
+          className="mt-6 relative"
+          onClick={(e) => {
+            // In pilot mode, clicking the stream container engages
+            // Pointer Lock so subsequent mouse moves are routed to
+            // xash3d as mouselook. Escape exits. Without this the
+            // browser delivers absolute coords, useless for FPS aim.
+            if (!pilotOn) return;
+            const t = e.currentTarget as HTMLElement;
+            if (document.pointerLockElement) return;
+            try {
+              t.requestPointerLock();
+            } catch { /* ignore */ }
+          }}
+        >
           <StreamPlayer active={streamOn} />
+          {pilotOn && (
+            <div className="pointer-events-none absolute inset-x-0 bottom-2 flex justify-center">
+              <div className="rounded bg-void/80 px-2 py-1 text-[10px] uppercase tracking-widest text-cyan">
+                pilot · WASD move · SPACE up · CTRL down · click for mouselook · ESC release
+              </div>
+            </div>
+          )}
         </section>
       )}
 
