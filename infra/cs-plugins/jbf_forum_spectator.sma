@@ -1,11 +1,13 @@
-/*  jbf_forum_spectator.sma v0.3.0 — endless·war
+/*  jbf_forum_spectator.sma v0.5.0 — endless·war
  *
- *  v0.1 force the forum spec onto SPEC team on connect.
- *  v0.2 also close the team-select VGUI menu (menuselect 6).
- *  v0.3 adds a click-to-follow command — forum backend issues
- *       `forum_spec_follow <userid>` over RCON, and we relay the
- *       command to the spectator client so its camera locks onto
- *       that player.
+ *  v0.4 hooked Round_Start + ResetHUD, but the spectator still
+ *  respawned with HP 100 because cs_set_user_team only flips the
+ *  internal field. The visible player stays alive in their old
+ *  team until they die. Need to user_kill first if alive.
+ *
+ *  v0.5: in force_spec, silent-kill the spec if they're currently
+ *        alive on a team, THEN set team SPECTATOR. Engine moves
+ *        them into the spec free-roam camera on the next think.
  */
 
 #include <amxmodx>
@@ -13,9 +15,10 @@
 #include <cstrike>
 #include <fakemeta>
 #include <engine>
+#include <fun>
 
 #define PLUGIN_NAME    "JBF Forum Spectator"
-#define PLUGIN_VERSION "0.3.0"
+#define PLUGIN_VERSION "0.5.0"
 #define PLUGIN_AUTHOR  "endless-war"
 
 new g_cv_steamid;
@@ -30,17 +33,21 @@ public plugin_init()
     g_cv_nick    = register_cvar("jbf_forum_spec_nick",    "[Xash3D]forum_spectator");
     g_cv_ip      = register_cvar("jbf_forum_spec_ip",      "170.168.72.200");
 
-    // RCON-only console command: `forum_spec_follow <userid>`
-    // ADMIN_RCON gate so only the forum backend (which has the rcon pw)
-    // can call it. -1 ID for RCON callers in cmd_access.
-    register_concmd("forum_spec_follow", "cmd_follow", ADMIN_RCON,
+    register_concmd("forum_spec_follow",  "cmd_follow",  ADMIN_RCON,
         "<target_userid> | <0> for autodirector");
     register_concmd("forum_spec_release", "cmd_release", ADMIN_RCON,
         "release follow → autodirector");
+
+    register_logevent("event_round_start", 2, "1=Round_Start");
+    register_event("ResetHUD", "event_reset_hud", "b");
+    // SpawnPlayer-like: HLTV "Begin/End" is unreliable. CurWeapon
+    // fires immediately after a player gains a weapon — perfect
+    // signal that the engine respawned us. ('be' = both, alive).
+    register_event("CurWeapon", "event_curweapon", "be", "1=1");
 }
 
 // ------------------------------------------------------------------
-//  Force-spec on join
+//  Force-spec triggers
 // ------------------------------------------------------------------
 
 public client_putinserver(id)
@@ -51,9 +58,43 @@ public client_putinserver(id)
     set_task(10.0, "force_spec", id);
 }
 
+public event_round_start()
+{
+    new spec_id = find_forum_spec();
+    if (spec_id <= 0) return;
+    // Server respawns everyone on round_start; we slap our spec back
+    // to SPECTATOR at +0.4s (post-respawn) and again at +1.2s (post
+    // any other plugin's force-team).
+    set_task(0.4, "force_spec", spec_id);
+    set_task(1.2, "force_spec", spec_id);
+}
+
+public event_reset_hud(id)
+{
+    if (!is_forum_spec(id)) return;
+    set_task(0.4, "force_spec", id);
+}
+
+public event_curweapon(id)
+{
+    // The spec just got a weapon → engine respawned them.
+    if (!is_forum_spec(id)) return;
+    set_task(0.2, "force_spec", id);
+}
+
 public force_spec(id)
 {
     if (!is_user_connected(id)) return;
+    new CsTeams:team = cs_get_user_team(id);
+    if (team == CS_TEAM_SPECTATOR) return;
+
+    // The critical fix: if they're walking around alive in a team,
+    // killing them releases the model + weapons so the engine can
+    // then accept the spec-team flip on the next think.
+    if (is_user_alive(id)) {
+        user_kill(id, 1); // 1 = silent (no death message, no score)
+    }
+
     cs_set_user_team(id, CS_TEAM_SPECTATOR, CS_DONTCHANGE);
     engclient_cmd(id, "menuselect", "6");
     engclient_cmd(id, "jointeam", "6");
@@ -66,7 +107,7 @@ public force_spec(id)
 }
 
 // ------------------------------------------------------------------
-//  Click-to-follow — backend triggers via RCON
+//  Click-to-follow
 // ------------------------------------------------------------------
 
 public cmd_follow(id, level, cid)
@@ -84,7 +125,6 @@ public cmd_follow(id, level, cid)
     }
 
     if (userid <= 0) {
-        // Release → back to autodirector
         engclient_cmd(spec_id, "spec_autodirector", "1");
         engclient_cmd(spec_id, "spec_mode", "4");
         log_amx("forum_spec_follow: released to autodirector");
@@ -100,10 +140,6 @@ public cmd_follow(id, level, cid)
     new tname[32];
     get_user_name(target_id, tname, charsmax(tname));
 
-    // Lock the camera onto the specified target. spec_mode 4 +
-    // spec_player <userid> selects the player as the target while
-    // staying in 3rd-person autodirector-style framing. Most servers
-    // honour spec_player by `#<userid>` or by name; we pass userid.
     engclient_cmd(spec_id, "spec_autodirector", "0");
     engclient_cmd(spec_id, "spec_mode", "4");
     new uid_arg[12];

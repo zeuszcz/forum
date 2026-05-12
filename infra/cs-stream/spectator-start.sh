@@ -1,17 +1,20 @@
 #!/bin/bash
-# /opt/cs-stream/spectator/start.sh — Phase S3 launcher (v4).
+# /opt/cs-stream/spectator/start.sh — Phase S3+S4 launcher (v5).
 #
-# Discovery: the 4MB `xash` binary is XashDS (dedicated server). The
-# CLIENT launcher is the tiny `xash3d` binary which dlopens
-# libxash.so. The AppImage's AppRun wraps it. Use it directly here.
+# Match the headless display resolution to the encoder's capture size
+# so x11grab's full grab IS the full Xvfb root; no top-left crop, no
+# scale filter in ffmpeg. 854x480x24 also takes ~half the SHM and
+# rendering work compared to 720p.
 
 set -u
 
 ROOT=/opt/cs-stream/spectator/squashfs-root
 EXTRAS=/tmp/extras.pk3
 DISPLAY_NUM=:99
+WIDTH=854
+HEIGHT=480
 
-Xvfb $DISPLAY_NUM -screen 0 1280x720x24 -ac +extension GLX +render -nolisten tcp &
+Xvfb $DISPLAY_NUM -screen 0 ${WIDTH}x${HEIGHT}x24 -ac +extension GLX +render -nolisten tcp &
 XVFB_PID=$!
 sleep 1
 
@@ -36,6 +39,6 @@ exec env \
         -game cstrike \
         -window \
         -ref soft \
-        -width 1280 -height 720 \
+        -width $WIDTH -height $HEIGHT \
         -dev 1 \
         -log
