@@ -8,118 +8,122 @@ the actual game video next to it.
 
 ```
 game server (37.230.228.248:27015)
-   ↓ HLTV protocol
-hltv proxy  ── (127.0.0.1:27020)
-   ↓ spectator client (TBD)
-headless CS 1.6 in Xvfb  ── (display :99)
+   ↓ regular CS spectator client protocol
+xash3d-fwgs i386 (headless, Xvfb display :99)
    ↓ ffmpeg x11grab + libx264
 MediaMTX  ── (RTMP 127.0.0.1:1935  →  LL-HLS 127.0.0.1:8888)
    ↓ nginx /stream/ proxy
 hls.js in /live   ── browser <video>
 ```
 
+The original plan also had an HLTV proxy (Phase S2) sitting between
+the game server and the headless client. We **dropped HLTV** because
+the game server actively rejects HLTV proxies with `"Sorry, HLTV is
+not allowed on this server"` despite `sv_proxies=1`. Connecting as a
+regular spectator-team player works around the rejection and uses
+one normal player slot (32 max, typically 1-10 used).
+
 ## Phase status
 
 | Phase | What | Status |
 |-------|------|--------|
-| S1    | MediaMTX relay + nginx route + hls.js StreamPlayer skeleton | **shipped** (commit 94055eb) |
-| S2.1  | HLDS install via steamcmd, hltv binary | **shipped** (this commit) |
-| S2.2  | hltv.cfg with master+proxy modules, validated commands parse | **shipped** |
-| S2.3  | HLTV proxy attaching to game server | **blocked** — see below |
-| S3    | Headless CS 1.6 client (xash3d-fwgs preferred over Wine) | pending S2.3 |
-| S4    | ffmpeg x11grab → RTMP push to MediaMTX | pending S3 |
+| S1    | MediaMTX relay + nginx route + hls.js StreamPlayer skeleton | **shipped** (94055eb) |
+| S2    | HLTV proxy | **abandoned** (server-side rejection, no plugin diagnostics access) |
+| S3.1  | xash3d-fwgs i386 AppImage extracted, valve/cstrike symlinked, systemd unit drafted | **WIP** (this commit) |
+| S3.2  | xash3d-fwgs lands in CLIENT mode (currently dedicated) and joins spectator team | **blocked** — see below |
+| S4    | ffmpeg x11grab → RTMP push to MediaMTX | pending S3.2 |
 | S5    | On-demand orchestrator (start/stop on viewer presence) | pending S4 |
 | S6    | systemd watchdog + Grafana + recovery | pending S5 |
 
-## S2.3 blocker — game server rejects HLTV
+## S3.2 blocker — xash3d-fwgs runs as dedicated server, not client
 
-When HLTV proxy tries to attach, game server replies:
+Symptom: every boot, the engine reaches `Type 'map <mapname>' to start
+game...` and execs `cstrike/server.cfg`. The client console commands
+(`connect`, `name`, `sensitivity`) come back as `Unknown command` —
+they only exist when the client subsystem is active.
 
-```
-Connection rejected: Sorry, HLTV is not allowed on this server
-```
+What we tried in S3.1, none of which flipped to client mode:
 
-All standard engine cvars are correctly set:
+- launching with `-game cstrike -console -dev 1 +connect …`
+- moving the connect to `cstrike/userconfig.cfg`
+- moving the connect to `cstrike/config.cfg`
+- dropping `-console`, adding `-window -ref soft`
+- explicit `DISPLAY=:99` with Xvfb 1280x720x24 +extension GLX +render
 
-| cvar | value |
-|------|-------|
-| `sv_proxies` | `1` (allow 1 HLTV proxy) |
-| `sv_lan` | `0` |
-| `allow_spectators` | `1` |
-| `sv_password` | empty (no pwd) |
-| `listip` | empty (no IP bans) |
-| `listid` | empty (no SteamID bans) |
+Likely root cause: **xash3d-fwgs auto-falls-back to dedicated mode
+when GL context fails to initialise against the Xvfb display**.
+Xvfb-without-real-GL is the most common reason. A real OpenGL context
+via Mesa software, or running through `xvfb-run`, or pointing
+`SDL_VIDEODRIVER=offscreen`, may help.
 
-Bypass Guard's `ip_list.ini` was already updated to whitelist the forum
-VPS IP (`170.168.72.200`) with a `whitelist` entry; map was reloaded so
-BG re-read the config. Rejection persisted.
+### Unblockers to try next session
 
-The rejection text "HLTV is not allowed on this server" is **engine-level**
-(not from an AMX plugin), so it shouldn't be hookable from AMX/meta.
-With every engine cvar in the "allow" state, the remaining candidates
-are:
-
-1. A meta-plugin (SafeNameAndChat / Reunion / ProcessCmds / ReAPI)
-   overriding the engine packet handler and pretending to be the engine.
-2. A `re_*` / ReHLDS hidden cvar that defaults to deny.
-3. A binding mismatch between our locally-compiled HLTV (steamcmd app 90)
-   and the server's protocol expectations — though both reported protocol
-   version 48.
-
-### Next-session unblockers (need user / direct console access)
-
-1. **Tail HLDS live console** — telnet/screen into the game server and
-   watch a connect attempt. The Console will print which plugin (if any)
-   intercepts the packet.
-2. **Test without security stack** — temporarily comment out
-   `security/bypass_guard.amxx`, `security/fresh_bans.amxx`,
-   `security/anti_hpp.amxx`, `security/bg_*.amxx` in
-   `addons/amxmodx/configs/plugins.ini`, restart server, retry HLTV. If
-   it connects → it's a plugin. Re-enable plugins one at a time to find
-   the offender.
-3. **Inspect Reunion-side HLTV handling** — Reunion's `cid_Provider`
-   defaults may not accept the HLTV ticket; setting `reunion.cfg
-   cid_Provider 7` (Steam-only) might paradoxically allow HLTV through
-   the Steam path.
-4. **Ask hosting provider** — sometimes the host blocks HLTV TCP/UDP
-   slot port (27020) at firewall level.
+1. `LIBGL_ALWAYS_SOFTWARE=1` + `MESA_GL_VERSION_OVERRIDE=2.1` to force
+   Mesa's software OpenGL renderer (`llvmpipe`), guaranteed to work
+   without a GPU.
+2. `xvfb-run -a -s "-screen 0 1280x720x24 +extension GLX +render"`
+   wrapper (handles Xvfb lifecycle correctly).
+3. `SDL_VIDEODRIVER=offscreen` to bypass X11 entirely (newer xash3d-fwgs
+   may support this).
+4. **Pivot to Wine + Steam CS 1.6 client** — the proven path.
+   Costs ~1GB RAM (we have 1.9GB free) but client/server detection
+   is rock solid because the original Windows client is the
+   reference implementation.
+5. **Reuse HLDS as listen-server + bind to a fake client** — Daemonise
+   HLDS with a single bot whose POV gets captured. Ugly but stays
+   in-engine.
 
 ## What's in this directory (committed to git)
 
 ```
 infra/cs-stream/
-├── README.md                  this file
+├── README.md                  this file (the pipeline + phase matrix + blocker notes)
 ├── docker-compose.yml         MediaMTX relay (Phase S1)
 ├── mediamtx.yml               LL-HLS config (Phase S1)
-├── hltv.cfg                   HLTV proxy config (Phase S2)
-└── cs-hltv-proxy.service      systemd unit, ready to enable when S2.3 clears
+├── hltv.cfg                   HLTV proxy config (Phase S2, abandoned)
+├── cs-hltv-proxy.service      HLTV systemd unit (not in use, Phase S2 abandoned)
+├── spectator-start.sh         Phase S3 launcher: Xvfb + xash3d-fwgs in client mode
+├── spectator.cfg              cstrike-side userconfig: name + spec team auto-join
+└── cs-spectator.service.draft systemd unit for spectator pipeline
 ```
 
-Big artifacts not in git (on VPS only):
+Big artifacts on the VPS but **not committed** (too large / installable):
 
 ```
 /opt/cs-stream/
-├── hlds/                      ~820MB — HLDS install via steamcmd app 90
-├── steamcmd/                  ~3MB — steamcmd installer
-└── mediamtx/                  symlinked from infra/cs-stream/mediamtx.yml
+├── hlds/                       ~820MB — HLDS install via steamcmd app 90
+├── steamcmd/                   ~3MB — installer
+├── spectator/
+│   ├── squashfs-root/          ~30MB — xash3d-fwgs i386 AppImage extracted
+│   │   ├── xash + libs
+│   │   ├── valve/  → /opt/cs-stream/hlds/valve  (symlink)
+│   │   └── cstrike/ → /opt/cs-stream/hlds/cstrike (symlink)
+│   └── start.sh                from infra/cs-stream/spectator-start.sh
+└── mediamtx/                   symlinked from infra/cs-stream/mediamtx.yml
 ```
 
-## How to bring up the stream when S3+ ship
-
-Once S2.3 unblocks (HLTV attaches), enable + start:
+## Smoke-test the relay (Phase S1, works today)
 
 ```bash
-sudo systemctl enable cs-hltv-proxy.service
-sudo systemctl start cs-hltv-proxy.service
-sudo journalctl -u cs-hltv-proxy -f
+ssh site-vps
+ffmpeg -re -f lavfi -i "testsrc=854x480:rate=30" \
+       -c:v libx264 -preset ultrafast -tune zerolatency -g 60 \
+       -f flv rtmp://127.0.0.1:1935/cs1
+# In another shell:
+curl http://127.0.0.1:8888/cs1/index.m3u8   # should return 200 with manifest
 ```
 
-Verify on game server:
+Then the StreamPlayer on `/live` (toggle in the header) will pick the
+feed up via nginx and play it.
 
-```
-rcon status   # should show HLTV proxy as a connected slot
-```
+## Resuming next session
 
-Then S3-S5 spin up the encoder/orchestrator, and the StreamPlayer
-toggle on `/live` will flip from "Spectator-pipeline пока не активен"
-to live video.
+The next session should:
+1. unblock Phase S3.2 (try `LIBGL_ALWAYS_SOFTWARE=1` first; if that
+   fails, pivot to Wine + Steam CS 1.6 client)
+2. once xash3d/Wine boots into the client menu and auto-runs
+   `connect 37.230.228.248:27015`, verify it appears on the game
+   server's `status` output as a spectator
+3. ship Phase S4: ffmpeg pipeline
+4. ship Phase S5: on-demand orchestrator
+5. ship Phase S6: monitoring + watchdog

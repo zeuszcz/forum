@@ -1,0 +1,27 @@
+[Unit]
+Description=endless-war headless CS 1.6 spectator (Xvfb + xash3d-fwgs)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=i48ptgvnis
+Group=i48ptgvnis
+WorkingDirectory=/opt/cs-stream/spectator
+ExecStart=/opt/cs-stream/spectator/start.sh
+StandardOutput=append:/tmp/cs-spectator.log
+StandardError=append:/tmp/cs-spectator.log
+
+# Memory + CPU caps so a runaway client can't squat on the box.
+MemoryMax=600M
+CPUQuota=80%
+
+# Auto-restart on crash; xash3d-fwgs on headless map-change isn't perfectly
+# stable, so let systemd babysit it.
+Restart=on-failure
+RestartSec=5s
+StartLimitInterval=120s
+StartLimitBurst=6
+
+[Install]
+WantedBy=multi-user.target
