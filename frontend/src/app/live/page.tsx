@@ -266,6 +266,7 @@ export default function LivePage() {
   const [chatPanelOpen, setChatPanelOpen] = useState(true);
   const [streamOn, setStreamOn] = useState(false);
   const [showTrails, setShowTrails] = useState(true);
+  const [pilotOn, setPilotOn] = useState(false);
   const [followUserid, setFollowUserid] = useState<number | null>(null);
   const followUseridRef = useRef<number | null>(null);
   useEffect(() => {
@@ -1069,6 +1070,108 @@ export default function LivePage() {
     // Narrowed deps: selectedUserid + showTrails read via refs above.
   }, [mapName]);
 
+  // ---------------------------------------------------------------------------
+  // Phase C — WASD pilot mode
+  //
+  // When `pilotOn` is true we open a WebSocket to /live/spec/control/ws
+  // and forward keyboard events to the headless xash3d via xdotool on
+  // the VPS. The backend switches the spec into free-roam mode on WS
+  // connect and releases back to autodirector on disconnect.
+  //
+  // Capture window:
+  //   - WASD + space + ctrl + shift + e + q + arrow keys
+  //   - Only when /live canvas has focus or the body has focus and the
+  //     active element is not an input/textarea/contenteditable
+  //   - preventDefault so the keys do not scroll the page
+  //
+  // Mousepointer-lock is intentionally NOT engaged in v1 — adds
+  // complexity (mouselook deltas batched at 60Hz). Spec free-roam
+  // accepts WASD + space/ctrl alone for vertical movement; the camera
+  // auto-orients via spec_autodirector when no explicit yaw input is
+  // provided.
+  // ---------------------------------------------------------------------------
+  useEffect(() => {
+    if (!pilotOn || !isStaff) return;
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || "";
+    if (!apiUrl) return;
+    const wsUrl = apiUrl.replace(/^http(s?):/, "ws$1:") + "/live/spec/control/ws";
+    const ws = new WebSocket(wsUrl);
+    let alive = true;
+    const pressed = new Set<string>();
+
+    const PILOT_KEYS: Record<string, string> = {
+      "KeyW": "w", "KeyA": "a", "KeyS": "s", "KeyD": "d",
+      "KeyE": "e", "KeyQ": "q",
+      "Space": "space", "ShiftLeft": "shift", "ShiftRight": "shift",
+      "ControlLeft": "ctrl", "ControlRight": "ctrl",
+      "ArrowUp": "up", "ArrowDown": "down",
+      "ArrowLeft": "left", "ArrowRight": "right",
+      "Tab": "tab",
+    };
+
+    const inFormField = () => {
+      const el = document.activeElement;
+      if (!el) return false;
+      const tag = el.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return true;
+      if ((el as HTMLElement).isContentEditable) return true;
+      return false;
+    };
+
+    const onKey = (e: KeyboardEvent, isDown: boolean) => {
+      const k = PILOT_KEYS[e.code];
+      if (!k) return;
+      if (inFormField()) return;
+      e.preventDefault();
+      if (isDown) {
+        if (pressed.has(k)) return; // dedupe key-repeat
+        pressed.add(k);
+      } else {
+        pressed.delete(k);
+      }
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ t: isDown ? "kd" : "ku", k }));
+      }
+    };
+    const onDown = (e: KeyboardEvent) => onKey(e, true);
+    const onUp = (e: KeyboardEvent) => onKey(e, false);
+
+    ws.onopen = () => {
+      if (!alive) { ws.close(); return; }
+      toast.success("Pilot mode → spec in free-roam");
+      window.addEventListener("keydown", onDown);
+      window.addEventListener("keyup", onUp);
+    };
+    ws.onclose = (e) => {
+      window.removeEventListener("keydown", onDown);
+      window.removeEventListener("keyup", onUp);
+      if (e.code === 4401) toast.error("Pilot: auth required");
+      else if (e.code === 4403) toast.error("Pilot: staff only");
+      else if (e.code === 5002) toast.error("Pilot: input-server down");
+      else if (alive) toast.message("Pilot disconnected");
+    };
+    ws.onerror = () => {
+      // Errors bubble to onclose; nothing to do.
+    };
+
+    return () => {
+      alive = false;
+      window.removeEventListener("keydown", onDown);
+      window.removeEventListener("keyup", onUp);
+      // Best-effort key-release for keys held when we tear down — avoids
+      // a stuck "moving forward forever" in the spec if user toggles off
+      // while pressing W.
+      if (ws.readyState === WebSocket.OPEN) {
+        for (const k of pressed) {
+          try {
+            ws.send(JSON.stringify({ t: "ku", k }));
+          } catch { /* ignore */ }
+        }
+      }
+      try { ws.close(); } catch { /* ignore */ }
+    };
+  }, [pilotOn, isStaff]);
+
   // Free-roam teleport: warp the headless spectator to the clicked
   // world coords. Called from canvas shift+click; the click handler
   // resolves the screen point to (x, y) using the cached projection.
@@ -1316,6 +1419,9 @@ export default function LivePage() {
             label="Chat panel"
           />
           <ToggleChip on={streamOn} setOn={setStreamOn} label="Stream" />
+          {isStaff && (
+            <ToggleChip on={pilotOn} setOn={setPilotOn} label="Pilot WASD" />
+          )}
           {followUserid != null && (
             <button
               type="button"

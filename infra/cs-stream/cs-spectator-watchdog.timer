@@ -1,0 +1,14 @@
+[Unit]
+Description=endless-war CS spectator presence watchdog (Phase S6) — fires every 30s
+Requires=cs-spectator-watchdog.service
+
+[Timer]
+# 30 s cadence — fast enough to catch a kicked spec in under a minute,
+# slow enough to avoid hammering the game server's RCON listener.
+OnBootSec=60
+OnUnitActiveSec=30
+AccuracySec=5
+Persistent=true
+
+[Install]
+WantedBy=timers.target

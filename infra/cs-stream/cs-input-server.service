@@ -1,0 +1,23 @@
+[Unit]
+Description=endless-war CS spectator input relay (xdotool host bridge)
+After=cs-spectator.service
+Wants=cs-spectator.service
+
+[Service]
+Type=simple
+User=i48ptgvnis
+Group=i48ptgvnis
+Environment="DISPLAY=:99"
+Environment="XAUTHORITY=/run/user/1000/Xauthority"
+ExecStart=/usr/bin/python3 /opt/cs-stream/spectator/input-server.py
+Restart=on-failure
+RestartSec=5s
+StandardOutput=append:/tmp/cs-input-server.log
+StandardError=append:/tmp/cs-input-server.log
+
+# Resource caps — the script is tiny.
+MemoryMax=50M
+CPUQuota=30%
+
+[Install]
+WantedBy=multi-user.target

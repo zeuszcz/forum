@@ -1,0 +1,13 @@
+[Unit]
+Description=endless-war CS spectator presence watchdog (Phase S6)
+After=cs-spectator.service docker.service
+Documentation=https://github.com/zeuszcz/forum/tree/main/secondbrain/knowledge/concepts/headless-spec-anti-flood.md
+
+[Service]
+Type=oneshot
+# Inherit root so we can systemctl restart cs-spectator. Reading
+# spec presence requires `docker exec` which root has by default.
+User=root
+ExecStart=/opt/cs-stream/spectator/watchdog.sh
+StandardOutput=append:/tmp/cs-spectator-watchdog.log
+StandardError=append:/tmp/cs-spectator-watchdog.log

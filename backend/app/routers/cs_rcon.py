@@ -252,9 +252,18 @@ async def execute_action(
     command = payload.command.strip()
     _validate_command(command)
 
+    # Wrap with the forum effects proxy plugin so any per-target
+    # AMX immunity ("a") flag is stripped before the inner uaio
+    # command runs. The proxy parses out -n NICK, snapshots and
+    # zeroes the targets flags, fires the inner command via
+    # server_cmd, then schedules a 1s restore. See concept
+    # `jbf_forum_effects_proxy` in secondbrain wiki.
+    # Quote-wrap defends against parser swallowing a trailing newline.
+    wrapped = f"forum_fx_run \"{command}\""
+
     # 1) Run the primary command.
     try:
-        result = await cs_rcon.execute(command)
+        result = await cs_rcon.execute(wrapped)
         primary_response = result.output
         primary_latency = result.latency_ms
     except cs_rcon.RconError as e:

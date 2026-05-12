@@ -224,3 +224,157 @@ async def spec_teleport(
         z=payload.z,
         latency_ms=result.latency_ms,
     )
+
+
+# -----------------------------------------------------------------------------
+# Phase C — WASD pilot WebSocket
+#
+# Bidirectional control channel between the /live admin panel and the
+# headless xash3d spectator. The frontend captures keys + mouse on the
+# /live canvas, batches them, and ships JSON events. We forward each
+# event over a TCP line-protocol to the host-side input-server
+# (/opt/cs-stream/spectator/input-server.py), which converts them to
+# xdotool calls against the Xvfb display.
+#
+# Endpoint: ws://.../live/spec/control/ws
+#
+# Auth: same JWT-in-cookie pattern as /shoutbox/ws. Staff-only —
+# resolved via the user.roles[*].is_staff flag.
+#
+# Wire format (one JSON per WebSocket text message, OR newline-delimited
+# inside batched message):
+#   {"t":"kd","k":"w"}      keydown w
+#   {"t":"ku","k":"w"}      keyup w
+#   {"t":"mm","dx":4,"dy":-2}   relative mouse motion
+#   {"t":"click","b":1}     mouse button click
+#   {"t":"ping"}            liveness
+#
+# When the WS opens we also force the spectator into free-roam mode via
+# `forum_spec_freeroam` so WASD actually moves the camera. When the WS
+# closes we release back to autodirector via `forum_spec_release`.
+# -----------------------------------------------------------------------------
+
+import asyncio as _asyncio
+import json as _json
+import socket as _socket
+from typing import Annotated as _Annotated
+
+from fastapi import Cookie, Query, WebSocket, WebSocketDisconnect
+from sqlalchemy.ext.asyncio import AsyncSession as _AsyncSession
+
+from app.core.database import get_db as _get_db
+from app.core.deps import COOKIE_NAME as _COOKIE_NAME
+from app.core.security import decode_token as _decode_token
+
+INPUT_SERVER_HOST = "172.20.0.1"
+INPUT_SERVER_PORT = 7777
+
+
+@router.websocket("/spec/control/ws")
+async def spec_control_ws(
+    ws: WebSocket,
+    db: _Annotated[_AsyncSession, Depends(_get_db)],
+    session_cookie: _Annotated[str | None, Cookie(alias=_COOKIE_NAME)] = None,
+    token_qs: _Annotated[str | None, Query(alias="token")] = None,
+) -> None:
+    """Pilot the headless spectator via WASD + mouselook from /live."""
+    # ---- staff auth via JWT in cookie ----
+    user_id: int | None = None
+    token = session_cookie or token_qs
+    if token:
+        payload = _decode_token(token)
+        if payload and payload.get("type") in {"access", "refresh"}:
+            try:
+                user_id = int(payload.get("sub") or 0) or None
+            except (TypeError, ValueError):
+                user_id = None
+    if user_id is None:
+        await ws.close(code=4401, reason="unauthenticated")
+        return
+    # Use the same helper the HTTP endpoints use (User has no direct
+    # `roles` relationship — roles live in user_roles join table and
+    # auth_service.get_user_roles resolves them via UserRole + Role).
+    is_staff = False
+    try:
+        roles = await auth_service.get_user_roles(db, user_id)
+        if any(getattr(r, "is_staff", False) for r in roles):
+            is_staff = True
+    except Exception:
+        pass
+    if not is_staff:
+        await ws.close(code=4403, reason="staff only")
+        return
+
+    await ws.accept()
+
+    # 1. Switch spec into free-roam mode so WASD actually moves the cam.
+    try:
+        await cs_rcon.execute("forum_spec_freeroam", timeout=3.0)
+    except Exception:
+        pass
+
+    # 2. Open a single TCP connection to the host-side input server.
+    sock: _socket.socket | None = None
+    loop = _asyncio.get_running_loop()
+    try:
+        sock = await loop.run_in_executor(None, _connect_input_server)
+    except Exception as e:
+        await ws.send_text(_json.dumps({"t": "error", "msg": f"input-server: {e}"}))
+        await ws.close(code=5002, reason="input-server unreachable")
+        return
+
+    await ws.send_text(_json.dumps({"t": "ready"}))
+    try:
+        while True:
+            raw = await ws.receive_text()
+            # Accept either single-event or newline-batched events.
+            for line in raw.split("\n"):
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    evt = _json.loads(line)
+                except Exception:
+                    continue
+                if not isinstance(evt, dict) or "t" not in evt:
+                    continue
+                payload = (_json.dumps(evt) + "\n").encode("utf-8")
+                try:
+                    await loop.run_in_executor(None, sock.sendall, payload)
+                except OSError:
+                    # Reconnect once on socket death.
+                    try:
+                        sock.close()
+                    except Exception:
+                        pass
+                    try:
+                        sock = await loop.run_in_executor(
+                            None, _connect_input_server,
+                        )
+                        await loop.run_in_executor(None, sock.sendall, payload)
+                    except Exception:
+                        await ws.close(code=5002, reason="input-server lost")
+                        return
+    except WebSocketDisconnect:
+        pass
+    except Exception:
+        pass
+    finally:
+        if sock:
+            try:
+                sock.close()
+            except Exception:
+                pass
+        # Release spec back to autodirector when the pilot disconnects.
+        try:
+            await cs_rcon.execute("forum_spec_follow 0", timeout=3.0)
+        except Exception:
+            pass
+
+
+def _connect_input_server() -> _socket.socket:
+    s = _socket.socket(_socket.AF_INET, _socket.SOCK_STREAM)
+    s.settimeout(3.0)
+    s.connect((INPUT_SERVER_HOST, INPUT_SERVER_PORT))
+    s.settimeout(None)
+    return s
