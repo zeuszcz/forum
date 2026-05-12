@@ -1,59 +1,71 @@
 #!/usr/bin/env python3
 """
-/opt/cs-stream/spectator/input-server.py — host-side xdotool relay v2.
+/opt/cs-stream/spectator/input-server.py — host-side X input relay v3.
 
-v2 — latency kill.
+v3 — direct X11 XTEST (no xdotool subprocess at all).
 
-  v1 spawned a fresh `xdotool` subprocess for every key/mouse event.
-  fork+exec ate ~5-30 ms per event. With WASD + 60 Hz mouselook this
-  added up to ~200 ms cumulative delay on top of the network RTT.
-  Painful in pilot mode.
+  v1 forked xdotool per event (5-30 ms each).
+  v2 tried persistent `xdotool -` but it dies after each batch in
+     practice — we ended up forking on every event AND paying a
+     restart penalty. Worst of both worlds.
 
-  v2 keeps ONE persistent xdotool subprocess (`xdotool -`, which reads
-  commands from stdin) per server lifetime. Each event is now a single
-  newline-write to the subprocess's stdin pipe: <100 us. Same
-  pipeline, ~2 orders of magnitude faster.
+  v3 uses python-xlib's XTEST extension directly. Each key/mouse
+  event is a single X protocol message: ~50-100 µs. No fork, no
+  process, no stderr to drain.
 
-Wire format unchanged from v1. Each TCP line is a JSON event:
+Mouse handling:
+  CS 1.6 / xash3d-fwgs only sees mouse motion when it has grabbed
+  the X pointer (SDL_SetRelativeMouseMode). In headless mode the
+  client doesn't grab — so raw `MotionNotify` events go nowhere.
+  We convert "mm" deltas into Arrow-key HOLD/RELEASE, which the
+  engine sees as +left / +right / +lookup / +lookdown via its
+  default keybinds. Snap-y but reliable.
 
-    {"t": "kd", "k": "w"}       # keydown w
-    {"t": "ku", "k": "w"}       # keyup w
-    {"t": "mm", "dx": 5, "dy": -3}   # mousemove_relative (pointerlock)
-    {"t": "click", "b": 1}      # button 1 click
-    {"t": "ping"}               # noop liveness
-
-Discovers the xash3d window once at startup via `xdotool search`.
-Re-discovers + restarts the xdotool subprocess if a target fails
-(window can change after a spec restart).
+Wire format unchanged from v1/v2.
 
 Security: bound to 0.0.0.0 — UFW restricts to docker bridge.
 """
 import json
-import os
 import socket
-import subprocess
 import sys
 import threading
+import time
 from typing import Optional
+
+from Xlib import display, X
+from Xlib.ext.xtest import fake_input
 
 LISTEN_HOST = "0.0.0.0"
 LISTEN_PORT = 7777
 DISPLAY = ":99"
 
-# Map JSON key names to xdotool key syms. CS 1.6 default binds:
-#   forward W, back S, left A, right D, jump SPACE, duck CTRL,
-#   use E, slow SHIFT, attack mouse1.
+# Keysym values for CS 1.6 default binds. Lowercase letters match the
+# physical key. Arrow keys use the X11 keysym constants.
+import Xlib.XK as _XK
 KEY_MAP = {
-    "w": "w", "a": "a", "s": "s", "d": "d",
-    "space": "space", "shift": "shift",
-    "ctrl": "ctrl", "e": "e", "q": "q",
-    "up": "Up", "down": "Down", "left": "Left", "right": "Right",
-    "tab": "Tab",
+    "w": _XK.XK_w, "a": _XK.XK_a, "s": _XK.XK_s, "d": _XK.XK_d,
+    "e": _XK.XK_e, "q": _XK.XK_q,
+    "space": _XK.XK_space,
+    "shift": _XK.XK_Shift_L,
+    "ctrl":  _XK.XK_Control_L,
+    "up":    _XK.XK_Up,    "down":  _XK.XK_Down,
+    "left":  _XK.XK_Left,  "right": _XK.XK_Right,
+    "tab":   _XK.XK_Tab,
 }
 
+# Mouse-to-arrow-key mapping. xash3d in headless mode doesn't grab
+# the pointer, so absolute mouse motion is ignored by the engine.
+# We translate "mm" deltas into bound arrow-key presses, which the
+# engine receives via its key bind chain (+left / +right / +lookup
+# / +lookdown). Granularity: each frame's accumulated delta gets
+# binned into "turn left now", "turn right now", etc.
+MOUSE_X_THRESHOLD = 2  # pixels of dx below this = no horizontal turn
+MOUSE_Y_THRESHOLD = 2
+MOUSE_KEY_HOLD_S = 0.05  # how long to hold an arrow key per batch
+
+_DISPLAY: Optional[display.Display] = None
+_KEYCODES: dict[str, int] = {}
 _LOCK = threading.Lock()
-_PROC: Optional[subprocess.Popen] = None
-_WIN_ID: Optional[str] = None
 
 
 def log(msg: str) -> None:
@@ -61,112 +73,92 @@ def log(msg: str) -> None:
     sys.stderr.flush()
 
 
-def discover_window() -> Optional[str]:
-    """Find the xash3d/Counter-Strike window on the Xvfb display."""
-    env = {**os.environ, "DISPLAY": DISPLAY}
+def init_display() -> bool:
+    global _DISPLAY, _KEYCODES
     try:
-        out = subprocess.run(
-            ["xdotool", "search", "--name", "Counter-Strike"],
-            env=env, capture_output=True, text=True, timeout=2,
-        )
-        ids = [x.strip() for x in out.stdout.splitlines() if x.strip()]
-        if ids:
-            return ids[0]
+        _DISPLAY = display.Display(DISPLAY)
     except Exception as e:
-        log(f"discover error: {e}")
-    return None
+        log(f"display open failed: {e}")
+        return False
+    for k, sym in KEY_MAP.items():
+        kc = _DISPLAY.keysym_to_keycode(sym)
+        if kc == 0:
+            log(f"keysym {k} -> keycode 0 (not mapped on this keyboard layout)")
+        _KEYCODES[k] = kc
+    log(f"X display :99 opened, {len(_KEYCODES)} keysyms resolved")
+    return True
 
 
-def start_xdotool() -> Optional[subprocess.Popen]:
-    """Spawn a persistent `xdotool -` subprocess that reads commands
-    from stdin. Each newline-terminated line is one xdotool command.
-
-    We pipe stdout/stderr to DEVNULL so the process doesn't fill up
-    on us if no one reads them."""
-    env = {**os.environ, "DISPLAY": DISPLAY}
-    try:
-        proc = subprocess.Popen(
-            ["xdotool", "-"],
-            env=env,
-            stdin=subprocess.PIPE,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            bufsize=0,
-        )
-        log(f"started persistent xdotool subprocess pid={proc.pid}")
-        return proc
-    except Exception as e:
-        log(f"xdotool spawn error: {e}")
-        return None
-
-
-def ensure_pipeline() -> bool:
-    """Make sure the window id is known and the xdotool subprocess is
-    alive. Returns True on success."""
-    global _PROC, _WIN_ID
-    with _LOCK:
-        if _WIN_ID is None:
-            _WIN_ID = discover_window()
-            if _WIN_ID:
-                log(f"discovered xash3d window id={_WIN_ID}")
-        if _WIN_ID is None:
-            return False
-        if _PROC is None or _PROC.poll() is not None:
-            if _PROC is not None:
-                log(f"xdotool subprocess died (rc={_PROC.poll()}), restarting")
-            _PROC = start_xdotool()
-        return _PROC is not None and _PROC.poll() is None
-
-
-def send_xdo(cmd_line: str) -> None:
-    """Write one xdotool command line to the persistent subprocess."""
-    global _PROC
-    if not ensure_pipeline():
+def send_key(k: str, down: bool) -> None:
+    if _DISPLAY is None:
         return
-    try:
-        assert _PROC is not None and _PROC.stdin is not None
-        _PROC.stdin.write((cmd_line + "\n").encode("utf-8"))
-        _PROC.stdin.flush()
-    except (BrokenPipeError, OSError) as e:
-        log(f"xdotool stdin error: {e}, will restart on next call")
-        with _LOCK:
-            _PROC = None
+    kc = _KEYCODES.get(k, 0)
+    if kc == 0:
+        return
+    with _LOCK:
+        fake_input(_DISPLAY, X.KeyPress if down else X.KeyRelease, kc)
+        _DISPLAY.sync()
+
+
+def mouse_to_arrows(dx: int, dy: int) -> None:
+    """Translate a one-frame mouse delta into discrete arrow key
+    holds for camera yaw + pitch. CS reads Left/Right as
+    +left/+right and Up/Down as +lookup/+lookdown when bound."""
+    if _DISPLAY is None:
+        return
+    held: list[str] = []
+    if dx >= MOUSE_X_THRESHOLD:
+        held.append("right")
+    elif dx <= -MOUSE_X_THRESHOLD:
+        held.append("left")
+    if dy >= MOUSE_Y_THRESHOLD:
+        held.append("down")
+    elif dy <= -MOUSE_Y_THRESHOLD:
+        held.append("up")
+    if not held:
+        return
+    for k in held:
+        send_key(k, True)
+    # Background-release after a short hold. Magnitude of dx/dy
+    # controls hold length so a fast mouse swipe = longer arrow hold.
+    mag = max(abs(dx), abs(dy))
+    # 1 pixel of delta = 5 ms of arrow hold, capped at 200 ms so a
+    # single huge delta can't lock us into a long uncontrolled turn.
+    hold_s = min(0.2, mag * 0.005)
+    if hold_s < MOUSE_KEY_HOLD_S:
+        hold_s = MOUSE_KEY_HOLD_S
+    def release():
+        time.sleep(hold_s)
+        for k in held:
+            send_key(k, False)
+    threading.Thread(target=release, daemon=True).start()
+
+
+def send_click(button: int) -> None:
+    if _DISPLAY is None:
+        return
+    with _LOCK:
+        fake_input(_DISPLAY, X.ButtonPress, button)
+        _DISPLAY.sync()
+        fake_input(_DISPLAY, X.ButtonRelease, button)
+        _DISPLAY.sync()
 
 
 def handle_event(evt: dict) -> None:
     t = evt.get("t")
-    win = _WIN_ID
-    if win is None:
-        # First-call discovery.
-        ensure_pipeline()
-        win = _WIN_ID
-        if win is None:
-            return
     if t in ("kd", "ku"):
         k = evt.get("k", "")
-        sym = KEY_MAP.get(k)
-        if not sym:
-            return
-        cmd = "keydown" if t == "kd" else "keyup"
-        send_xdo(f"{cmd} --window {win} {sym}")
+        if k in KEY_MAP:
+            send_key(k, t == "kd")
     elif t == "mm":
         dx = int(evt.get("dx", 0))
         dy = int(evt.get("dy", 0))
-        if dx == 0 and dy == 0:
-            return
-        # mousemove_relative does NOT need a window target — works
-        # on the X pointer. `--sync` would block until the X server
-        # confirms, which adds latency. Async (default) is fine for
-        # mouselook because subsequent moves will overwrite intent
-        # on the engine side anyway.
-        send_xdo(f"mousemove_relative -- {dx} {dy}")
+        if dx != 0 or dy != 0:
+            mouse_to_arrows(dx, dy)
     elif t == "click":
-        b = int(evt.get("b", 1))
-        send_xdo(f"click --window {win} {b}")
+        send_click(int(evt.get("b", 1)))
     elif t == "ping":
         pass
-    else:
-        log(f"unknown event type {t!r}")
 
 
 def serve_client(conn: socket.socket, addr: tuple) -> None:
@@ -203,7 +195,16 @@ def serve_client(conn: socket.socket, addr: tuple) -> None:
 
 def main() -> None:
     log(f"starting on {LISTEN_HOST}:{LISTEN_PORT}, DISPLAY={DISPLAY}")
-    ensure_pipeline()
+    # Open the X display with a short retry loop — on service start we
+    # may race with Xvfb spinning up.
+    for i in range(20):
+        if init_display():
+            break
+        log(f"display retry {i+1}/20")
+        time.sleep(0.5)
+    else:
+        log("could not open X display, exiting")
+        sys.exit(1)
     srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     srv.bind((LISTEN_HOST, LISTEN_PORT))
@@ -220,11 +221,6 @@ def main() -> None:
         log("shutting down")
     finally:
         srv.close()
-        if _PROC is not None:
-            try:
-                _PROC.terminate()
-            except Exception:
-                pass
 
 
 if __name__ == "__main__":
