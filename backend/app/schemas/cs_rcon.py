@@ -23,6 +23,25 @@ class SayResult(BaseModel):
     latency_ms: int
 
 
+class PrivateSayRequest(BaseModel):
+    """Whisper a single in-game player from the forum admin panel.
+
+    Resolution: the target is picked by `userid` (the HLDS user id, not
+    the SteamID) so the backend stays in lockstep with the live-roster
+    snapshot the forum already keeps. The text is sanitized the same way
+    as the global say channel."""
+
+    userid: int
+    text: str = Field(min_length=1, max_length=200)
+
+
+class PrivateSayResult(BaseModel):
+    ok: bool
+    sent_text: str
+    target_userid: int
+    latency_ms: int
+
+
 class RconBatch(BaseModel):
     """Up to 10 commands fired sequentially as one batch. Total time-budget
     governed by the same rate limit as a single execute (counts as N

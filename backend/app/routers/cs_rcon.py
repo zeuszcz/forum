@@ -35,6 +35,8 @@ from app.schemas.cs_rcon import (
     RconCommand,
     RconLogRead,
     RconResult,
+    PrivateSayRequest,
+    PrivateSayResult,
     SayRequest,
     SayResult,
 )
@@ -420,6 +422,75 @@ async def say_to_cs_chat(
         latency_ms=result.latency_ms,
     )
     return SayResult(ok=True, sent_text=say_text, latency_ms=result.latency_ms)
+
+
+@router.post("/private-say", response_model=PrivateSayResult)
+async def private_say(
+    payload: PrivateSayRequest,
+    user: CurrentUser,
+    db: DbSession,
+) -> PrivateSayResult:
+    """Send a single-recipient in-game message via amx_psay.
+
+    The forum nickname is taken from auth (anti-impersonation) and the
+    final body is `[FORUM <nick>] :: <text>`. We reuse the global rate
+    limit so a flood from the admin panel can't outpace the broadcast
+    `say` flow.
+
+    amx_psay format: `amx_psay <#userid> "<text>"`. The `#` prefix tells
+    AMX to resolve by userid (1-based connection id) instead of nickname,
+    which avoids nick collisions and CJK lookup issues."""
+    if not await _is_staff(db, user):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Только для модераторов"
+        )
+    await _check_rate_limit(user.id)
+
+    sanitized = _sanitize_announce(payload.text)
+    nick = _sanitize_announce(user.nickname)
+    if not sanitized:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Пустой текст после санитаризации (разрешен ASCII + Кириллица + стрелки)",
+        )
+    if not nick:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Не удалось нормализовать ник",
+        )
+    body_text = _sanitize_announce(f"[FORUM {nick}] :: {sanitized}")
+    rcon_cmd = f'amx_psay #{int(payload.userid)} "{body_text}"'
+
+    try:
+        result = await cs_rcon.execute(rcon_cmd)
+    except cs_rcon.RconError as e:
+        await _audit(
+            db,
+            actor_id=user.id,
+            command=rcon_cmd,
+            response=None,
+            success=False,
+            error=str(e),
+            latency_ms=None,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY, detail=f"RCON: {e}"
+        )
+    await _audit(
+        db,
+        actor_id=user.id,
+        command=rcon_cmd,
+        response=result.output,
+        success=True,
+        error=None,
+        latency_ms=result.latency_ms,
+    )
+    return PrivateSayResult(
+        ok=True,
+        sent_text=body_text,
+        target_userid=payload.userid,
+        latency_ms=result.latency_ms,
+    )
 
 
 @router.get("/effects", response_model=list[ActiveEffectRead])

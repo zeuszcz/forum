@@ -1,25 +1,82 @@
 "use client";
 
-import { Radio, RadioTower } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  MessageSquare,
+  Radio,
+  RadioTower,
+  Send,
+  Target,
+  Users,
+  X,
+} from "lucide-react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import { toast } from "sonner";
 
+import { api, ApiError } from "@/lib/api";
+import { useAuth } from "@/lib/auth-context";
 import { cn } from "@/lib/utils";
 
-// Interpolation window — matches AMX plugin dump period.
+// -----------------------------------------------------------------------------
+// Constants
+// -----------------------------------------------------------------------------
 const PLUGIN_TICK_MS = 2000;
-// Drop players that haven't pinged for this long (left the server, dead, etc).
 const PLAYER_STALE_MS = 6000;
+const TRAIL_LENGTH = 6;          // D1: ring-buffer of last N positions
+const KILL_MARKER_TTL_MS = 5000; // D2: how long kill skull/flame stays on map
+const AFK_THRESHOLD_MS = 30_000; // D5: stationary + same yaw → sleeping icon
+const CHAT_BUFFER_MAX = 60;
 
+// -----------------------------------------------------------------------------
+// Types
+// -----------------------------------------------------------------------------
 type Player = {
   userid: number;
   x: number;
   y: number;
   z: number;
   yaw: number;
-  team: number; // 1=T, 2=CT, 0/3=spec
+  team: number;
   hp: number;
+  // Extended fields (plugin v0.2.0+, optional for backward compat).
+  money: number | null;
+  weapon: string | null;
+  kills: number | null;
+  deaths: number | null;
+  flags: string | null;
   nick: string;
   updatedAt: number;
+};
+
+type Trail = {
+  // Ring of recent (x, y, ts) so the canvas can draw a fading polyline.
+  points: Array<{ x: number; y: number; ts: number }>;
+};
+
+type KillMarker = {
+  id: string;
+  kx: number;
+  ky: number;
+  vx: number;
+  vy: number;
+  killer_userid: number;
+  victim_userid: number;
+  killer_nick: string;
+  victim_nick: string;
+  weapon: string;
+  hs: boolean;
+  ts: number;
+};
+
+type RoundState = {
+  startedAt: number;   // wall-clock when start fired
+  durationMs: number;  // mp_roundtime * 60
+  endedAt: number | null;
 };
 
 type MapMeta = {
@@ -33,6 +90,31 @@ type MapMeta = {
   generated_from_bsp?: boolean;
 };
 
+type Zone = {
+  name: string;
+  color?: string;
+  polygon: Array<[number, number]>;
+};
+
+type RosterRow = {
+  // Server snapshot from /cs-rcon/players — staff-only, gives SteamID.
+  slot: number;
+  name: string;
+  userid: number;
+  steamid: string;
+  frag: number;
+  time: string;
+  ping: number;
+  loss: number;
+  addr: string;
+};
+
+type ChatLine = {
+  id: string;
+  body: string;
+  created_at: string;
+};
+
 type WsEvent =
   | { type: "hello"; user_id: number | null }
   | {
@@ -44,9 +126,14 @@ type WsEvent =
     }
   | { type: string; [k: string]: unknown };
 
+// -----------------------------------------------------------------------------
+// Parsers
+// -----------------------------------------------------------------------------
 function parsePos(body: string, now: number): Player | null {
   if (!body.startsWith("JBF_POS|")) return null;
   const parts = body.split("|");
+  // v0.1.0 layout: JBF_POS|userid|x|y|z|yaw|team|hp|nick (9 parts)
+  // v0.2.0 layout: JBF_POS|userid|x|y|z|yaw|team|hp|money|weapon|kills|deaths|flags|nick (14 parts)
   if (parts.length < 9) return null;
   const userid = parseInt(parts[1] || "", 10);
   const x = parseFloat(parts[2] || "");
@@ -55,17 +142,75 @@ function parsePos(body: string, now: number): Player | null {
   const yaw = parseFloat(parts[5] || "");
   const team = parseInt(parts[6] || "", 10);
   const hp = parseInt(parts[7] || "", 10);
-  const nick = parts.slice(8).join("|");
   if (!Number.isFinite(userid) || !Number.isFinite(x) || !Number.isFinite(y)) {
     return null;
   }
-  return { userid, x, y, z, yaw, team, hp, nick, updatedAt: now };
+  if (parts.length >= 14) {
+    const money = parseInt(parts[8] || "0", 10);
+    const weapon = parts[9] || "";
+    const kills = parseInt(parts[10] || "0", 10);
+    const deaths = parseInt(parts[11] || "0", 10);
+    const flags = parts[12] || "";
+    const nick = parts.slice(13).join("|");
+    return {
+      userid, x, y, z, yaw, team, hp, money,
+      weapon: weapon || null,
+      kills, deaths, flags: flags || null,
+      nick, updatedAt: now,
+    };
+  }
+  // Legacy: no extended fields.
+  const nick = parts.slice(8).join("|");
+  return {
+    userid, x, y, z, yaw, team, hp,
+    money: null, weapon: null, kills: null, deaths: null, flags: null,
+    nick, updatedAt: now,
+  };
 }
 
+function parseKill(body: string): KillMarker | null {
+  // JBF_KILL|killer_userid|kx|ky|victim_userid|vx|vy|weapon|hs|killer_nick|victim_nick
+  if (!body.startsWith("JBF_KILL|")) return null;
+  const parts = body.split("|");
+  if (parts.length < 11) return null;
+  const k_uid = parseInt(parts[1] || "", 10);
+  const kx = parseFloat(parts[2] || "");
+  const ky = parseFloat(parts[3] || "");
+  const v_uid = parseInt(parts[4] || "", 10);
+  const vx = parseFloat(parts[5] || "");
+  const vy = parseFloat(parts[6] || "");
+  const weapon = parts[7] || "";
+  const hs = parts[8] === "1";
+  const k_nick = parts[9] || "";
+  const v_nick = parts.slice(10).join("|");
+  if (!Number.isFinite(vx) || !Number.isFinite(vy)) return null;
+  const now = Date.now();
+  return {
+    id: `${now}-${v_uid}-${k_uid}`,
+    kx, ky, vx, vy,
+    killer_userid: k_uid,
+    victim_userid: v_uid,
+    killer_nick: k_nick,
+    victim_nick: v_nick,
+    weapon,
+    hs,
+    ts: now,
+  };
+}
+
+// -----------------------------------------------------------------------------
+// Helpers
+// -----------------------------------------------------------------------------
 function teamColor(team: number): string {
   if (team === 1) return "#e7572f";
   if (team === 2) return "#5fb3e9";
   return "#9ea0a8";
+}
+
+function teamLabel(team: number): string {
+  if (team === 1) return "T";
+  if (team === 2) return "CT";
+  return "SPEC";
 }
 
 function teamGlow(team: number): string {
@@ -75,6 +220,7 @@ function teamGlow(team: number): string {
 }
 
 function hpColor(hp: number): string {
+  if (hp <= 0) return "#666";
   if (hp > 50) return "#5ce86b";
   if (hp > 20) return "#ffd23f";
   return "#e75050";
@@ -89,40 +235,84 @@ function lerpAngle(a: number, b: number, t: number): number {
   return a + d * t;
 }
 
+function isAdmin(flags: string | null): boolean {
+  // AMX-X admin flag is "a" (ADMIN_IMMUNITY) — most servers grant it to staff.
+  return !!flags && /[a-w]/i.test(flags);
+}
+
+// -----------------------------------------------------------------------------
+// Page
+// -----------------------------------------------------------------------------
 export default function LivePage() {
+  const { user } = useAuth();
+  const isStaff = useMemo(
+    () => Boolean(user?.roles?.some((r) => r.is_staff)),
+    [user],
+  );
+
+  // Canvas refs
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
 
+  // Toggles
   const [liveOn, setLiveOn] = useState(true);
+  const [chatPanelOpen, setChatPanelOpen] = useState(true);
+  const [showTrails, setShowTrails] = useState(true);
+  const [followUserid, setFollowUserid] = useState<number | null>(null);
+  const followUseridRef = useRef<number | null>(null);
+  useEffect(() => {
+    followUseridRef.current = followUserid;
+  }, [followUserid]);
+
+  // Live state from WS
   const [wsConnected, setWsConnected] = useState(false);
   const [mapName, setMapName] = useState<string | null>(null);
   const [mapMeta, setMapMeta] = useState<MapMeta | null>(null);
+  const [zones, setZones] = useState<Zone[] | null>(null);
   const mapImgRef = useRef<HTMLImageElement | null>(null);
-  const [mapImgReady, setMapImgReady] = useState(false);
-  const [playerCount, setPlayerCount] = useState(0);
-  const [tickAgeMs, setTickAgeMs] = useState<number>(0);
 
+  // Player buffers — refs for render loop, state for UI sync
   const prevRef = useRef<Map<number, Player>>(new Map());
   const curRef = useRef<Map<number, Player>>(new Map());
+  const trailsRef = useRef<Map<number, Trail>>(new Map());
+  const killMarkersRef = useRef<KillMarker[]>([]);
+  const roundRef = useRef<RoundState | null>(null);
   const tickStartRef = useRef<number>(Date.now());
   const mapMetaRef = useRef<MapMeta | null>(null);
+  const zonesRef = useRef<Zone[] | null>(null);
+  const projRef = useRef<{
+    toPx: (gx: number, gy: number) => [number, number];
+    bounds: { bMinX: number; bMinY: number; bMaxX: number; bMaxY: number };
+    scale: number;
+  } | null>(null);
 
-  // Keep ref in sync with state for render-loop reads.
+  const [playerListVersion, setPlayerListVersion] = useState(0); // bump on snapshot flip
+  const [selectedUserid, setSelectedUserid] = useState<number | null>(null);
+  const [chatLines, setChatLines] = useState<ChatLine[]>([]);
+  const [roster, setRoster] = useState<RosterRow[]>([]);
+
+  // Keep refs in sync with state where render loop needs them
   useEffect(() => {
     mapMetaRef.current = mapMeta;
   }, [mapMeta]);
+  useEffect(() => {
+    zonesRef.current = zones;
+  }, [zones]);
 
-  // -------- Load map metadata + image on map change --------
+  // ---------------------------------------------------------------------------
+  // Map asset loading
+  // ---------------------------------------------------------------------------
   useEffect(() => {
     if (!mapName) {
       setMapMeta(null);
+      setZones(null);
       mapImgRef.current = null;
-      setMapImgReady(false);
+      /* mapImgReady not needed for render */
       return;
     }
     let cancelled = false;
-    setMapImgReady(false);
+    /* mapImgReady not needed for render */
     mapImgRef.current = null;
 
     fetch(`/maps/${encodeURIComponent(mapName)}.json`)
@@ -134,25 +324,78 @@ export default function LivePage() {
         img.onload = () => {
           if (cancelled) return;
           mapImgRef.current = img;
-          setMapImgReady(true);
+          /* image loaded */
         };
         img.onerror = () => {
           if (cancelled) return;
           mapImgRef.current = null;
-          setMapImgReady(false);
+          /* mapImgReady not needed for render */
         };
         img.src = `/maps/${encodeURIComponent(meta.image)}`;
       })
       .catch(() => {
-        if (cancelled) return;
-        setMapMeta(null);
+        if (!cancelled) setMapMeta(null);
       });
+
+    // Zones (D9) — separate file, optional.
+    fetch(`/maps/${encodeURIComponent(mapName)}.zones.json`)
+      .then((r) => (r.ok ? r.json() : Promise.reject()))
+      .then((zs: { zones: Zone[] }) => {
+        if (!cancelled) setZones(zs.zones ?? null);
+      })
+      .catch(() => {
+        if (!cancelled) setZones(null);
+      });
+
     return () => {
       cancelled = true;
     };
   }, [mapName]);
 
-  // -------- WS lifecycle --------
+  // ---------------------------------------------------------------------------
+  // Bootstrap mapName from /shoutbox/server-status (WS race fallback)
+  // ---------------------------------------------------------------------------
+  useEffect(() => {
+    if (mapName) return;
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || "";
+    if (!apiUrl) return;
+    fetch(`${apiUrl}/shoutbox/server-status`, { credentials: "include" })
+      .then((r) => (r.ok ? r.json() : Promise.reject()))
+      .then((s: { map?: string | null }) => {
+        if (s.map) setMapName(s.map);
+      })
+      .catch(() => {});
+  }, [mapName]);
+
+  // ---------------------------------------------------------------------------
+  // Roster snapshot from /cs-rcon/players — staff-only, gives SteamID + ping
+  // Polled every 10 s when staff is viewing. Used for popover + table.
+  // ---------------------------------------------------------------------------
+  useEffect(() => {
+    if (!isStaff) return;
+    let cancelled = false;
+    const tick = async () => {
+      try {
+        const r = await api<{ players: RosterRow[] }>(
+          "/cs-rcon/players",
+          { method: "GET" },
+        );
+        if (!cancelled) setRoster(r.players ?? []);
+      } catch {
+        // ignore
+      }
+    };
+    void tick();
+    const id = window.setInterval(tick, 10_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
+  }, [isStaff]);
+
+  // ---------------------------------------------------------------------------
+  // WS subscription
+  // ---------------------------------------------------------------------------
   useEffect(() => {
     if (!liveOn) {
       if (wsRef.current) {
@@ -179,12 +422,24 @@ export default function LivePage() {
       if (evt.type !== "ephemeral_system") return;
       const cat = (evt as { category?: string | null }).category;
       const body = String((evt as { body?: string }).body ?? "");
+      const ts = String(
+        (evt as { created_at?: string }).created_at ??
+          new Date().toISOString(),
+      );
       const now = Date.now();
 
       if (cat === "position") {
         const p = parsePos(body, now);
         if (!p) return;
         curRef.current.set(p.userid, p);
+        // Update movement trail
+        let trail = trailsRef.current.get(p.userid);
+        if (!trail) {
+          trail = { points: [] };
+          trailsRef.current.set(p.userid, trail);
+        }
+        trail.points.push({ x: p.x, y: p.y, ts: now });
+        if (trail.points.length > TRAIL_LENGTH) trail.points.shift();
         return;
       }
       if (cat === "map") {
@@ -193,7 +448,47 @@ export default function LivePage() {
           setMapName(m[1] || null);
           prevRef.current = new Map();
           curRef.current = new Map();
+          trailsRef.current = new Map();
+          killMarkersRef.current = [];
+          roundRef.current = null;
         }
+        return;
+      }
+      if (cat === "kill_live") {
+        const k = parseKill(body);
+        if (k) {
+          killMarkersRef.current.push(k);
+          if (killMarkersRef.current.length > 20) {
+            killMarkersRef.current.shift();
+          }
+        }
+        return;
+      }
+      if (cat === "round_live") {
+        // JBF_ROUND|start|<seconds>  OR  JBF_ROUND|end
+        const m = body.match(/^JBF_ROUND\|(start|end)(?:\|([\d.]+))?$/);
+        if (!m) return;
+        if (m[1] === "start") {
+          const dur = parseFloat(m[2] || "180");
+          roundRef.current = {
+            startedAt: now,
+            durationMs: Math.max(30, dur) * 1000,
+            endedAt: null,
+          };
+        } else if (m[1] === "end") {
+          if (roundRef.current) roundRef.current.endedAt = now;
+        }
+        return;
+      }
+      if (cat === "chat") {
+        const id_ = ts + "#" + Math.random().toString(36).slice(2, 8);
+        setChatLines((prev) => {
+          const next = [...prev, { id: id_, body, created_at: ts }];
+          if (next.length > CHAT_BUFFER_MAX) {
+            next.splice(0, next.length - CHAT_BUFFER_MAX);
+          }
+          return next;
+        });
         return;
       }
     };
@@ -232,7 +527,6 @@ export default function LivePage() {
         }
       };
     };
-
     const scheduleReconnect = () => {
       if (!alive) return;
       reconnectTimer = window.setTimeout(connect, backoff);
@@ -253,38 +547,31 @@ export default function LivePage() {
     };
   }, [liveOn]);
 
-  // -------- Snapshot promotion --------
+  // ---------------------------------------------------------------------------
+  // Snapshot promotion (every PLUGIN_TICK_MS)
+  // ---------------------------------------------------------------------------
   useEffect(() => {
     const id = window.setInterval(() => {
       const now = Date.now();
       const newPrev = new Map(curRef.current);
       for (const [uid, p] of newPrev) {
-        if (now - p.updatedAt > PLAYER_STALE_MS) newPrev.delete(uid);
+        if (now - p.updatedAt > PLAYER_STALE_MS) {
+          newPrev.delete(uid);
+          trailsRef.current.delete(uid);
+        }
       }
       prevRef.current = newPrev;
       curRef.current = new Map(newPrev);
       tickStartRef.current = now;
+      // Bump UI list version so React re-renders the table.
+      setPlayerListVersion((v) => v + 1);
     }, PLUGIN_TICK_MS);
     return () => window.clearInterval(id);
   }, []);
 
-  // -------- One-time bootstrap probe --------
-  // If the page is loaded before any JBF_MAP event arrives (e.g. WS lost the
-  // race), guess the map from /api/shoutbox/server-status which already
-  // exposes the active map name (cached 5s on the backend).
-  useEffect(() => {
-    if (mapName) return;
-    const apiUrl = process.env.NEXT_PUBLIC_API_URL || "";
-    if (!apiUrl) return;
-    fetch(`${apiUrl}/shoutbox/server-status`, { credentials: "include" })
-      .then((r) => (r.ok ? r.json() : Promise.reject()))
-      .then((s: { map?: string | null }) => {
-        if (s.map) setMapName(s.map);
-      })
-      .catch(() => {});
-  }, [mapName]);
-
-  // -------- Canvas render loop --------
+  // ---------------------------------------------------------------------------
+  // Canvas render loop
+  // ---------------------------------------------------------------------------
   useEffect(() => {
     const canvas = canvasRef.current;
     const container = containerRef.current;
@@ -312,7 +599,7 @@ export default function LivePage() {
       ctx.setTransform(1, 0, 0, 1, 0, 0);
       ctx.clearRect(0, 0, w, h);
 
-      // Background
+      // BG gradient
       const bg = ctx.createLinearGradient(0, 0, 0, h);
       bg.addColorStop(0, "#0a0b14");
       bg.addColorStop(1, "#11131f");
@@ -321,18 +608,14 @@ export default function LivePage() {
 
       const meta = mapMetaRef.current;
       const img = mapImgRef.current;
-
-      // Decide projection bounds: prefer the map meta (stable across ticks
-      // and ages well with single-player maps), then auto-fit fallback.
-      let bMinX: number, bMinY: number, bMaxX: number, bMaxY: number;
       const cur = curRef.current;
       const prev = prevRef.current;
       const allIds = new Set<number>([
         ...Array.from(prev.keys()),
         ...Array.from(cur.keys()),
       ]);
-      setPlayerCount(allIds.size);
 
+      let bMinX: number, bMinY: number, bMaxX: number, bMaxY: number;
       if (meta) {
         bMinX = meta.world_min_x;
         bMinY = meta.world_min_y;
@@ -361,16 +644,26 @@ export default function LivePage() {
           raf = requestAnimationFrame(render);
           return;
         }
-        // Pad ~10% so single-player maps don't render at canvas center.
         const padW = Math.max(256, (mxx - mnx) * 0.1);
         const padH = Math.max(256, (mxy - mny) * 0.1);
-        bMinX = mnx - padW;
-        bMaxX = mxx + padW;
-        bMinY = mny - padH;
-        bMaxY = mxy + padH;
+        bMinX = mnx - padW; bMaxX = mxx + padW;
+        bMinY = mny - padH; bMaxY = mxy + padH;
       }
 
-      // Fit world bbox into canvas with letterbox (preserve aspect).
+      // Follow-camera (D3) — recenter bounds on the followed player
+      const follow = followUseridRef.current;
+      if (follow) {
+        const p = cur.get(follow) ?? prev.get(follow);
+        if (p) {
+          const fW = (bMaxX - bMinX) * 0.6;
+          const fH = (bMaxY - bMinY) * 0.6;
+          bMinX = p.x - fW / 2;
+          bMaxX = p.x + fW / 2;
+          bMinY = p.y - fH / 2;
+          bMaxY = p.y + fH / 2;
+        }
+      }
+
       const worldW = bMaxX - bMinX;
       const worldH = bMaxY - bMinY;
       const sx = w / worldW;
@@ -383,18 +676,25 @@ export default function LivePage() {
 
       const toPx = (gx: number, gy: number): [number, number] => {
         const px = offsetX + (gx - bMinX) * scale;
-        const py = offsetY + (bMaxY - gy) * scale; // flip Y
+        const py = offsetY + (bMaxY - gy) * scale;
         return [px, py];
       };
+      projRef.current = { toPx, bounds: { bMinX, bMinY, bMaxX, bMaxY }, scale };
 
-      // Draw map image as background if loaded
+      // Background map image (or grid fallback)
       if (img && meta) {
-        ctx.drawImage(img, offsetX, offsetY, drawW, drawH);
-        // Subtle darken so player dots pop
+        const [imgPxMinX, imgPxMinY] = toPx(meta.world_min_x, meta.world_max_y);
+        const [imgPxMaxX, imgPxMaxY] = toPx(meta.world_max_x, meta.world_min_y);
+        ctx.drawImage(
+          img,
+          imgPxMinX,
+          imgPxMinY,
+          imgPxMaxX - imgPxMinX,
+          imgPxMaxY - imgPxMinY,
+        );
         ctx.fillStyle = "rgba(10, 12, 20, 0.18)";
         ctx.fillRect(offsetX, offsetY, drawW, drawH);
       } else {
-        // No image: thin grid overlay
         ctx.strokeStyle = "rgba(140,150,180,0.08)";
         ctx.lineWidth = 1;
         const gridStep = 64 * dpr;
@@ -412,12 +712,97 @@ export default function LivePage() {
         }
       }
 
-      // Now draw players
-      const tickElapsed = Date.now() - tickStartRef.current;
-      setTickAgeMs(tickElapsed);
-      const t = Math.min(1, tickElapsed / PLUGIN_TICK_MS);
-      const now = Date.now();
+      // Zone overlays (D9) — drawn under players, over the map.
+      const zs = zonesRef.current;
+      if (zs && zs.length) {
+        for (const z of zs) {
+          if (z.polygon.length < 3) continue;
+          ctx.beginPath();
+          for (let i = 0; i < z.polygon.length; i++) {
+            const [zx, zy] = toPx(z.polygon[i]![0], z.polygon[i]![1]);
+            if (i === 0) ctx.moveTo(zx, zy);
+            else ctx.lineTo(zx, zy);
+          }
+          ctx.closePath();
+          ctx.fillStyle = (z.color ?? "#9966cc") + "22";
+          ctx.fill();
+          ctx.strokeStyle = (z.color ?? "#9966cc") + "88";
+          ctx.lineWidth = 1.5 * dpr;
+          ctx.stroke();
+          // Zone label
+          let cx = 0, cy = 0;
+          for (const [zx, zy] of z.polygon) {
+            cx += zx;
+            cy += zy;
+          }
+          cx /= z.polygon.length;
+          cy /= z.polygon.length;
+          const [lx, ly] = toPx(cx, cy);
+          ctx.font = `${10 * dpr}px ui-sans-serif, system-ui, sans-serif`;
+          ctx.fillStyle = (z.color ?? "#9966cc") + "cc";
+          const tw = ctx.measureText(z.name).width;
+          ctx.fillText(z.name, lx - tw / 2, ly);
+        }
+      }
 
+      const now = Date.now();
+      const tickElapsed = now - tickStartRef.current;
+      const t = Math.min(1, tickElapsed / PLUGIN_TICK_MS);
+
+      // Movement trails (D1) — under player dots
+      if (showTrails) {
+        for (const uid of allIds) {
+          const trail = trailsRef.current.get(uid);
+          if (!trail || trail.points.length < 2) continue;
+          const dst = cur.get(uid) ?? prev.get(uid);
+          if (!dst) continue;
+          const color = teamColor(dst.team);
+          for (let i = 1; i < trail.points.length; i++) {
+            const a = trail.points[i - 1]!;
+            const b = trail.points[i]!;
+            const age = (now - b.ts) / 1000;
+            const fade = Math.max(0, 1 - age / 6);
+            if (fade <= 0) continue;
+            const [ax, ay] = toPx(a.x, a.y);
+            const [bx, by] = toPx(b.x, b.y);
+            ctx.beginPath();
+            ctx.moveTo(ax, ay);
+            ctx.lineTo(bx, by);
+            ctx.strokeStyle = color;
+            ctx.globalAlpha = fade * 0.5;
+            ctx.lineWidth = 1.5 * dpr;
+            ctx.stroke();
+          }
+          ctx.globalAlpha = 1;
+        }
+      }
+
+      // Kill markers (D2) — drawn under players
+      const markers = killMarkersRef.current;
+      const liveMarkers: KillMarker[] = [];
+      for (const m of markers) {
+        const age = now - m.ts;
+        if (age > KILL_MARKER_TTL_MS) continue;
+        liveMarkers.push(m);
+        const fade = 1 - age / KILL_MARKER_TTL_MS;
+        const [vpx, vpy] = toPx(m.vx, m.vy);
+        // Skull on victim
+        ctx.globalAlpha = fade;
+        ctx.font = `${16 * dpr}px ui-sans-serif`;
+        ctx.fillStyle = "#e75050";
+        ctx.fillText("☠", vpx - 7 * dpr, vpy + 6 * dpr);
+        // Flame on killer (if not world/suicide)
+        if (m.killer_userid > 0 && m.killer_userid !== m.victim_userid) {
+          const [kpx, kpy] = toPx(m.kx, m.ky);
+          ctx.fillStyle = m.hs ? "#ffd23f" : "#ff8d33";
+          ctx.fillText(m.hs ? "✦" : "✕", kpx - 5 * dpr, kpy + 5 * dpr);
+        }
+      }
+      killMarkersRef.current = liveMarkers;
+      ctx.globalAlpha = 1;
+
+      // Players
+      const selected = selectedUserid;
       for (const uid of allIds) {
         const a = prev.get(uid);
         const b = cur.get(uid);
@@ -433,12 +818,19 @@ export default function LivePage() {
         const [px, py] = toPx(ix, iy);
         const color = teamColor(dst.team);
         const glow = teamGlow(dst.team);
-
         const stale = !b ? Math.min(1, (now - a!.updatedAt) / PLAYER_STALE_MS) : 0;
-        ctx.globalAlpha = 1 - stale * 0.85;
+        const isDead = ihp <= 0;
+        ctx.globalAlpha = (1 - stale * 0.85) * (isDead ? 0.5 : 1);
 
         const r = 7 * dpr;
-
+        // Selection ring
+        if (selected === uid) {
+          ctx.beginPath();
+          ctx.arc(px, py, r + 6 * dpr, 0, Math.PI * 2);
+          ctx.strokeStyle = "#ffe060";
+          ctx.lineWidth = 2 * dpr;
+          ctx.stroke();
+        }
         // Glow
         const gradient = ctx.createRadialGradient(px, py, 0, px, py, r * 3.2);
         gradient.addColorStop(0, glow);
@@ -447,7 +839,6 @@ export default function LivePage() {
         ctx.beginPath();
         ctx.arc(px, py, r * 3.2, 0, Math.PI * 2);
         ctx.fill();
-
         // View cone
         const yawRad = (iyaw * Math.PI) / 180;
         const cx = Math.cos(yawRad);
@@ -469,15 +860,39 @@ export default function LivePage() {
         ctx.closePath();
         ctx.fillStyle = glow;
         ctx.fill();
-
         // Dot
         ctx.beginPath();
         ctx.arc(px, py, r, 0, Math.PI * 2);
-        ctx.fillStyle = color;
+        ctx.fillStyle = isDead ? "#444" : color;
         ctx.fill();
         ctx.strokeStyle = "rgba(255,255,255,0.85)";
         ctx.lineWidth = 1.5 * dpr;
         ctx.stroke();
+
+        // AFK indicator (D5): hasn't moved >threshold + alive
+        const trail = trailsRef.current.get(uid);
+        let afk = false;
+        if (trail && trail.points.length >= 2 && !isDead) {
+          const first = trail.points[0]!;
+          const last = trail.points[trail.points.length - 1]!;
+          const dxw = last.x - first.x;
+          const dyw = last.y - first.y;
+          const distSq = dxw * dxw + dyw * dyw;
+          const span = last.ts - first.ts;
+          if (span > AFK_THRESHOLD_MS && distSq < 100) afk = true;
+        }
+        if (afk) {
+          ctx.font = `${11 * dpr}px ui-sans-serif`;
+          ctx.fillStyle = "#a4a8b8";
+          ctx.fillText("zZz", px - 9 * dpr, py - r - 10 * dpr);
+        }
+
+        // Admin / VIP crown (placeholder using flags string)
+        if (isAdmin(dst.flags)) {
+          ctx.font = `${10 * dpr}px ui-sans-serif`;
+          ctx.fillStyle = "#ffd23f";
+          ctx.fillText("♚", px - r - 8 * dpr, py - r + 2 * dpr);
+        }
 
         // Nick label
         const nickFontPx = 11 * dpr;
@@ -505,8 +920,7 @@ export default function LivePage() {
         ctx.fillRect(barX, barY, barW, barH);
         ctx.fillStyle = hpColor(ihp);
         ctx.fillRect(
-          barX,
-          barY,
+          barX, barY,
           barW * Math.max(0, Math.min(1, ihp / 100)),
           barH,
         );
@@ -521,12 +935,13 @@ export default function LivePage() {
       ctx.font = `${11 * dpr}px ui-monospace, SFMono-Regular, monospace`;
       const hudY = h - 10 * dpr;
       const map = mapName ?? "?";
-      const players = allIds.size;
-      const radarTag = img ? (meta?.generated_from_bsp ? "BSP" : "RADAR") : "GRID";
+      const radarTag = img && meta
+        ? meta.generated_from_bsp ? "BSP" : "RADAR"
+        : "GRID";
       ctx.fillText(
-        `MAP ${map}  ·  ${radarTag}  ·  PLAYERS ${players}  ·  TICK ${Math.round(
-          tickElapsed,
-        )}ms / ${PLUGIN_TICK_MS}ms  ·  1px ≈ ${(1 / scale).toFixed(0)}u`,
+        `MAP ${map} · ${radarTag} · PLAYERS ${allIds.size} · 1px ≈ ${(1 / scale).toFixed(0)}u${
+          follow ? " · FOLLOW " + follow : ""
+        }`,
         12 * dpr,
         hudY,
       );
@@ -538,11 +953,127 @@ export default function LivePage() {
       cancelAnimationFrame(raf);
       ro.disconnect();
     };
-  }, [mapName]);
+  }, [mapName, selectedUserid, showTrails]);
 
-  const toggleLive = useCallback(() => {
-    setLiveOn((v) => !v);
+  // ---------------------------------------------------------------------------
+  // Canvas click → hit-test → select / popover
+  // ---------------------------------------------------------------------------
+  const handleCanvasClick = useCallback(
+    (e: React.MouseEvent<HTMLCanvasElement>) => {
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+      const rect = canvas.getBoundingClientRect();
+      const dpr = canvas.width / rect.width;
+      const cx = (e.clientX - rect.left) * dpr;
+      const cy = (e.clientY - rect.top) * dpr;
+
+      const proj = projRef.current;
+      if (!proj) return;
+
+      // Hit test: nearest player within HIT_RADIUS px
+      const HIT_RADIUS_PX = 18 * dpr;
+      let best: { uid: number; d: number } | null = null;
+      const cur = curRef.current;
+      for (const [uid, p] of cur) {
+        const [px, py] = proj.toPx(p.x, p.y);
+        const dx = px - cx;
+        const dy = py - cy;
+        const d = Math.sqrt(dx * dx + dy * dy);
+        if (d < HIT_RADIUS_PX && (!best || d < best.d)) {
+          best = { uid, d };
+        }
+      }
+      setSelectedUserid(best ? best.uid : null);
+    },
+    [],
+  );
+
+  // ---------------------------------------------------------------------------
+  // Derived player list (sorted by team then nick) — used by table
+  // ---------------------------------------------------------------------------
+  const playerList = useMemo(() => {
+    void playerListVersion;
+    const all = new Map<number, Player>();
+    for (const [, p] of prevRef.current) all.set(p.userid, p);
+    for (const [, p] of curRef.current) all.set(p.userid, p);
+    return Array.from(all.values()).sort((a, b) => {
+      if (a.team !== b.team) return a.team - b.team;
+      return a.nick.localeCompare(b.nick);
+    });
+  }, [playerListVersion]);
+
+  const selectedPlayer = selectedUserid != null
+    ? curRef.current.get(selectedUserid) ?? prevRef.current.get(selectedUserid) ?? null
+    : null;
+  const selectedRosterRow = selectedUserid != null
+    ? roster.find((r) => r.userid === selectedUserid) ?? null
+    : null;
+
+  // ---------------------------------------------------------------------------
+  // Quick admin action helpers
+  // ---------------------------------------------------------------------------
+  const runAction = useCallback(
+    async (
+      target: { userid: number; nick: string },
+      command: string,
+      announce: string,
+    ) => {
+      const rosterRow = roster.find((r) => r.userid === target.userid);
+      try {
+        const r = await api<{ ok: boolean; latency_ms: number }>(
+          "/cs-rcon/action",
+          {
+            method: "POST",
+            body: JSON.stringify({
+              command,
+              announce,
+              target_nick: target.nick,
+              target_steamid: rosterRow?.steamid ?? null,
+            }),
+          },
+        );
+        toast.success(`${announce} (${r.latency_ms}ms)`);
+      } catch (e) {
+        if (e instanceof ApiError) toast.error(e.detail);
+        else toast.error("RCON error");
+      }
+    },
+    [roster],
+  );
+
+  const privateSay = useCallback(
+    async (userid: number, text: string) => {
+      try {
+        await api<{ ok: boolean }>("/cs-rcon/private-say", {
+          method: "POST",
+          body: JSON.stringify({ userid, text }),
+        });
+        toast.success("Личное сообщение отправлено");
+      } catch (e) {
+        if (e instanceof ApiError) toast.error(e.detail);
+        else toast.error("RCON error");
+      }
+    },
+    [],
+  );
+
+  const sayInChat = useCallback(async (text: string) => {
+    try {
+      await api<{ ok: boolean }>("/cs-rcon/say", {
+        method: "POST",
+        body: JSON.stringify({ text }),
+      });
+      toast.success("Отправлено в чат CS");
+    } catch (e) {
+      if (e instanceof ApiError) toast.error(e.detail);
+      else toast.error("RCON error");
+    }
   }, []);
+
+  // ---------------------------------------------------------------------------
+  // Render
+  // ---------------------------------------------------------------------------
+  const roundOverlay = useRoundOverlay(roundRef);
 
   return (
     <div className="container py-6">
@@ -553,36 +1084,31 @@ export default function LivePage() {
             Live overview
           </h1>
           <p className="mt-1 text-sm text-smoke">
-            Top-down позиции игроков в режиме реального времени. Источник —
-            AMX-X плагин <code className="font-mono text-iridescent">jbf_position_dump</code>{" "}
-            (тик {PLUGIN_TICK_MS / 1000}с) → cs-log-listener → WS ephemeral
-            broadcast. Фон карты — стоковый radar (<code className="font-mono">RADAR</code>)
-            или BSP-render (<code className="font-mono">BSP</code>) если стокового нет;
-            если ни того ни другого — grid (<code className="font-mono">GRID</code>).
+            Top-down позиции игроков, реальный radar карты, live-feed чата,
+            kill-markers. Клик по игроку → его карта + быстрые действия.
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          <span
-            className={cn(
-              "inline-flex items-center gap-1.5 rounded-md border px-2 py-1 font-mono text-[10px] uppercase tracking-widest",
-              liveOn && wsConnected
-                ? "border-cyan/40 bg-cyan/10 text-cyan"
-                : liveOn
-                  ? "border-flame/40 bg-flame/5 text-flame"
-                  : "border-border text-smoke",
-            )}
-          >
-            <Radio
-              className={cn(
-                "h-3 w-3",
-                liveOn && wsConnected && "animate-pulse-slow",
-              )}
-            />
-            {liveOn ? (wsConnected ? "online" : "connecting…") : "off"}
-          </span>
+        <div className="flex flex-wrap items-center gap-2">
+          <ToggleChip on={showTrails} setOn={setShowTrails} label="Trails" />
+          <ToggleChip
+            on={chatPanelOpen}
+            setOn={setChatPanelOpen}
+            label="Chat panel"
+          />
+          {followUserid != null && (
+            <button
+              type="button"
+              onClick={() => setFollowUserid(null)}
+              className="inline-flex h-7 items-center gap-1 rounded-md border border-flame/40 bg-flame/10 px-2 text-[10px] uppercase tracking-widest text-flame transition-colors hover:bg-flame/15"
+            >
+              <Target className="h-3 w-3" />
+              unfollow #{followUserid}
+            </button>
+          )}
+          <StatusChip liveOn={liveOn} wsConnected={wsConnected} />
           <button
             type="button"
-            onClick={toggleLive}
+            onClick={() => setLiveOn((v) => !v)}
             className={cn(
               "inline-flex h-8 items-center gap-1.5 rounded-md border px-3 text-[11px] uppercase tracking-widest transition-colors",
               liveOn
@@ -590,59 +1116,572 @@ export default function LivePage() {
                 : "border-border text-smoke hover:border-cyan/40 hover:text-bone",
             )}
           >
-            {liveOn ? "вкл" : "выкл"}
+            {liveOn ? "live" : "off"}
           </button>
         </div>
       </header>
 
-      <div
-        ref={containerRef}
-        className="relative aspect-[4/3] w-full overflow-hidden rounded-lg border border-border bg-card shadow-xl"
-      >
-        <canvas ref={canvasRef} className="absolute inset-0 h-full w-full" />
-        {!liveOn && (
-          <div className="absolute inset-0 flex items-center justify-center bg-void/60 text-xs text-smoke">
-            Live-стрим выключен. Включи переключатель чтобы открыть WS.
-          </div>
+      <div className="grid gap-4 lg:grid-cols-[1fr_320px]">
+        <div
+          ref={containerRef}
+          className="relative aspect-[4/3] w-full overflow-hidden rounded-lg border border-border bg-card shadow-xl"
+        >
+          <canvas
+            ref={canvasRef}
+            onClick={handleCanvasClick}
+            className="absolute inset-0 h-full w-full cursor-crosshair"
+          />
+          {/* Round timer overlay */}
+          {roundOverlay && (
+            <div className="pointer-events-none absolute left-3 top-3 rounded-md border border-cyan/40 bg-void/70 px-3 py-1.5 font-mono text-[12px] text-cyan shadow-lg">
+              ⏱  {roundOverlay}
+            </div>
+          )}
+          {!liveOn && (
+            <div className="absolute inset-0 flex items-center justify-center bg-void/60 text-xs text-smoke">
+              Live-стрим выключен.
+            </div>
+          )}
+          {/* Player popover */}
+          {selectedPlayer && (
+            <PlayerPopover
+              player={selectedPlayer}
+              roster={selectedRosterRow}
+              isStaff={isStaff}
+              onClose={() => setSelectedUserid(null)}
+              onFollow={() => setFollowUserid(selectedPlayer.userid)}
+              onAction={runAction}
+              onPrivateSay={privateSay}
+            />
+          )}
+        </div>
+
+        {/* Chat panel */}
+        {chatPanelOpen && (
+          <ChatPanel
+            lines={chatLines}
+            canSend={!!user && isStaff}
+            onSend={sayInChat}
+            wsConnected={wsConnected}
+          />
         )}
       </div>
 
-      <div className="mt-4 grid gap-2 text-[11px] text-smoke sm:grid-cols-4">
-        <div className="rounded-md border border-border bg-card px-3 py-2">
-          <span className="block text-[9px] uppercase tracking-widest text-smoke/70">
-            карта
-          </span>
-          <span className="font-mono text-ash">{mapName ?? "—"}</span>
+      {/* Player table */}
+      <section className="mt-6">
+        <PlayerTable
+          players={playerList}
+          roster={roster}
+          isStaff={isStaff}
+          selectedUserid={selectedUserid}
+          onSelect={setSelectedUserid}
+          onFollow={(uid) => setFollowUserid(uid)}
+        />
+      </section>
+    </div>
+  );
+}
+
+// -----------------------------------------------------------------------------
+// Round timer hook — re-renders every 250ms while a round is live
+// -----------------------------------------------------------------------------
+function useRoundOverlay(roundRef: React.MutableRefObject<RoundState | null>) {
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    const id = window.setInterval(() => setTick((t) => t + 1), 250);
+    return () => window.clearInterval(id);
+  }, []);
+  void tick;
+  const r = roundRef.current;
+  if (!r) return null;
+  if (r.endedAt) return "round over";
+  const elapsed = Date.now() - r.startedAt;
+  const remaining = Math.max(0, r.durationMs - elapsed);
+  const min = Math.floor(remaining / 60_000);
+  const sec = Math.floor((remaining % 60_000) / 1000);
+  return `${min}:${String(sec).padStart(2, "0")} left`;
+}
+
+// -----------------------------------------------------------------------------
+// UI bits
+// -----------------------------------------------------------------------------
+function StatusChip({
+  liveOn,
+  wsConnected,
+}: {
+  liveOn: boolean;
+  wsConnected: boolean;
+}) {
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center gap-1.5 rounded-md border px-2 py-1 font-mono text-[10px] uppercase tracking-widest",
+        liveOn && wsConnected
+          ? "border-cyan/40 bg-cyan/10 text-cyan"
+          : liveOn
+            ? "border-flame/40 bg-flame/5 text-flame"
+            : "border-border text-smoke",
+      )}
+    >
+      <Radio
+        className={cn("h-3 w-3", liveOn && wsConnected && "animate-pulse-slow")}
+      />
+      {liveOn ? (wsConnected ? "online" : "connecting…") : "off"}
+    </span>
+  );
+}
+
+function ToggleChip({
+  on, setOn, label,
+}: {
+  on: boolean;
+  setOn: (v: boolean) => void;
+  label: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={() => setOn(!on)}
+      className={cn(
+        "inline-flex h-7 items-center gap-1 rounded-md border px-2 text-[10px] uppercase tracking-widest transition-colors",
+        on
+          ? "border-cyan/40 bg-cyan/10 text-cyan"
+          : "border-border text-smoke hover:border-cyan/40 hover:text-bone",
+      )}
+    >
+      {label}: {on ? "on" : "off"}
+    </button>
+  );
+}
+
+// -----------------------------------------------------------------------------
+// PlayerPopover
+// -----------------------------------------------------------------------------
+type ActionRunner = (
+  target: { userid: number; nick: string },
+  command: string,
+  announce: string,
+) => Promise<void>;
+
+function PlayerPopover({
+  player,
+  roster,
+  isStaff,
+  onClose,
+  onFollow,
+  onAction,
+  onPrivateSay,
+}: {
+  player: Player;
+  roster: RosterRow | null;
+  isStaff: boolean;
+  onClose: () => void;
+  onFollow: () => void;
+  onAction: ActionRunner;
+  onPrivateSay: (userid: number, text: string) => Promise<void>;
+}) {
+  const [psayText, setPsayText] = useState("");
+  const submitPsay = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!psayText.trim()) return;
+    await onPrivateSay(player.userid, psayText.trim());
+    setPsayText("");
+  };
+
+  const target = { userid: player.userid, nick: player.nick };
+  const QUICK: Array<{ label: string; cmd: string; announce: string }> = [
+    {
+      label: "Возродить",
+      cmd: `jbf_uaio_modular -p "${player.nick}" -a respawn`,
+      announce: `respawn → ${player.nick}`,
+    },
+    {
+      label: "Убить",
+      cmd: `jbf_uaio_modular -p "${player.nick}" -a kill`,
+      announce: `kill → ${player.nick}`,
+    },
+    {
+      label: "Заморозить",
+      cmd: `jbf_uaio_modular -p "${player.nick}" -a freeze`,
+      announce: `freeze → ${player.nick}`,
+    },
+    {
+      label: "Разморозить",
+      cmd: `jbf_uaio_modular -p "${player.nick}" -a unfreeze`,
+      announce: `unfreeze → ${player.nick}`,
+    },
+    {
+      label: "+100 HP",
+      cmd: `jbf_uaio_modular -p "${player.nick}" -a hp -v 100`,
+      announce: `+100 hp → ${player.nick}`,
+    },
+    {
+      label: "Микрофон",
+      cmd: `jbf_uaio_modular -p "${player.nick}" -a mic_on`,
+      announce: `mic_on → ${player.nick}`,
+    },
+  ];
+
+  return (
+    <div className="absolute right-3 top-3 z-10 w-[300px] rounded-lg border border-border bg-card/95 p-3 shadow-2xl backdrop-blur">
+      <header className="flex items-start justify-between gap-2">
+        <div>
+          <div
+            className="text-base font-semibold tracking-tight"
+            style={{ color: teamColor(player.team) }}
+          >
+            {player.nick}
+          </div>
+          <div className="text-[10px] uppercase tracking-widest text-smoke">
+            team {teamLabel(player.team)} · userid #{player.userid}
+          </div>
         </div>
-        <div className="rounded-md border border-border bg-card px-3 py-2">
-          <span className="block text-[9px] uppercase tracking-widest text-smoke/70">
-            radar
-          </span>
-          <span className="font-mono text-ash">
-            {mapMeta
-              ? mapMeta.generated_from_bsp
-                ? "BSP-render"
-                : "сток"
-              : mapImgReady
-                ? "загр."
-                : "нет"}
-          </span>
+        <button
+          type="button"
+          onClick={onClose}
+          className="text-smoke transition-colors hover:text-bone"
+          aria-label="Закрыть"
+        >
+          <X className="h-4 w-4" />
+        </button>
+      </header>
+
+      <div className="mt-3 grid grid-cols-3 gap-1.5 text-center font-mono text-[11px]">
+        <Cell label="HP" value={String(player.hp)} tone={hpColor(player.hp)} />
+        <Cell
+          label="K/D"
+          value={
+            player.kills != null ? `${player.kills}/${player.deaths ?? 0}` : "—"
+          }
+        />
+        <Cell
+          label="Money"
+          value={player.money != null ? `$${player.money}` : "—"}
+        />
+        <Cell
+          label="Weapon"
+          value={player.weapon ?? "—"}
+          full
+        />
+        <Cell
+          label="Ping"
+          value={roster ? `${roster.ping}ms` : "—"}
+        />
+        <Cell
+          label="Time"
+          value={roster?.time ?? "—"}
+        />
+      </div>
+
+      {roster && (
+        <div className="mt-2 rounded-md border border-border bg-void/30 px-2 py-1.5 font-mono text-[10px] text-smoke">
+          <div className="truncate">SteamID: {roster.steamid}</div>
         </div>
-        <div className="rounded-md border border-border bg-card px-3 py-2">
-          <span className="block text-[9px] uppercase tracking-widest text-smoke/70">
-            игроков
-          </span>
-          <span className="font-mono text-ash">{playerCount}</span>
-        </div>
-        <div className="rounded-md border border-border bg-card px-3 py-2">
-          <span className="block text-[9px] uppercase tracking-widest text-smoke/70">
-            тик
-          </span>
-          <span className="font-mono text-ash">
-            {Math.round(tickAgeMs)}ms / {PLUGIN_TICK_MS}ms
-          </span>
-        </div>
+      )}
+
+      <button
+        type="button"
+        onClick={onFollow}
+        className="mt-3 inline-flex h-7 w-full items-center justify-center gap-1 rounded-md border border-flame/40 bg-flame/10 text-[10px] uppercase tracking-widest text-flame transition-colors hover:bg-flame/15"
+      >
+        <Target className="h-3 w-3" />
+        Камера за ним
+      </button>
+
+      {isStaff && (
+        <>
+          <div className="mt-3 grid grid-cols-2 gap-1.5">
+            {QUICK.map((q) => (
+              <button
+                key={q.label}
+                type="button"
+                onClick={() => onAction(target, q.cmd, q.announce)}
+                className="inline-flex h-7 items-center justify-center rounded-md border border-border bg-card px-2 text-[10px] uppercase tracking-widest text-ash transition-colors hover:border-plasma/40 hover:bg-slate hover:text-bone"
+              >
+                {q.label}
+              </button>
+            ))}
+          </div>
+
+          <form onSubmit={submitPsay} className="mt-3 flex items-stretch gap-1">
+            <input
+              type="text"
+              value={psayText}
+              onChange={(e) => setPsayText(e.target.value)}
+              placeholder="Личное в игре…"
+              maxLength={200}
+              className="h-7 flex-1 rounded-md border border-border bg-void/40 px-2 text-[11px] text-ash outline-none transition-colors placeholder:text-smoke focus:border-plasma/60"
+            />
+            <button
+              type="submit"
+              disabled={!psayText.trim()}
+              className="inline-flex h-7 items-center justify-center rounded-md bg-plasma px-2 text-white transition-all hover:bg-plasma-bright disabled:cursor-not-allowed disabled:opacity-50"
+              aria-label="Отправить"
+            >
+              <Send className="h-3 w-3" />
+            </button>
+          </form>
+        </>
+      )}
+    </div>
+  );
+}
+
+function Cell({
+  label, value, tone, full,
+}: {
+  label: string;
+  value: string;
+  tone?: string;
+  full?: boolean;
+}) {
+  return (
+    <div
+      className={cn(
+        "rounded-md border border-border bg-void/40 px-2 py-1",
+        full && "col-span-3",
+      )}
+    >
+      <div className="text-[9px] uppercase tracking-widest text-smoke/70">
+        {label}
+      </div>
+      <div className="truncate text-ash" style={tone ? { color: tone } : {}}>
+        {value}
       </div>
     </div>
+  );
+}
+
+// -----------------------------------------------------------------------------
+// PlayerTable
+// -----------------------------------------------------------------------------
+function PlayerTable({
+  players,
+  roster,
+  isStaff,
+  selectedUserid,
+  onSelect,
+  onFollow,
+}: {
+  players: Player[];
+  roster: RosterRow[];
+  isStaff: boolean;
+  selectedUserid: number | null;
+  onSelect: (uid: number | null) => void;
+  onFollow: (uid: number) => void;
+}) {
+  return (
+    <div className="rounded-lg border border-border bg-card">
+      <header className="flex items-center justify-between border-b border-border px-4 py-3">
+        <h2 className="flex items-center gap-2 text-sm font-semibold tracking-tight text-bone">
+          <Users className="h-4 w-4 text-cyan" />
+          Игроки на сервере
+          <span className="font-mono text-[10px] text-smoke">
+            · {players.length}
+          </span>
+        </h2>
+      </header>
+      <div className="overflow-x-auto">
+        <table className="w-full text-[12px]">
+          <thead>
+            <tr className="border-b border-border bg-void/40 text-[10px] uppercase tracking-widest text-smoke">
+              <th className="px-3 py-2 text-left">Ник</th>
+              <th className="px-2 py-2 text-left">T</th>
+              <th className="px-2 py-2 text-right">HP</th>
+              <th className="px-2 py-2 text-right">K/D</th>
+              <th className="px-2 py-2 text-right">$</th>
+              <th className="px-2 py-2 text-left">Оружие</th>
+              {isStaff && (
+                <>
+                  <th className="px-2 py-2 text-right">Ping</th>
+                  <th className="px-2 py-2 text-left">Time</th>
+                  <th className="px-2 py-2 text-left">SteamID</th>
+                </>
+              )}
+              <th className="px-2 py-2 text-left">Флаги</th>
+              <th className="px-3 py-2 text-right">Действия</th>
+            </tr>
+          </thead>
+          <tbody>
+            {players.length === 0 ? (
+              <tr>
+                <td
+                  colSpan={isStaff ? 11 : 8}
+                  className="px-3 py-6 text-center text-xs text-smoke"
+                >
+                  Никого на сервере (или плагин ещё не задеплоен — нужно
+                  changelevel для подхвата jbf_position_dump v0.2.0)
+                </td>
+              </tr>
+            ) : (
+              players.map((p) => {
+                const r = roster.find((x) => x.userid === p.userid);
+                const sel = selectedUserid === p.userid;
+                return (
+                  <tr
+                    key={p.userid}
+                    onClick={() => onSelect(p.userid)}
+                    className={cn(
+                      "cursor-pointer border-b border-border/50 transition-colors hover:bg-slate/40",
+                      sel && "bg-plasma/10",
+                    )}
+                  >
+                    <td className="px-3 py-1.5">
+                      <span
+                        className="font-semibold"
+                        style={{ color: teamColor(p.team) }}
+                      >
+                        {p.nick}
+                      </span>
+                      {isAdmin(p.flags) && (
+                        <span className="ml-1 text-flame" title="admin">
+                          ♚
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-2 py-1.5 font-mono">
+                      {teamLabel(p.team)}
+                    </td>
+                    <td
+                      className="px-2 py-1.5 text-right font-mono"
+                      style={{ color: hpColor(p.hp) }}
+                    >
+                      {p.hp}
+                    </td>
+                    <td className="px-2 py-1.5 text-right font-mono">
+                      {p.kills != null
+                        ? `${p.kills}/${p.deaths ?? 0}`
+                        : "—"}
+                    </td>
+                    <td className="px-2 py-1.5 text-right font-mono">
+                      {p.money != null ? `$${p.money}` : "—"}
+                    </td>
+                    <td className="px-2 py-1.5 font-mono text-iridescent">
+                      {p.weapon ?? "—"}
+                    </td>
+                    {isStaff && (
+                      <>
+                        <td className="px-2 py-1.5 text-right font-mono">
+                          {r ? `${r.ping}` : "—"}
+                        </td>
+                        <td className="px-2 py-1.5 font-mono text-smoke">
+                          {r?.time ?? "—"}
+                        </td>
+                        <td className="px-2 py-1.5 font-mono text-smoke">
+                          {r?.steamid ?? "—"}
+                        </td>
+                      </>
+                    )}
+                    <td className="px-2 py-1.5 font-mono text-smoke">
+                      {p.flags || "—"}
+                    </td>
+                    <td className="px-3 py-1.5 text-right">
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onFollow(p.userid);
+                        }}
+                        className="inline-flex h-6 items-center gap-1 rounded-md border border-border px-1.5 text-[10px] uppercase tracking-widest text-smoke transition-colors hover:border-flame/40 hover:text-flame"
+                      >
+                        <Target className="h-3 w-3" />
+                        follow
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+// -----------------------------------------------------------------------------
+// ChatPanel
+// -----------------------------------------------------------------------------
+function ChatPanel({
+  lines,
+  canSend,
+  onSend,
+  wsConnected,
+}: {
+  lines: ChatLine[];
+  canSend: boolean;
+  onSend: (text: string) => Promise<void>;
+  wsConnected: boolean;
+}) {
+  const [text, setText] = useState("");
+  const listRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    const el = listRef.current;
+    if (!el) return;
+    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 100;
+    if (nearBottom) el.scrollTop = el.scrollHeight;
+  }, [lines.length]);
+
+  return (
+    <aside className="flex h-[576px] flex-col rounded-lg border border-border bg-card">
+      <header className="flex items-center justify-between border-b border-border px-3 py-2">
+        <h3 className="flex items-center gap-2 text-xs font-semibold tracking-tight text-bone">
+          <MessageSquare className="h-3.5 w-3.5 text-cyan" />
+          Чат сервера
+        </h3>
+        <span
+          className={cn(
+            "font-mono text-[9px] uppercase tracking-widest",
+            wsConnected ? "text-cyan" : "text-smoke",
+          )}
+        >
+          {wsConnected ? "live" : "off"}
+        </span>
+      </header>
+      <div
+        ref={listRef}
+        className="flex-1 overflow-y-auto px-3 py-2 font-mono text-[11px]"
+      >
+        {lines.length === 0 ? (
+          <p className="py-8 text-center text-[11px] text-smoke">
+            Слушаю сервер… первое сообщение появится здесь.
+          </p>
+        ) : (
+          lines.map((l) => (
+            <div key={l.id} className="break-words text-ash">
+              {l.body}
+            </div>
+          ))
+        )}
+      </div>
+      {canSend && (
+        <form
+          onSubmit={async (e) => {
+            e.preventDefault();
+            if (!text.trim()) return;
+            await onSend(text.trim());
+            setText("");
+          }}
+          className="flex items-stretch gap-1 border-t border-border bg-void/40 px-2 py-2"
+        >
+          <input
+            type="text"
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            placeholder="В чат сервера…"
+            maxLength={200}
+            className="h-7 flex-1 rounded-md border border-border bg-card px-2 text-[11px] text-ash outline-none transition-colors placeholder:text-smoke focus:border-plasma/60"
+          />
+          <button
+            type="submit"
+            disabled={!text.trim()}
+            className="inline-flex h-7 items-center justify-center rounded-md bg-plasma px-2 text-white transition-all hover:bg-plasma-bright disabled:cursor-not-allowed disabled:opacity-50"
+            aria-label="Отправить"
+          >
+            <Send className="h-3 w-3" />
+          </button>
+        </form>
+      )}
+    </aside>
   );
 }
