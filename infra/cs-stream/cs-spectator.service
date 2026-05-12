@@ -20,8 +20,8 @@ CPUQuota=80%
 # stable, so let systemd babysit it.
 Restart=on-failure
 RestartSec=5s
-StartLimitInterval=120s
-StartLimitBurst=6
+StartLimitInterval=600s
+StartLimitBurst=20
 
 [Install]
 WantedBy=multi-user.target
