@@ -271,6 +271,10 @@ export default function LivePage() {
   useEffect(() => {
     followUseridRef.current = followUserid;
   }, [followUserid]);
+  // Ref-mirror these too so toggling them doesn't restart the entire
+  // render loop (which would rebuild glow sprites and re-attach ResizeObserver).
+  const selectedRef = useRef<number | null>(null);
+  const showTrailsRef = useRef<boolean>(true);
 
   // Live state from WS
   const [wsConnected, setWsConnected] = useState(false);
@@ -306,6 +310,12 @@ export default function LivePage() {
   useEffect(() => {
     zonesRef.current = zones;
   }, [zones]);
+  useEffect(() => {
+    selectedRef.current = selectedUserid;
+  }, [selectedUserid]);
+  useEffect(() => {
+    showTrailsRef.current = showTrails;
+  }, [showTrails]);
 
   // ---------------------------------------------------------------------------
   // Map asset loading
@@ -579,11 +589,33 @@ export default function LivePage() {
   // ---------------------------------------------------------------------------
   // Canvas render loop
   // ---------------------------------------------------------------------------
+  //
+  // Optimization passes (v2):
+  //   1. DPR hard-capped to 1.0 — retina was paying ×2.25 pixel cost for
+  //      no visible quality gain on small player dots / thin lines.
+  //   2. Static layer cache — map.png + zone fills are baked once into an
+  //      offscreen canvas at the map's native resolution, then a single
+  //      `drawImage(layer, src, dst)` paints the current viewport per
+  //      frame. Replaces map drawImage + N zone-polygon paths per frame.
+  //   3. Glow sprite cache — per-team radial gradients are pre-rendered
+  //      to 3 small offscreen canvases once; per-player rendering is a
+  //      drawImage instead of createRadialGradient → fillStyle → arc.
+  //   4. BG gradient cached across frames, recomputed on resize only.
+  //   5. Effect deps narrowed to [mapName] — selectedUserid + showTrails
+  //      are read via refs so clicking / toggling does NOT tear down the
+  //      render loop (was rebuilding sprites + ResizeObserver per click).
+  //   6. Trails batched into a single beginPath / stroke per player.
+  //   7. All player coords rounded to integer screen pixels for crisp
+  //      dots and stable sub-pixel HP bars.
   useEffect(() => {
     const canvas = canvasRef.current;
     const container = containerRef.current;
     if (!canvas || !container) return;
-    const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
+    const dpr = Math.min(window.devicePixelRatio || 1, 1.0);
+
+    // Cached structures — invalidated on resize / asset change only.
+    let bgGradient: CanvasGradient | null = null;
+    let staticLayer: { canvas: HTMLCanvasElement; sig: string; size: number } | null = null;
 
     const resize = () => {
       const rect = container.getBoundingClientRect();
@@ -591,6 +623,7 @@ export default function LivePage() {
       canvas.height = Math.floor(rect.height * dpr);
       canvas.style.width = `${rect.width}px`;
       canvas.style.height = `${rect.height}px`;
+      bgGradient = null;
     };
     resize();
     const ro = new ResizeObserver(resize);
@@ -598,19 +631,93 @@ export default function LivePage() {
 
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
-    let raf = 0;
 
+    // ---- Glow sprite cache (one per team color) ----
+    const buildGlowSprite = (rgba: string): HTMLCanvasElement => {
+      const r = 7 * dpr;
+      const radius = r * 3.2;
+      const size = Math.ceil(radius * 2) + 2;
+      const sp = document.createElement("canvas");
+      sp.width = size;
+      sp.height = size;
+      const sctx = sp.getContext("2d")!;
+      const c = size / 2;
+      const grad = sctx.createRadialGradient(c, c, 0, c, c, radius);
+      grad.addColorStop(0, rgba);
+      grad.addColorStop(1, "transparent");
+      sctx.fillStyle = grad;
+      sctx.beginPath();
+      sctx.arc(c, c, radius, 0, Math.PI * 2);
+      sctx.fill();
+      return sp;
+    };
+    const glowSprites = new Map<number, HTMLCanvasElement>();
+    glowSprites.set(0, buildGlowSprite("rgba(158, 160, 168, 0.30)"));
+    glowSprites.set(1, buildGlowSprite("rgba(231, 87, 47, 0.45)"));
+    glowSprites.set(2, buildGlowSprite("rgba(95, 179, 233, 0.45)"));
+
+    // ---- Static map + zones layer (baked at native map resolution) ----
+    const ensureStaticLayer = (): { canvas: HTMLCanvasElement; size: number } | null => {
+      const meta = mapMetaRef.current;
+      const img = mapImgRef.current;
+      const zs = zonesRef.current;
+      if (!meta || !img || !img.complete) return null;
+      const sig = `${meta.name}|${meta.image}|${(zs ?? []).length}|${img.naturalWidth}`;
+      if (staticLayer && staticLayer.sig === sig) {
+        return { canvas: staticLayer.canvas, size: staticLayer.size };
+      }
+      const size = Math.max(512, meta.size_px || img.naturalWidth || 1024);
+      const off = document.createElement("canvas");
+      off.width = size;
+      off.height = size;
+      const offCtx = off.getContext("2d");
+      if (!offCtx) return null;
+      offCtx.imageSmoothingQuality = "high";
+
+      offCtx.drawImage(img, 0, 0, size, size);
+      // Slight dark veil so dots / text stay readable.
+      offCtx.fillStyle = "rgba(10, 12, 20, 0.18)";
+      offCtx.fillRect(0, 0, size, size);
+
+      if (zs && zs.length) {
+        const wW = (meta.world_max_x - meta.world_min_x) || 1;
+        const wH = (meta.world_max_y - meta.world_min_y) || 1;
+        for (const z of zs) {
+          if (z.polygon.length < 3) continue;
+          offCtx.beginPath();
+          for (let i = 0; i < z.polygon.length; i++) {
+            const zx = ((z.polygon[i]![0] - meta.world_min_x) / wW) * size;
+            const zy = ((meta.world_max_y - z.polygon[i]![1]) / wH) * size;
+            if (i === 0) offCtx.moveTo(zx, zy);
+            else offCtx.lineTo(zx, zy);
+          }
+          offCtx.closePath();
+          offCtx.fillStyle = (z.color ?? "#9966cc") + "22";
+          offCtx.fill();
+          offCtx.strokeStyle = (z.color ?? "#9966cc") + "88";
+          offCtx.lineWidth = Math.max(2, size / 600);
+          offCtx.stroke();
+        }
+      }
+
+      staticLayer = { canvas: off, sig, size };
+      return { canvas: off, size };
+    };
+
+    let raf = 0;
     const render = () => {
       const w = canvas.width;
       const h = canvas.height;
       ctx.setTransform(1, 0, 0, 1, 0, 0);
-      ctx.clearRect(0, 0, w, h);
 
-      // BG gradient
-      const bg = ctx.createLinearGradient(0, 0, 0, h);
-      bg.addColorStop(0, "#0a0b14");
-      bg.addColorStop(1, "#11131f");
-      ctx.fillStyle = bg;
+      // BG gradient — recomputed only on resize.
+      if (!bgGradient) {
+        const bg = ctx.createLinearGradient(0, 0, 0, h);
+        bg.addColorStop(0, "#0a0b14");
+        bg.addColorStop(1, "#11131f");
+        bgGradient = bg;
+      }
+      ctx.fillStyle = bgGradient;
       ctx.fillRect(0, 0, w, h);
 
       const meta = mapMetaRef.current;
@@ -657,7 +764,7 @@ export default function LivePage() {
         bMinY = mny - padH; bMaxY = mxy + padH;
       }
 
-      // Follow-camera (D3) — recenter bounds on the followed player
+      // Follow-camera (D3)
       const follow = followUseridRef.current;
       if (follow) {
         const p = cur.get(follow) ?? prev.get(follow);
@@ -688,64 +795,66 @@ export default function LivePage() {
       };
       projRef.current = { toPx, bounds: { bMinX, bMinY, bMaxX, bMaxY }, scale };
 
-      // Background map image (or grid fallback)
-      if (img && meta) {
-        const [imgPxMinX, imgPxMinY] = toPx(meta.world_min_x, meta.world_max_y);
-        const [imgPxMaxX, imgPxMaxY] = toPx(meta.world_max_x, meta.world_min_y);
-        ctx.drawImage(
-          img,
-          imgPxMinX,
-          imgPxMinY,
-          imgPxMaxX - imgPxMinX,
-          imgPxMaxY - imgPxMinY,
-        );
-        ctx.fillStyle = "rgba(10, 12, 20, 0.18)";
-        ctx.fillRect(offsetX, offsetY, drawW, drawH);
-      } else {
+      // ---- Static layer (baked map + zones) — single drawImage ----
+      const sl = ensureStaticLayer();
+      if (sl && meta) {
+        const wW = (meta.world_max_x - meta.world_min_x) || 1;
+        const wH = (meta.world_max_y - meta.world_min_y) || 1;
+        // Source rect on the native-size layer.
+        const srcX = ((bMinX - meta.world_min_x) / wW) * sl.size;
+        const srcY = ((meta.world_max_y - bMaxY) / wH) * sl.size;
+        const srcW = (worldW / wW) * sl.size;
+        const srcH = (worldH / wH) * sl.size;
+        // Clip src rect — browsers throw on negative / out-of-bounds.
+        const csx = Math.max(0, Math.min(sl.size, srcX));
+        const csy = Math.max(0, Math.min(sl.size, srcY));
+        const csw = Math.max(0, Math.min(sl.size, srcX + srcW) - csx);
+        const csh = Math.max(0, Math.min(sl.size, srcY + srcH) - csy);
+        if (csw > 0 && csh > 0 && srcW > 0 && srcH > 0) {
+          const dxr = (csx - srcX) / srcW;
+          const dyr = (csy - srcY) / srcH;
+          const dwr = csw / srcW;
+          const dhr = csh / srcH;
+          ctx.drawImage(
+            sl.canvas,
+            csx, csy, csw, csh,
+            offsetX + dxr * drawW,
+            offsetY + dyr * drawH,
+            dwr * drawW,
+            dhr * drawH,
+          );
+        }
+      } else if (!meta) {
+        // Grid fallback when no radar PNG is available.
         ctx.strokeStyle = "rgba(140,150,180,0.08)";
         ctx.lineWidth = 1;
         const gridStep = 64 * dpr;
+        ctx.beginPath();
         for (let x = 0; x <= w; x += gridStep) {
-          ctx.beginPath();
           ctx.moveTo(x, 0);
           ctx.lineTo(x, h);
-          ctx.stroke();
         }
         for (let y = 0; y <= h; y += gridStep) {
-          ctx.beginPath();
           ctx.moveTo(0, y);
           ctx.lineTo(w, y);
-          ctx.stroke();
         }
+        ctx.stroke();
       }
 
-      // Zone overlays (D9) — drawn under players, over the map.
+      // ---- Zone labels (text only — fills are baked into static layer) ----
       const zs = zonesRef.current;
       if (zs && zs.length) {
+        ctx.font = `${10 * dpr}px ui-sans-serif, system-ui, sans-serif`;
         for (const z of zs) {
           if (z.polygon.length < 3) continue;
-          ctx.beginPath();
-          for (let i = 0; i < z.polygon.length; i++) {
-            const [zx, zy] = toPx(z.polygon[i]![0], z.polygon[i]![1]);
-            if (i === 0) ctx.moveTo(zx, zy);
-            else ctx.lineTo(zx, zy);
-          }
-          ctx.closePath();
-          ctx.fillStyle = (z.color ?? "#9966cc") + "22";
-          ctx.fill();
-          ctx.strokeStyle = (z.color ?? "#9966cc") + "88";
-          ctx.lineWidth = 1.5 * dpr;
-          ctx.stroke();
-          // Zone label
-          let cx = 0, cy = 0;
+          let cxx = 0, cyy = 0;
           for (const [zx, zy] of z.polygon) {
-            cx += zx;
-            cy += zy;
+            cxx += zx;
+            cyy += zy;
           }
-          cx /= z.polygon.length;
-          cy /= z.polygon.length;
-          const [lx, ly] = toPx(cx, cy);
-          ctx.font = `${10 * dpr}px ui-sans-serif, system-ui, sans-serif`;
+          cxx /= z.polygon.length;
+          cyy /= z.polygon.length;
+          const [lx, ly] = toPx(cxx, cyy);
           ctx.fillStyle = (z.color ?? "#9966cc") + "cc";
           const tw = ctx.measureText(z.name).width;
           ctx.fillText(z.name, lx - tw / 2, ly);
@@ -756,49 +865,45 @@ export default function LivePage() {
       const tickElapsed = now - tickStartRef.current;
       const t = Math.min(1, tickElapsed / PLUGIN_TICK_MS);
 
-      // Movement trails (D1) — under player dots
-      if (showTrails) {
+      // ---- Movement trails (D1) — batched per player ----
+      if (showTrailsRef.current) {
+        ctx.lineWidth = 1.5 * dpr;
         for (const uid of allIds) {
           const trail = trailsRef.current.get(uid);
           if (!trail || trail.points.length < 2) continue;
           const dst = cur.get(uid) ?? prev.get(uid);
           if (!dst) continue;
-          const color = teamColor(dst.team);
+          const lastSeg = trail.points[trail.points.length - 1]!;
+          const age = (now - lastSeg.ts) / 1000;
+          const fade = Math.max(0, 1 - age / 6);
+          if (fade <= 0) continue;
+          ctx.strokeStyle = teamColor(dst.team);
+          ctx.globalAlpha = fade * 0.5;
+          ctx.beginPath();
+          const [tx0, ty0] = toPx(trail.points[0]!.x, trail.points[0]!.y);
+          ctx.moveTo(tx0, ty0);
           for (let i = 1; i < trail.points.length; i++) {
-            const a = trail.points[i - 1]!;
-            const b = trail.points[i]!;
-            const age = (now - b.ts) / 1000;
-            const fade = Math.max(0, 1 - age / 6);
-            if (fade <= 0) continue;
-            const [ax, ay] = toPx(a.x, a.y);
-            const [bx, by] = toPx(b.x, b.y);
-            ctx.beginPath();
-            ctx.moveTo(ax, ay);
+            const [bx, by] = toPx(trail.points[i]!.x, trail.points[i]!.y);
             ctx.lineTo(bx, by);
-            ctx.strokeStyle = color;
-            ctx.globalAlpha = fade * 0.5;
-            ctx.lineWidth = 1.5 * dpr;
-            ctx.stroke();
           }
-          ctx.globalAlpha = 1;
+          ctx.stroke();
         }
+        ctx.globalAlpha = 1;
       }
 
-      // Kill markers (D2) — drawn under players
+      // ---- Kill markers (D2) ----
       const markers = killMarkersRef.current;
       const liveMarkers: KillMarker[] = [];
+      ctx.font = `${16 * dpr}px ui-sans-serif`;
       for (const m of markers) {
         const age = now - m.ts;
         if (age > KILL_MARKER_TTL_MS) continue;
         liveMarkers.push(m);
         const fade = 1 - age / KILL_MARKER_TTL_MS;
         const [vpx, vpy] = toPx(m.vx, m.vy);
-        // Skull on victim
         ctx.globalAlpha = fade;
-        ctx.font = `${16 * dpr}px ui-sans-serif`;
         ctx.fillStyle = "#e75050";
         ctx.fillText("☠", vpx - 7 * dpr, vpy + 6 * dpr);
-        // Flame on killer (if not world/suicide)
         if (m.killer_userid > 0 && m.killer_userid !== m.victim_userid) {
           const [kpx, kpy] = toPx(m.kx, m.ky);
           ctx.fillStyle = m.hs ? "#ffd23f" : "#ff8d33";
@@ -808,8 +913,12 @@ export default function LivePage() {
       killMarkersRef.current = liveMarkers;
       ctx.globalAlpha = 1;
 
-      // Players
-      const selected = selectedUserid;
+      // ---- Players ----
+      const selected = selectedRef.current;
+      const r = 7 * dpr;
+      const nickFontPx = 11 * dpr;
+      const afkFontPx = 11 * dpr;
+      const crownFontPx = 10 * dpr;
       for (const uid of allIds) {
         const a = prev.get(uid);
         const b = cur.get(uid);
@@ -822,14 +931,15 @@ export default function LivePage() {
         const iyaw = lerpAngle(src.yaw, dst.yaw, t);
         const ihp = Math.round(lerp(src.hp, dst.hp, t));
 
-        const [px, py] = toPx(ix, iy);
+        const [pxF, pyF] = toPx(ix, iy);
+        const px = Math.round(pxF);
+        const py = Math.round(pyF);
         const color = teamColor(dst.team);
         const glow = teamGlow(dst.team);
         const stale = !b ? Math.min(1, (now - a!.updatedAt) / PLAYER_STALE_MS) : 0;
         const isDead = ihp <= 0;
         ctx.globalAlpha = (1 - stale * 0.85) * (isDead ? 0.5 : 1);
 
-        const r = 7 * dpr;
         // Selection ring
         if (selected === uid) {
           ctx.beginPath();
@@ -838,31 +948,28 @@ export default function LivePage() {
           ctx.lineWidth = 2 * dpr;
           ctx.stroke();
         }
-        // Glow
-        const gradient = ctx.createRadialGradient(px, py, 0, px, py, r * 3.2);
-        gradient.addColorStop(0, glow);
-        gradient.addColorStop(1, "transparent");
-        ctx.fillStyle = gradient;
-        ctx.beginPath();
-        ctx.arc(px, py, r * 3.2, 0, Math.PI * 2);
-        ctx.fill();
+        // Glow sprite (replaces per-frame createRadialGradient)
+        const sprite = glowSprites.get(dst.team);
+        if (sprite) {
+          ctx.drawImage(sprite, px - sprite.width / 2, py - sprite.height / 2);
+        }
         // View cone
         const yawRad = (iyaw * Math.PI) / 180;
-        const cx = Math.cos(yawRad);
-        const cy = -Math.sin(yawRad);
+        const cxv = Math.cos(yawRad);
+        const cyv = -Math.sin(yawRad);
         const coneLen = 22 * dpr;
         const coneHalf = 8 * dpr;
-        const ncx = -cy;
-        const ncy = cx;
+        const ncx = -cyv;
+        const ncy = cxv;
         ctx.beginPath();
         ctx.moveTo(px, py);
         ctx.lineTo(
-          px + cx * coneLen + ncx * coneHalf,
-          py + cy * coneLen + ncy * coneHalf,
+          px + cxv * coneLen + ncx * coneHalf,
+          py + cyv * coneLen + ncy * coneHalf,
         );
         ctx.lineTo(
-          px + cx * coneLen - ncx * coneHalf,
-          py + cy * coneLen - ncy * coneHalf,
+          px + cxv * coneLen - ncx * coneHalf,
+          py + cyv * coneLen - ncy * coneHalf,
         );
         ctx.closePath();
         ctx.fillStyle = glow;
@@ -876,7 +983,7 @@ export default function LivePage() {
         ctx.lineWidth = 1.5 * dpr;
         ctx.stroke();
 
-        // AFK indicator (D5): hasn't moved >threshold + alive
+        // AFK
         const trail = trailsRef.current.get(uid);
         let afk = false;
         if (trail && trail.points.length >= 2 && !isDead) {
@@ -889,20 +996,19 @@ export default function LivePage() {
           if (span > AFK_THRESHOLD_MS && distSq < 100) afk = true;
         }
         if (afk) {
-          ctx.font = `${11 * dpr}px ui-sans-serif`;
+          ctx.font = `${afkFontPx}px ui-sans-serif`;
           ctx.fillStyle = "#a4a8b8";
           ctx.fillText("zZz", px - 9 * dpr, py - r - 10 * dpr);
         }
 
-        // Admin / VIP crown (placeholder using flags string)
+        // Admin crown
         if (isAdmin(dst.flags)) {
-          ctx.font = `${10 * dpr}px ui-sans-serif`;
+          ctx.font = `${crownFontPx}px ui-sans-serif`;
           ctx.fillStyle = "#ffd23f";
           ctx.fillText("♚", px - r - 8 * dpr, py - r + 2 * dpr);
         }
 
         // Nick label
-        const nickFontPx = 11 * dpr;
         ctx.font = `${nickFontPx}px ui-sans-serif, system-ui, sans-serif`;
         const nick = dst.nick.slice(0, 18);
         const tw = ctx.measureText(nick).width;
@@ -960,7 +1066,8 @@ export default function LivePage() {
       cancelAnimationFrame(raf);
       ro.disconnect();
     };
-  }, [mapName, selectedUserid, showTrails]);
+    // Narrowed deps: selectedUserid + showTrails read via refs above.
+  }, [mapName]);
 
   // ---------------------------------------------------------------------------
   // Canvas click → hit-test → select / popover

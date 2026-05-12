@@ -41,17 +41,35 @@ export function StreamPlayer({ active }: { active: boolean }) {
 
     if (Hls.isSupported()) {
       const hls = new Hls({
-        // LL-HLS tuning — keep latency low, but tolerate the cold-start
-        // jitter while the on-demand pipeline spins up.
+        // Smooth-playback tuning — we trade ~1.5 s of extra wall-clock
+        // latency for a buffer large enough to absorb VPS jitter and
+        // typical residential network blips without stalling. The
+        // earlier ultra-aggressive profile (maxBufferLength 3,
+        // liveSyncDuration 1.5) buffered too little to survive a 200 ms
+        // upstream hiccup, which surfaced as visible freezes on /live.
+        //
+        // 4 s sync target + 12 s panic threshold + 10 s back-buffer
+        // gives the player about 6 s of swing between healthy live edge
+        // and a panic re-sync.
         lowLatencyMode: true,
-        backBufferLength: 4,
-        maxBufferLength: 3,
-        liveSyncDuration: 1.5,
-        liveMaxLatencyDuration: 4,
+        backBufferLength: 10,
+        maxBufferLength: 10,
+        maxMaxBufferLength: 15,
+        liveSyncDuration: 4,
+        liveMaxLatencyDuration: 12,
         manifestLoadingMaxRetry: 8,
         manifestLoadingRetryDelay: 1500,
         levelLoadingMaxRetry: 6,
         fragLoadingMaxRetry: 6,
+        // Nudging — when we drift off the live edge, micro-seek instead
+        // of redownloading. Cheaper and visually less jarring than a
+        // full re-sync.
+        nudgeMaxRetry: 10,
+        nudgeOffset: 0.1,
+        // Workers for HLS parsing — keeps the main thread free for the
+        // /live canvas next to us.
+        enableWorker: true,
+        progressive: true,
       });
       hlsRef.current = hls;
       hls.loadSource(STREAM_URL);
