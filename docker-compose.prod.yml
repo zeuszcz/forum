@@ -31,7 +31,7 @@ services:
     volumes: !override []
     ports: !override
       - "127.0.0.1:${FORUM_BACKEND_PORT:-8030}:8000"
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 2 --no-access-log
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 1 --no-access-log
     restart: always
 
   frontend:
