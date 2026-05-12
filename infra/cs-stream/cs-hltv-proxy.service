@@ -1,0 +1,37 @@
+[Unit]
+Description=endless-war HLTV proxy (mirrors game server for the /live spectator pipeline)
+Documentation=https://github.com/zeuszcz/forum
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=i48ptgvnis
+Group=i48ptgvnis
+WorkingDirectory=/opt/cs-stream/hlds
+ExecStart=/opt/cs-stream/hlds/hltv \
+    +exec hltv.cfg \
+    +connect 37.230.228.248:27015 \
+    +port 27020 \
+    +ip 127.0.0.1 \
+    +developer 0
+# HLTV emits to stdout/stderr — go to journal where we can inspect with
+# `journalctl -u cs-hltv-proxy -f`.
+StandardOutput=journal
+StandardError=journal
+
+# Resource caps so an exploding proxy can't squat on the box. HLTV is
+# normally ~30MB RAM; 150MB is a generous ceiling.
+MemoryMax=200M
+CPUQuota=30%
+
+# Watchdog-style restart so map_change / unexpected disconnect from the
+# game server doesn't leave the pipeline dead. Cap at 5 starts / 60 s
+# so a permanent failure can't loop forever.
+Restart=on-failure
+RestartSec=10s
+StartLimitInterval=60s
+StartLimitBurst=5
+
+[Install]
+WantedBy=multi-user.target
