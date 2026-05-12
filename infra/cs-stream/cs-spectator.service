@@ -8,6 +8,9 @@ Type=simple
 User=i48ptgvnis
 Group=i48ptgvnis
 WorkingDirectory=/opt/cs-stream/spectator
+# Give the game server time to release any prior SteamID slot
+# before we attempt connect — fixes "Your SteamID is already in use".
+ExecStartPre=/bin/sleep 30
 ExecStart=/opt/cs-stream/spectator/start.sh
 StandardOutput=append:/tmp/cs-spectator.log
 StandardError=append:/tmp/cs-spectator.log
