@@ -1,0 +1,16 @@
+{
+  "name": "de_survivor",
+  "image": "de_survivor.png",
+  "size_px": 1024,
+  "origin_x": 832.0,
+  "origin_y": 880.0,
+  "zoom": 1.4545454545454546,
+  "rotated": 0,
+  "world_min_x": -2122.4918032786886,
+  "world_min_y": -2074.4918032786886,
+  "world_max_x": 3786.4918032786886,
+  "world_max_y": 3834.4918032786886,
+  "world_per_px": 5.770491803278688,
+  "generated_from_bsp": true,
+  "face_count": 5699
+}

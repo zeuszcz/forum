@@ -1,0 +1,16 @@
+{
+  "name": "jail_oyunhavuzu_v2",
+  "image": "jail_oyunhavuzu_v2.png",
+  "size_px": 1024,
+  "origin_x": 134.0,
+  "origin_y": 672.0,
+  "zoom": 1.6208943411159478,
+  "rotated": 0,
+  "world_min_x": -2517.27868852459,
+  "world_min_y": -1979.27868852459,
+  "world_max_x": 2785.27868852459,
+  "world_max_y": 3323.27868852459,
+  "world_per_px": 5.17827868852459,
+  "generated_from_bsp": true,
+  "face_count": 12839
+}

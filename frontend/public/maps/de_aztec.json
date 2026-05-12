@@ -1,0 +1,16 @@
+{
+  "name": "de_aztec",
+  "image": "de_aztec.png",
+  "size_px": 1024,
+  "origin_x": -352.0,
+  "origin_y": 248.0,
+  "zoom": 1.1179039301310043,
+  "rotated": 0,
+  "world_min_x": -4196.196721311476,
+  "world_min_y": -3596.1967213114754,
+  "world_max_x": 3492.1967213114754,
+  "world_max_y": 4092.1967213114754,
+  "world_per_px": 7.508196721311475,
+  "generated_from_bsp": true,
+  "face_count": 4302
+}

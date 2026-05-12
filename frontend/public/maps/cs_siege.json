@@ -1,0 +1,16 @@
+{
+  "name": "cs_siege",
+  "image": "cs_siege.png",
+  "size_px": 1024,
+  "origin_x": 564.0,
+  "origin_y": 1252.0,
+  "zoom": 1.2118343195266272,
+  "rotated": 0,
+  "world_min_x": -2982.229508196721,
+  "world_min_y": -2294.229508196721,
+  "world_max_x": 4110.22950819672,
+  "world_max_y": 4798.229508196721,
+  "world_per_px": 6.9262295081967205,
+  "generated_from_bsp": true,
+  "face_count": 4779
+}

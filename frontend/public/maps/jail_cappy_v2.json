@@ -1,0 +1,16 @@
+{
+  "name": "jail_cappy_v2",
+  "image": "jail_cappy_v2.png",
+  "size_px": 1024,
+  "origin_x": 267.0,
+  "origin_y": 145.0,
+  "zoom": 1.0798839968362774,
+  "rotated": 0,
+  "world_min_x": -3712.540983606557,
+  "world_min_y": -3834.540983606557,
+  "world_max_x": 4246.540983606557,
+  "world_max_y": 4124.540983606557,
+  "world_per_px": 7.772540983606556,
+  "generated_from_bsp": true,
+  "face_count": 6921
+}

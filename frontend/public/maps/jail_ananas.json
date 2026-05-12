@@ -1,0 +1,16 @@
+{
+  "name": "jail_ananas",
+  "image": "jail_ananas.png",
+  "size_px": 1024,
+  "origin_x": -420.0,
+  "origin_y": -144.553466796875,
+  "zoom": 1.1518560179977504,
+  "rotated": 0,
+  "world_min_x": -4150.88524590164,
+  "world_min_y": -3875.4387126985143,
+  "world_max_x": 3310.8852459016393,
+  "world_max_y": 3586.3317791047643,
+  "world_per_px": 7.286885245901639,
+  "generated_from_bsp": true,
+  "face_count": 10206
+}

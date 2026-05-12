@@ -44,10 +44,10 @@ export function StreamPlayer({ active }: { active: boolean }) {
         // LL-HLS tuning — keep latency low, but tolerate the cold-start
         // jitter while the on-demand pipeline spins up.
         lowLatencyMode: true,
-        backBufferLength: 8,
-        maxBufferLength: 4,
-        liveSyncDuration: 2,
-        liveMaxLatencyDuration: 6,
+        backBufferLength: 4,
+        maxBufferLength: 3,
+        liveSyncDuration: 1.5,
+        liveMaxLatencyDuration: 4,
         manifestLoadingMaxRetry: 8,
         manifestLoadingRetryDelay: 1500,
         levelLoadingMaxRetry: 6,

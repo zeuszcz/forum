@@ -1,0 +1,16 @@
+{
+  "name": "jail_garden",
+  "image": "jail_garden.png",
+  "size_px": 1024,
+  "origin_x": 188.0,
+  "origin_y": -256.0,
+  "zoom": 1.490538573508006,
+  "rotated": 0,
+  "world_min_x": -2695.1475409836066,
+  "world_min_y": -3139.1475409836066,
+  "world_max_x": 3071.1475409836066,
+  "world_max_y": 2627.1475409836066,
+  "world_per_px": 5.631147540983607,
+  "generated_from_bsp": true,
+  "face_count": 7105
+}

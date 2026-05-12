@@ -1,0 +1,16 @@
+{
+  "name": "de_prodigy",
+  "image": "de_prodigy.png",
+  "size_px": 1024,
+  "origin_x": 1476.0,
+  "origin_y": -272.0,
+  "zoom": 1.9430740037950665,
+  "rotated": 0,
+  "world_min_x": -735.672131147541,
+  "world_min_y": -2483.6721311475408,
+  "world_max_x": 3687.6721311475408,
+  "world_max_y": 1939.672131147541,
+  "world_per_px": 4.319672131147541,
+  "generated_from_bsp": true,
+  "face_count": 7273
+}

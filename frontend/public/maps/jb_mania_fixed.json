@@ -1,0 +1,16 @@
+{
+  "name": "jb_mania_fixed",
+  "image": "jb_mania_fixed.png",
+  "size_px": 1024,
+  "origin_x": 413.0,
+  "origin_y": 30.5,
+  "zoom": 1.1588626396944406,
+  "rotated": 0,
+  "world_min_x": -3295.3278688524592,
+  "world_min_y": -3677.8278688524592,
+  "world_max_x": 4121.327868852459,
+  "world_max_y": 3738.8278688524592,
+  "world_per_px": 7.242827868852459,
+  "generated_from_bsp": true,
+  "face_count": 9313
+}

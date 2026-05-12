@@ -1,0 +1,16 @@
+{
+  "name": "jail_teknosmanli",
+  "image": "jail_teknosmanli.png",
+  "size_px": 1024,
+  "origin_x": 96.0,
+  "origin_y": 1392.0,
+  "zoom": 1.4382022471910112,
+  "rotated": 0,
+  "world_min_x": -2892.065573770492,
+  "world_min_y": -1596.0655737704917,
+  "world_max_x": 3084.065573770492,
+  "world_max_y": 4380.065573770492,
+  "world_per_px": 5.836065573770492,
+  "generated_from_bsp": true,
+  "face_count": 10257
+}

@@ -1,0 +1,16 @@
+{
+  "name": "jail_especial_v2",
+  "image": "jail_especial_v2.png",
+  "size_px": 1024,
+  "origin_x": -628.0,
+  "origin_y": -204.0,
+  "zoom": 1.2720496894409938,
+  "rotated": 0,
+  "world_min_x": -4006.3606557377047,
+  "world_min_y": -3582.3606557377047,
+  "world_max_x": 2750.3606557377047,
+  "world_max_y": 3174.3606557377047,
+  "world_per_px": 6.5983606557377055,
+  "generated_from_bsp": true,
+  "face_count": 9761
+}

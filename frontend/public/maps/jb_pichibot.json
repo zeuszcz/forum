@@ -1,0 +1,16 @@
+{
+  "name": "jb_pichibot",
+  "image": "jb_pichibot.png",
+  "size_px": 1024,
+  "origin_x": -41.5,
+  "origin_y": 244.5,
+  "zoom": 1.074360655737705,
+  "rotated": 0,
+  "world_min_x": -4041.5,
+  "world_min_y": -3755.5,
+  "world_max_x": 3958.5,
+  "world_max_y": 4244.5,
+  "world_per_px": 7.8125,
+  "generated_from_bsp": true,
+  "face_count": 8754
+}

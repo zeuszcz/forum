@@ -1,0 +1,16 @@
+{
+  "name": "jail_sancak",
+  "image": "jail_sancak.png",
+  "size_px": 1024,
+  "origin_x": 564.0,
+  "origin_y": -400.0,
+  "zoom": 1.244228432563791,
+  "rotated": 0,
+  "world_min_x": -2889.901639344262,
+  "world_min_y": -3853.901639344262,
+  "world_max_x": 4017.901639344262,
+  "world_max_y": 3053.901639344262,
+  "world_per_px": 6.745901639344262,
+  "generated_from_bsp": true,
+  "face_count": 6443
+}

@@ -1,0 +1,16 @@
+{
+  "name": "jail_birsey_mr",
+  "image": "jail_birsey_mr.png",
+  "size_px": 1024,
+  "origin_x": 1024.0,
+  "origin_y": 376.0,
+  "zoom": 1.3875338753387534,
+  "rotated": 0,
+  "world_min_x": -2073.1803278688526,
+  "world_min_y": -2721.1803278688526,
+  "world_max_x": 4121.180327868852,
+  "world_max_y": 3473.1803278688526,
+  "world_per_px": 6.049180327868852,
+  "generated_from_bsp": true,
+  "face_count": 7623
+}

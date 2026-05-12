@@ -1,0 +1,16 @@
+{
+  "name": "as_oilrig",
+  "image": "as_oilrig.png",
+  "size_px": 1024,
+  "origin_x": 656.0,
+  "origin_y": -712.0,
+  "zoom": 2.782608695652174,
+  "rotated": 0,
+  "world_min_x": -888.393442622951,
+  "world_min_y": -2256.3934426229507,
+  "world_max_x": 2200.3934426229507,
+  "world_max_y": 832.393442622951,
+  "world_per_px": 3.016393442622951,
+  "generated_from_bsp": true,
+  "face_count": 4996
+}

@@ -1,0 +1,16 @@
+{
+  "name": "jail_lightofdawn",
+  "image": "jail_lightofdawn.png",
+  "size_px": 1024,
+  "origin_x": -948.0,
+  "origin_y": 374.5,
+  "zoom": 1.517037037037037,
+  "rotated": 0,
+  "world_min_x": -3780.7868852459014,
+  "world_min_y": -2458.2868852459014,
+  "world_max_x": 1884.7868852459017,
+  "world_max_y": 3207.2868852459014,
+  "world_per_px": 5.532786885245902,
+  "generated_from_bsp": true,
+  "face_count": 7164
+}

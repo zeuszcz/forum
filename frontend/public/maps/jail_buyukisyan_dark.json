@@ -1,0 +1,16 @@
+{
+  "name": "jail_buyukisyan_dark",
+  "image": "jail_buyukisyan_dark.png",
+  "size_px": 1024,
+  "origin_x": -592.0,
+  "origin_y": -542.0,
+  "zoom": 1.293746051800379,
+  "rotated": 0,
+  "world_min_x": -3913.7049180327867,
+  "world_min_y": -3863.7049180327867,
+  "world_max_x": 2729.7049180327867,
+  "world_max_y": 2779.7049180327867,
+  "world_per_px": 6.4877049180327875,
+  "generated_from_bsp": true,
+  "face_count": 8032
+}

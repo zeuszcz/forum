@@ -1,0 +1,16 @@
+{
+  "name": "jail_beach_v4",
+  "image": "jail_beach_v4.png",
+  "size_px": 1024,
+  "origin_x": 38.5,
+  "origin_y": -296.0,
+  "zoom": 1.0215737623145031,
+  "rotated": 0,
+  "world_min_x": -4168.188524590164,
+  "world_min_y": -4502.688524590164,
+  "world_max_x": 4245.188524590164,
+  "world_max_y": 3910.688524590164,
+  "world_per_px": 8.216188524590164,
+  "generated_from_bsp": true,
+  "face_count": 9745
+}

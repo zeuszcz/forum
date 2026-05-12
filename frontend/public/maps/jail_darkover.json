@@ -1,0 +1,16 @@
+{
+  "name": "jail_darkover",
+  "image": "jail_darkover.png",
+  "size_px": 1024,
+  "origin_x": 56.0,
+  "origin_y": -1848.0,
+  "zoom": 1.6331738437001595,
+  "rotated": 0,
+  "world_min_x": -2575.344262295082,
+  "world_min_y": -4479.3442622950815,
+  "world_max_x": 2687.344262295082,
+  "world_max_y": 783.344262295082,
+  "world_per_px": 5.139344262295082,
+  "generated_from_bsp": true,
+  "face_count": 9210
+}

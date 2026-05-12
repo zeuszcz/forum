@@ -1,0 +1,16 @@
+{
+  "name": "jail_airline_v2",
+  "image": "jail_airline_v2.png",
+  "size_px": 1024,
+  "origin_x": 0.0,
+  "origin_y": -368.0,
+  "zoom": 1.0406504065040652,
+  "rotated": 0,
+  "world_min_x": -4129.573770491803,
+  "world_min_y": -4497.573770491803,
+  "world_max_x": 4129.573770491803,
+  "world_max_y": 3761.5737704918033,
+  "world_per_px": 8.065573770491804,
+  "generated_from_bsp": true,
+  "face_count": 9255
+}

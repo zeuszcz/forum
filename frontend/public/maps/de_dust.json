@@ -1,0 +1,16 @@
+{
+  "name": "de_dust",
+  "image": "de_dust.png",
+  "size_px": 1024,
+  "origin_x": -96.0,
+  "origin_y": 960.0,
+  "zoom": 1.3333333333333333,
+  "rotated": 0,
+  "world_min_x": -3319.0819672131147,
+  "world_min_y": -2263.0819672131147,
+  "world_max_x": 3127.0819672131147,
+  "world_max_y": 4183.081967213115,
+  "world_per_px": 6.2950819672131155,
+  "generated_from_bsp": true,
+  "face_count": 5265
+}

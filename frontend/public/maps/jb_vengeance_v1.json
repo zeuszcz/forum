@@ -1,0 +1,16 @@
+{
+  "name": "jb_vengeance_v1",
+  "image": "jb_vengeance_v1.png",
+  "size_px": 1024,
+  "origin_x": -126.0,
+  "origin_y": -196.0,
+  "zoom": 1.103448275862069,
+  "rotated": 0,
+  "world_min_x": -4020.55737704918,
+  "world_min_y": -4090.55737704918,
+  "world_max_x": 3768.55737704918,
+  "world_max_y": 3698.55737704918,
+  "world_per_px": 7.606557377049181,
+  "generated_from_bsp": true,
+  "face_count": 10760
+}

@@ -1,0 +1,16 @@
+{
+  "name": "jb_cp_assis",
+  "image": "jb_cp_assis.png",
+  "size_px": 1024,
+  "origin_x": -136.0,
+  "origin_y": 912.0,
+  "zoom": 1.257985257985258,
+  "rotated": 0,
+  "world_min_x": -3552.1311475409834,
+  "world_min_y": -2504.1311475409834,
+  "world_max_x": 3280.1311475409834,
+  "world_max_y": 4328.131147540984,
+  "world_per_px": 6.672131147540984,
+  "generated_from_bsp": true,
+  "face_count": 9773
+}

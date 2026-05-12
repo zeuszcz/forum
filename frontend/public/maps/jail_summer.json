@@ -1,0 +1,16 @@
+{
+  "name": "jail_summer",
+  "image": "jail_summer.png",
+  "size_px": 1024,
+  "origin_x": -337.0,
+  "origin_y": -309.5,
+  "zoom": 1.263612525065556,
+  "rotated": 0,
+  "world_min_x": -3737.9180327868858,
+  "world_min_y": -3710.4180327868858,
+  "world_max_x": 3063.9180327868858,
+  "world_max_y": 3091.4180327868858,
+  "world_per_px": 6.642418032786885,
+  "generated_from_bsp": true,
+  "face_count": 13390
+}

@@ -146,6 +146,7 @@ export function PlayerPopover({
   isStaff,
   onClose,
   onFollow,
+  onSpectate,
   onAction,
   onPrivateSay,
   onKick,
@@ -157,6 +158,7 @@ export function PlayerPopover({
   isStaff: boolean;
   onClose: () => void;
   onFollow: () => void;
+  onSpectate: (targetUserid: number) => Promise<void>;
   onAction: ActionRunner;
   onPrivateSay: (userid: number, text: string) => Promise<void>;
   onKick: (nick: string, reason: string) => Promise<void>;
@@ -345,7 +347,24 @@ export function PlayerPopover({
           className="inline-flex h-7 flex-1 items-center justify-center gap-1 rounded-md border border-flame/40 bg-flame/10 text-[10px] uppercase tracking-widest text-flame transition-colors hover:bg-flame/15"
         >
           <Target className="h-3 w-3" />
-          Камера за ним
+          Камера 2D
+        </button>
+        <button
+          type="button"
+          onClick={async () => {
+            setBusy("spec");
+            try {
+              await onSpectate(player.userid);
+            } finally {
+              setBusy(null);
+            }
+          }}
+          disabled={busy === "spec"}
+          className="inline-flex h-7 flex-1 items-center justify-center gap-1 rounded-md border border-cyan/40 bg-cyan/10 text-[10px] uppercase tracking-widest text-cyan transition-colors hover:bg-cyan/15 disabled:cursor-wait disabled:opacity-60"
+          title="Перевести headless-spectator на этого игрока"
+        >
+          <Target className="h-3 w-3" />
+          Spec в игре
         </button>
         {detail?.forum_user && (
           <Link

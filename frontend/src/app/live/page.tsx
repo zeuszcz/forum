@@ -33,7 +33,7 @@ import { StreamPlayer } from "./_components/stream-player";
 // -----------------------------------------------------------------------------
 const PLUGIN_TICK_MS = 2000;
 const PLAYER_STALE_MS = 6000;
-const TRAIL_LENGTH = 6;          // D1: ring-buffer of last N positions
+const TRAIL_LENGTH = 4;          // D1: ring-buffer of last N positions
 const KILL_MARKER_TTL_MS = 5000; // D2: how long kill skull/flame stays on map
 const AFK_THRESHOLD_MS = 30_000; // D5: stationary + same yaw → sleeping icon
 const CHAT_BUFFER_MAX = 60;
@@ -583,7 +583,7 @@ export default function LivePage() {
     const canvas = canvasRef.current;
     const container = containerRef.current;
     if (!canvas || !container) return;
-    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
 
     const resize = () => {
       const rect = container.getBoundingClientRect();
@@ -1088,6 +1088,19 @@ export default function LivePage() {
     }
   }, []);
 
+  const specInGame = useCallback(async (targetUserid: number) => {
+    try {
+      const r = await api<{ ok: boolean; latency_ms: number }>(
+        "/live/spec/follow",
+        { method: "POST", body: JSON.stringify({ target_userid: targetUserid }) },
+      );
+      toast.success(`Spec → userid #${targetUserid} (${r.latency_ms}ms)`);
+    } catch (e) {
+      if (e instanceof ApiError) toast.error(e.detail);
+      else toast.error("Spec error");
+    }
+  }, []);
+
   const forumBan = useCallback(async (userId: number, reason: string) => {
     try {
       await api(`/admin/users/${userId}/ban`, {
@@ -1211,6 +1224,7 @@ export default function LivePage() {
               isStaff={isStaff}
               onClose={() => setSelectedUserid(null)}
               onFollow={() => setFollowUserid(selectedPlayer.userid)}
+              onSpectate={specInGame}
               onAction={runQuickAction}
               onPrivateSay={privateSay}
               onKick={kickPlayer}

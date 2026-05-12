@@ -1,0 +1,16 @@
+{
+  "name": "jail_signorina_rc",
+  "image": "jail_signorina_rc.png",
+  "size_px": 1024,
+  "origin_x": -8.0,
+  "origin_y": -16.0,
+  "zoom": 1.0019569471624266,
+  "rotated": 0,
+  "world_min_x": -4297.049180327869,
+  "world_min_y": -4305.049180327869,
+  "world_max_x": 4281.049180327869,
+  "world_max_y": 4273.049180327869,
+  "world_per_px": 8.37704918032787,
+  "generated_from_bsp": true,
+  "face_count": 14753
+}

@@ -1,0 +1,16 @@
+{
+  "name": "de_airstrip",
+  "image": "de_airstrip.png",
+  "size_px": 1024,
+  "origin_x": -1116.0,
+  "origin_y": -368.0,
+  "zoom": 1.2132701421800949,
+  "rotated": 0,
+  "world_min_x": -4658.0327868852455,
+  "world_min_y": -3910.032786885246,
+  "world_max_x": 2426.032786885246,
+  "world_max_y": 3174.032786885246,
+  "world_per_px": 6.918032786885246,
+  "generated_from_bsp": true,
+  "face_count": 8216
+}

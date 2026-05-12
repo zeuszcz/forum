@@ -1,0 +1,16 @@
+{
+  "name": "jail_infinity_v2_fixed",
+  "image": "jail_infinity_v2_fixed.png",
+  "size_px": 1024,
+  "origin_x": -44.0,
+  "origin_y": 40.0,
+  "zoom": 1.099892588614393,
+  "rotated": 0,
+  "world_min_x": -3951.147540983606,
+  "world_min_y": -3867.147540983606,
+  "world_max_x": 3863.147540983606,
+  "world_max_y": 3947.147540983606,
+  "world_per_px": 7.631147540983606,
+  "generated_from_bsp": true,
+  "face_count": 11266
+}

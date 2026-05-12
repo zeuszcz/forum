@@ -1,0 +1,16 @@
+{
+  "name": "jb_minecraft_csgo",
+  "image": "jb_minecraft_csgo.png",
+  "size_px": 1024,
+  "origin_x": 292.0,
+  "origin_y": 324.0,
+  "zoom": 1.1838150289017342,
+  "rotated": 0,
+  "world_min_x": -3338.163934426229,
+  "world_min_y": -3306.163934426229,
+  "world_max_x": 3922.163934426229,
+  "world_max_y": 3954.163934426229,
+  "world_per_px": 7.090163934426229,
+  "generated_from_bsp": true,
+  "face_count": 12617
+}

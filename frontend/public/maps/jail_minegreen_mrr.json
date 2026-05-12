@@ -1,0 +1,16 @@
+{
+  "name": "jail_minegreen_mrr",
+  "image": "jail_minegreen_mrr.png",
+  "size_px": 1024,
+  "origin_x": 528.0,
+  "origin_y": 96.0,
+  "zoom": 1.032258064516129,
+  "rotated": 0,
+  "world_min_x": -3635.1475409836066,
+  "world_min_y": -4067.1475409836066,
+  "world_max_x": 4691.147540983607,
+  "world_max_y": 4259.147540983607,
+  "world_per_px": 8.131147540983607,
+  "generated_from_bsp": true,
+  "face_count": 6693
+}

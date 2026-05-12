@@ -1,0 +1,16 @@
+{
+  "name": "jail_desert",
+  "image": "jail_desert.png",
+  "size_px": 1024,
+  "origin_x": -248.5,
+  "origin_y": 340.0,
+  "zoom": 1.1303987857044293,
+  "rotated": 0,
+  "world_min_x": -4050.204918032787,
+  "world_min_y": -3461.704918032787,
+  "world_max_x": 3553.204918032787,
+  "world_max_y": 4141.704918032788,
+  "world_per_px": 7.4252049180327875,
+  "generated_from_bsp": true,
+  "face_count": 13666
+}

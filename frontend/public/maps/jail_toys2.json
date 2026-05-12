@@ -1,0 +1,16 @@
+{
+  "name": "jail_toys2",
+  "image": "jail_toys2.png",
+  "size_px": 1024,
+  "origin_x": 64.0,
+  "origin_y": -574.0,
+  "zoom": 1.1228070175438596,
+  "rotated": 0,
+  "world_min_x": -3763.409836065574,
+  "world_min_y": -4401.4098360655735,
+  "world_max_x": 3891.409836065574,
+  "world_max_y": 3253.409836065574,
+  "world_per_px": 7.475409836065574,
+  "generated_from_bsp": true,
+  "face_count": 10302
+}

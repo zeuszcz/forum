@@ -8,14 +8,27 @@ PartOf=cs-spectator.service
 Type=simple
 User=i48ptgvnis
 Group=i48ptgvnis
-# Wait for Xvfb to actually have content before starting capture.
+
+# Wait for Xvfb to have actual content before starting the encoder.
 ExecStartPre=/bin/sleep 5
+
+# Encoder profile v2 — tuned for VPS bandwidth + CPU:
+#   * 854x480 @ 24 fps  (vs 1280x720@30) → ~½ CPU, ~½ bandwidth
+#   * baseline H.264 profile + level 3.0 (max compat with hls.js + iOS)
+#   * 800 kbps target, 1200 kbps max — fits 6 viewers on a 10 Mbps egress
+#     without spilling other VPS traffic
+#   * GOP=48 / keyframe every 2 s → matches LL-HLS 1-s seg / 200-ms part
+#     boundaries for the lowest stall-on-segment-fetch latency
+#   * pix_fmt yuv420p so the stream plays on every browser <video>
+#   * audio off — saves another ~80 KB/s + avoids the ALSA-in-headless
+#     headache
 ExecStart=/usr/bin/ffmpeg \
     -nostdin -hide_banner -loglevel warning \
-    -f x11grab -framerate 30 -video_size 1280x720 -i :99.0+0,0 \
-    -c:v libx264 -preset ultrafast -tune zerolatency \
-    -g 60 -keyint_min 30 \
-    -b:v 1500k -maxrate 1500k -bufsize 3000k \
+    -f x11grab -framerate 24 -video_size 854x480 -draw_mouse 0 -i :99.0+0,0 \
+    -c:v libx264 -preset superfast -tune zerolatency \
+    -profile:v baseline -level 3.0 \
+    -g 48 -keyint_min 24 -sc_threshold 0 \
+    -b:v 800k -maxrate 1200k -bufsize 2400k \
     -pix_fmt yuv420p \
     -an \
     -f flv rtmp://127.0.0.1:1935/cs1
@@ -23,10 +36,9 @@ ExecStart=/usr/bin/ffmpeg \
 StandardOutput=append:/tmp/cs-encoder.log
 StandardError=append:/tmp/cs-encoder.log
 
-# 256MB / 1 CPU cap — software H.264 encode is the heaviest single
-# component but shouldn't go above this for 720p30 with ultrafast.
-MemoryMax=256M
-CPUQuota=100%
+# Tighter caps now that we encode 480p with superfast.
+MemoryMax=200M
+CPUQuota=70%
 
 Restart=on-failure
 RestartSec=5s

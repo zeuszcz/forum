@@ -26,9 +26,15 @@ from app.core.deps import CurrentUser, DbSession, get_current_user
 from app.models.cs_active_effect import CsActiveEffect
 from app.models.cs_rcon_log import CsRconLog
 from app.models.user import User
-from app.schemas.cs_rcon import ActiveEffectRead, RconLogRead
+from app.schemas.cs_rcon import (
+    ActiveEffectRead,
+    RconLogRead,
+    SpecFollowRequest,
+    SpecFollowResult,
+)
 from app.schemas.user import RoleRead, UserPublic
 from app.services import auth as auth_service
+from app.services import cs_rcon
 
 router = APIRouter(prefix="/live", tags=["live"])
 
@@ -144,3 +150,37 @@ async def player_detail(
         "recent_actions": recent_actions,
         "forum_user": forum_user_data,
     }
+
+
+@router.post("/spec/follow", response_model=SpecFollowResult)
+async def spec_follow(
+    payload: SpecFollowRequest,
+    user: CurrentUser,
+    db: DbSession,
+) -> SpecFollowResult:
+    """Lock the headless forum spectator's camera onto target_userid.
+
+    Sends `forum_spec_follow <userid>` to the game server via RCON; the
+    jbf_forum_spectator AMX plugin (v0.3+) intercepts that and relays
+    `spec_player #<userid>` to the spectator client over the
+    server-to-client engine cmd channel.
+
+    Passing target_userid=0 releases the lock → autodirector resumes.
+    """
+    if not await _is_staff(db, user):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Только для модераторов"
+        )
+
+    cmd = f"forum_spec_follow {int(payload.target_userid)}"
+    try:
+        result = await cs_rcon.execute(cmd, timeout=4.0)
+    except cs_rcon.RconError as e:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY, detail=f"RCON: {e}"
+        )
+    return SpecFollowResult(
+        ok=True,
+        target_userid=payload.target_userid,
+        latency_ms=result.latency_ms,
+    )

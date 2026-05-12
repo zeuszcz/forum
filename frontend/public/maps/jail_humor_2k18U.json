@@ -1,0 +1,16 @@
+{
+  "name": "jail_humor_2k18U",
+  "image": "jail_humor_2k18U.png",
+  "size_px": 1024,
+  "origin_x": -512.0,
+  "origin_y": 112.0,
+  "zoom": 1.3617021276595744,
+  "rotated": 0,
+  "world_min_x": -3667.934426229508,
+  "world_min_y": -3043.934426229508,
+  "world_max_x": 2643.934426229508,
+  "world_max_y": 3267.934426229508,
+  "world_per_px": 6.163934426229508,
+  "generated_from_bsp": true,
+  "face_count": 8594
+}

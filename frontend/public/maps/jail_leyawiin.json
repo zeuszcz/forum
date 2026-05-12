@@ -1,0 +1,16 @@
+{
+  "name": "jail_leyawiin",
+  "image": "jail_leyawiin.png",
+  "size_px": 1024,
+  "origin_x": 54.0,
+  "origin_y": 304.0,
+  "zoom": 1.0133597229094509,
+  "rotated": 0,
+  "world_min_x": -4186.786885245901,
+  "world_min_y": -3936.7868852459014,
+  "world_max_x": 4294.786885245901,
+  "world_max_y": 4544.786885245901,
+  "world_per_px": 8.282786885245901,
+  "generated_from_bsp": true,
+  "face_count": 20424
+}

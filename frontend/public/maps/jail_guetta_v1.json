@@ -1,0 +1,16 @@
+{
+  "name": "jail_guetta_v1",
+  "image": "jail_guetta_v1.png",
+  "size_px": 1024,
+  "origin_x": 872.0,
+  "origin_y": -1237.0,
+  "zoom": 2.186865990389749,
+  "rotated": 0,
+  "world_min_x": -1093.1147540983607,
+  "world_min_y": -3202.1147540983607,
+  "world_max_x": 2837.1147540983607,
+  "world_max_y": 728.1147540983607,
+  "world_per_px": 3.8381147540983607,
+  "generated_from_bsp": true,
+  "face_count": 8840
+}

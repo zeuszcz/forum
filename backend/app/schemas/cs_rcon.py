@@ -42,6 +42,21 @@ class PrivateSayResult(BaseModel):
     latency_ms: int
 
 
+class SpecFollowRequest(BaseModel):
+    """Lock the forum spectator camera onto a specific in-game userid.
+
+    Passing target_userid=0 releases the lock and returns the spectator
+    to autodirector mode."""
+
+    target_userid: int = Field(ge=0, le=65535)
+
+
+class SpecFollowResult(BaseModel):
+    ok: bool
+    target_userid: int
+    latency_ms: int
+
+
 class RconBatch(BaseModel):
     """Up to 10 commands fired sequentially as one batch. Total time-budget
     governed by the same rate limit as a single execute (counts as N

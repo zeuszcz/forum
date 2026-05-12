@@ -1,0 +1,16 @@
+{
+  "name": "cs_estate",
+  "image": "cs_estate.png",
+  "size_px": 1024,
+  "origin_x": -160.0,
+  "origin_y": -928.0,
+  "zoom": 2.6666666666666665,
+  "rotated": 0,
+  "world_min_x": -1771.5409836065573,
+  "world_min_y": -2539.5409836065573,
+  "world_max_x": 1451.5409836065573,
+  "world_max_y": 683.5409836065573,
+  "world_per_px": 3.1475409836065578,
+  "generated_from_bsp": true,
+  "face_count": 3075
+}

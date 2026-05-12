@@ -1,0 +1,16 @@
+{
+  "name": "jb_hope_v2",
+  "image": "jb_hope_v2.png",
+  "size_px": 1024,
+  "origin_x": 368.5,
+  "origin_y": 36.0,
+  "zoom": 1.025281602002503,
+  "rotated": 0,
+  "world_min_x": -3822.9754098360654,
+  "world_min_y": -4155.475409836065,
+  "world_max_x": 4559.975409836065,
+  "world_max_y": 4227.475409836065,
+  "world_per_px": 8.186475409836065,
+  "generated_from_bsp": true,
+  "face_count": 8458
+}

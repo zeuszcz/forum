@@ -1,0 +1,16 @@
+{
+  "name": "cs_747",
+  "image": "cs_747.png",
+  "size_px": 1024,
+  "origin_x": -64.0,
+  "origin_y": -608.0,
+  "zoom": 1.620253164556962,
+  "rotated": 0,
+  "world_min_x": -2716.3278688524592,
+  "world_min_y": -3260.3278688524592,
+  "world_max_x": 2588.3278688524592,
+  "world_max_y": 2044.327868852459,
+  "world_per_px": 5.1803278688524586,
+  "generated_from_bsp": true,
+  "face_count": 5210
+}

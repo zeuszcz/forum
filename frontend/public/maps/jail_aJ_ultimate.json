@@ -1,0 +1,16 @@
+{
+  "name": "jail_aJ_ultimate",
+  "image": "jail_aJ_ultimate.png",
+  "size_px": 1024,
+  "origin_x": -846.5,
+  "origin_y": 795.0,
+  "zoom": 1.2886581720937549,
+  "rotated": 0,
+  "world_min_x": -4181.319672131148,
+  "world_min_y": -2539.819672131148,
+  "world_max_x": 2488.319672131148,
+  "world_max_y": 4129.819672131148,
+  "world_per_px": 6.513319672131148,
+  "generated_from_bsp": true,
+  "face_count": 7336
+}

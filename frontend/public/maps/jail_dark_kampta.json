@@ -1,0 +1,16 @@
+{
+  "name": "jail_dark_kampta",
+  "image": "jail_dark_kampta.png",
+  "size_px": 1024,
+  "origin_x": 792.0,
+  "origin_y": -144.0,
+  "zoom": 1.2673267326732673,
+  "rotated": 0,
+  "world_min_x": -2598.9508196721313,
+  "world_min_y": -3534.9508196721313,
+  "world_max_x": 4182.950819672131,
+  "world_max_y": 3246.9508196721313,
+  "world_per_px": 6.622950819672131,
+  "generated_from_bsp": true,
+  "face_count": 12392
+}

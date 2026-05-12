@@ -1,0 +1,16 @@
+{
+  "name": "jail_rats",
+  "image": "jail_rats.png",
+  "size_px": 1024,
+  "origin_x": 239.5,
+  "origin_y": -561.0,
+  "zoom": 2.2667404537908133,
+  "rotated": 0,
+  "world_min_x": -1656.3688524590164,
+  "world_min_y": -2456.8688524590166,
+  "world_max_x": 2135.3688524590166,
+  "world_max_y": 1334.8688524590164,
+  "world_per_px": 3.7028688524590163,
+  "generated_from_bsp": true,
+  "face_count": 5803
+}

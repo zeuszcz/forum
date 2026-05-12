@@ -1,0 +1,16 @@
+{
+  "name": "jb_station5",
+  "image": "jb_station5.png",
+  "size_px": 1024,
+  "origin_x": 464.0,
+  "origin_y": 16.0,
+  "zoom": 1.003921568627451,
+  "rotated": 0,
+  "world_min_x": -3816.655737704918,
+  "world_min_y": -4264.655737704918,
+  "world_max_x": 4744.655737704918,
+  "world_max_y": 4296.655737704918,
+  "world_per_px": 8.360655737704917,
+  "generated_from_bsp": true,
+  "face_count": 9363
+}

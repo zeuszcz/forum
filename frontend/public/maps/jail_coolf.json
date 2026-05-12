@@ -1,0 +1,16 @@
+{
+  "name": "jail_coolf",
+  "image": "jail_coolf.png",
+  "size_px": 1024,
+  "origin_x": 136.0,
+  "origin_y": 284.0,
+  "zoom": 1.2704714640198511,
+  "rotated": 0,
+  "world_min_x": -3246.5573770491796,
+  "world_min_y": -3098.5573770491796,
+  "world_max_x": 3518.5573770491796,
+  "world_max_y": 3666.5573770491796,
+  "world_per_px": 6.60655737704918,
+  "generated_from_bsp": true,
+  "face_count": 9830
+}

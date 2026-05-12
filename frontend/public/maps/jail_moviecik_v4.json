@@ -1,0 +1,16 @@
+{
+  "name": "jail_moviecik_v4",
+  "image": "jail_moviecik_v4.png",
+  "size_px": 1024,
+  "origin_x": -39.0,
+  "origin_y": 694.0,
+  "zoom": 1.4316672492135616,
+  "rotated": 0,
+  "world_min_x": -3040.7049180327867,
+  "world_min_y": -2307.7049180327867,
+  "world_max_x": 2962.7049180327867,
+  "world_max_y": 3695.7049180327867,
+  "world_per_px": 5.8627049180327875,
+  "generated_from_bsp": true,
+  "face_count": 7529
+}

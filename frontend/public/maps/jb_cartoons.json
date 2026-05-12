@@ -1,0 +1,16 @@
+{
+  "name": "jb_cartoons",
+  "image": "jb_cartoons.png",
+  "size_px": 1024,
+  "origin_x": 696.0,
+  "origin_y": -552.0,
+  "zoom": 1.3128205128205128,
+  "rotated": 0,
+  "world_min_x": -2577.44262295082,
+  "world_min_y": -3825.44262295082,
+  "world_max_x": 3969.44262295082,
+  "world_max_y": 2721.44262295082,
+  "world_per_px": 6.39344262295082,
+  "generated_from_bsp": true,
+  "face_count": 12518
+}

@@ -1,0 +1,16 @@
+{
+  "name": "jail_global_mafia",
+  "image": "jail_global_mafia.png",
+  "size_px": 1024,
+  "origin_x": 0.0,
+  "origin_y": -95.0,
+  "zoom": 1.0798839968362774,
+  "rotated": 0,
+  "world_min_x": -3979.540983606557,
+  "world_min_y": -4074.540983606557,
+  "world_max_x": 3979.540983606557,
+  "world_max_y": 3884.540983606557,
+  "world_per_px": 7.772540983606556,
+  "generated_from_bsp": true,
+  "face_count": 2018
+}

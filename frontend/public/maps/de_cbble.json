@@ -1,0 +1,16 @@
+{
+  "name": "de_cbble",
+  "image": "de_cbble.png",
+  "size_px": 1024,
+  "origin_x": -832.0,
+  "origin_y": 576.0,
+  "zoom": 1.2549019607843137,
+  "rotated": 0,
+  "world_min_x": -4256.524590163935,
+  "world_min_y": -2848.5245901639346,
+  "world_max_x": 2592.5245901639346,
+  "world_max_y": 4000.5245901639346,
+  "world_per_px": 6.688524590163935,
+  "generated_from_bsp": true,
+  "face_count": 6595
+}

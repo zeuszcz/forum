@@ -1,0 +1,16 @@
+{
+  "name": "cs_backalley",
+  "image": "cs_backalley.png",
+  "size_px": 1024,
+  "origin_x": 148.0,
+  "origin_y": 1360.0,
+  "zoom": 2.3486238532110093,
+  "rotated": 0,
+  "world_min_x": -1681.7704918032787,
+  "world_min_y": -469.7704918032787,
+  "world_max_x": 1977.7704918032787,
+  "world_max_y": 3189.7704918032787,
+  "world_per_px": 3.5737704918032787,
+  "generated_from_bsp": true,
+  "face_count": 7509
+}

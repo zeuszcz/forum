@@ -1,0 +1,16 @@
+{
+  "name": "cs_militia",
+  "image": "cs_militia.png",
+  "size_px": 1024,
+  "origin_x": 621.0,
+  "origin_y": -534.0,
+  "zoom": 1.688375927452597,
+  "rotated": 0,
+  "world_min_x": -1924.311475409836,
+  "world_min_y": -3079.311475409836,
+  "world_max_x": 3166.311475409836,
+  "world_max_y": 2011.311475409836,
+  "world_per_px": 4.971311475409836,
+  "generated_from_bsp": true,
+  "face_count": 6669
+}

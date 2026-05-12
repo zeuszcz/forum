@@ -1,0 +1,16 @@
+{
+  "name": "de_dust_2_5x5",
+  "image": "de_dust_2_5x5.png",
+  "size_px": 1024,
+  "origin_x": -264.0,
+  "origin_y": 1400.0,
+  "zoom": 1.673202614379085,
+  "rotated": 0,
+  "world_min_x": -2832.3934426229507,
+  "world_min_y": -1168.3934426229507,
+  "world_max_x": 2304.3934426229507,
+  "world_max_y": 3968.3934426229507,
+  "world_per_px": 5.016393442622951,
+  "generated_from_bsp": true,
+  "face_count": 5700
+}

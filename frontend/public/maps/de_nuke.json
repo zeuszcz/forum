@@ -1,0 +1,16 @@
+{
+  "name": "de_nuke",
+  "image": "de_nuke.png",
+  "size_px": 1024,
+  "origin_x": 244.0,
+  "origin_y": -936.0,
+  "zoom": 1.139043381535039,
+  "rotated": 0,
+  "world_min_x": -3528.852459016393,
+  "world_min_y": -4708.852459016393,
+  "world_max_x": 4016.852459016393,
+  "world_max_y": 2836.852459016393,
+  "world_per_px": 7.368852459016392,
+  "generated_from_bsp": true,
+  "face_count": 6202
+}

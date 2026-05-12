@@ -1,0 +1,16 @@
+{
+  "name": "global_o4ko_v3",
+  "image": "global_o4ko_v3.png",
+  "size_px": 1024,
+  "origin_x": -28.0,
+  "origin_y": 72.0,
+  "zoom": 1.025025025025025,
+  "rotated": 0,
+  "world_min_x": -4220.524590163935,
+  "world_min_y": -4120.524590163935,
+  "world_max_x": 4164.524590163935,
+  "world_max_y": 4264.524590163935,
+  "world_per_px": 8.188524590163935,
+  "generated_from_bsp": true,
+  "face_count": 2076
+}
