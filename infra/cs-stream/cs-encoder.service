@@ -1,0 +1,37 @@
+[Unit]
+Description=endless-war CS spectator video encoder (Xvfb :99 → RTMP to MediaMTX)
+After=cs-spectator.service cs-stream-mediamtx.service
+Requires=cs-spectator.service
+PartOf=cs-spectator.service
+
+[Service]
+Type=simple
+User=i48ptgvnis
+Group=i48ptgvnis
+# Wait for Xvfb to actually have content before starting capture.
+ExecStartPre=/bin/sleep 5
+ExecStart=/usr/bin/ffmpeg \
+    -nostdin -hide_banner -loglevel warning \
+    -f x11grab -framerate 30 -video_size 1280x720 -i :99.0+0,0 \
+    -c:v libx264 -preset ultrafast -tune zerolatency \
+    -g 60 -keyint_min 30 \
+    -b:v 1500k -maxrate 1500k -bufsize 3000k \
+    -pix_fmt yuv420p \
+    -an \
+    -f flv rtmp://127.0.0.1:1935/cs1
+
+StandardOutput=append:/tmp/cs-encoder.log
+StandardError=append:/tmp/cs-encoder.log
+
+# 256MB / 1 CPU cap — software H.264 encode is the heaviest single
+# component but shouldn't go above this for 720p30 with ultrafast.
+MemoryMax=256M
+CPUQuota=100%
+
+Restart=on-failure
+RestartSec=5s
+StartLimitInterval=120s
+StartLimitBurst=6
+
+[Install]
+WantedBy=multi-user.target
