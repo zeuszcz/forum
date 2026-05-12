@@ -1,0 +1,33 @@
+# Live spectator stream pipeline for forum.innertalk.space/live.
+#
+# Phase S1 ships only the relay (MediaMTX). The other services are
+# placeholders / stubs that the next phases fill in:
+#   - hltv       — Phase S2: HLTV proxy connecting to the game server.
+#   - hl-client  — Phase S3: headless CS 1.6 spectator in Xvfb (xash3d
+#                  preferred over Wine).
+#   - encoder    — Phase S4: ffmpeg x11grab → RTMP to MediaMTX.
+#   - orchestrator — Phase S5: spins the pipeline up on viewer demand.
+#
+# Resource caps come from `deploy.resources.limits` so a runaway encode
+# can't OOM the rest of the VPS (forum, messenger, omnia, lms).
+
+version: "3.8"
+
+services:
+  mediamtx:
+    image: bluenviron/mediamtx:1.9.3
+    container_name: cs-stream-mediamtx
+    restart: unless-stopped
+    network_mode: host
+    volumes:
+      - ./mediamtx/mediamtx.yml:/mediamtx.yml:ro
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: "0.5"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O- http://127.0.0.1:8888/cs1/index.m3u8 || exit 0"]
+      interval: 15s
+      timeout: 3s
+      retries: 3

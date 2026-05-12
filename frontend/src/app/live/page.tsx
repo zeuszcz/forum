@@ -26,6 +26,7 @@ import {
   PlayerPopover,
   type ActionRunner,
 } from "./_components/player-popover";
+import { StreamPlayer } from "./_components/stream-player";
 
 // -----------------------------------------------------------------------------
 // Constants
@@ -263,6 +264,7 @@ export default function LivePage() {
   // Toggles
   const [liveOn, setLiveOn] = useState(true);
   const [chatPanelOpen, setChatPanelOpen] = useState(true);
+  const [streamOn, setStreamOn] = useState(false);
   const [showTrails, setShowTrails] = useState(true);
   const [followUserid, setFollowUserid] = useState<number | null>(null);
   const followUseridRef = useRef<number | null>(null);
@@ -1153,6 +1155,7 @@ export default function LivePage() {
             setOn={setChatPanelOpen}
             label="Chat panel"
           />
+          <ToggleChip on={streamOn} setOn={setStreamOn} label="Stream" />
           {followUserid != null && (
             <button
               type="button"
@@ -1227,6 +1230,13 @@ export default function LivePage() {
           />
         )}
       </div>
+
+      {/* Live spectator video stream */}
+      {streamOn && (
+        <section className="mt-6">
+          <StreamPlayer active={streamOn} />
+        </section>
+      )}
 
       {/* Player table */}
       <section className="mt-6">

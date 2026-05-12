@@ -1,0 +1,69 @@
+# MediaMTX config for the endless-war live spectator stream pipeline.
+#
+# We feed one source (`cs1`) over RTMP from a local ffmpeg encoder
+# capturing the headless HL/CS 1.6 spectator's Xvfb display. Browsers
+# read it as LL-HLS over nginx — recommended over WebRTC for v1 because
+# we don't need <1s latency and HLS is dead simple to embed on a forum.
+#
+# Important invariants:
+#   record: false                — no .ts files persisted on disk; the
+#                                  in-memory buffer is enough for HLS.
+#   readBufferCount keeps memory in check (~30MB max per path).
+#   hlsLowLatency: yes           — uses CMAF chunks, ~3s wall latency.
+#   authMethods                  — we keep both publish and read open
+#                                  because everything is on a private
+#                                  127.0.0.1-only bridge inside the VPS;
+#                                  nginx is the public gate.
+
+logLevel: info
+logDestinations: [stdout]
+logFile: ""
+
+# Resource caps so the pipeline can't eat the whole VPS if something
+# misbehaves.
+readBufferCount: 512
+udpMaxPayloadSize: 1472
+
+# Disable everything we don't use to free up ports.
+api: no
+metrics: no
+pprof: no
+playback: no
+
+rtsp: no
+
+# RTMP — input from local ffmpeg. Loopback only.
+rtmp: yes
+rtmpAddress: 127.0.0.1:1935
+rtmpEncryption: "no"
+
+# HLS — output to nginx → browser.
+hls: yes
+hlsAddress: 127.0.0.1:8888
+hlsAllowOrigin: "*"
+hlsAlwaysRemux: yes
+hlsVariant: lowLatency
+hlsSegmentCount: 7
+hlsSegmentDuration: 1s
+hlsPartDuration: 200ms
+hlsSegmentMaxSize: 50M
+hlsDirectory: ""
+
+# WebRTC — off in v1, can flip on later if HLS latency feels too high.
+webrtc: no
+
+# SRT — off.
+srt: no
+
+paths:
+  cs1:
+    # Allow only local pushes (the local ffmpeg encoder).
+    source: publisher
+    sourceOnDemand: no
+    # On-demand readback: if no viewer for 5 min, drop the published
+    # stream so the ffmpeg pipeline upstream can detect zero viewers
+    # and shut itself down too.
+    runOnDemand: ""
+    runOnDemandRestart: no
+    runOnDemandStartTimeout: 10s
+    runOnDemandCloseAfter: 5m
