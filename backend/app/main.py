@@ -16,6 +16,7 @@ from app.routers import (
     cs_rcon,
     forum,
     health,
+    live,
     notifications,
     polls,
     quests,
@@ -62,6 +63,7 @@ app.include_router(stats.router)
 app.include_router(admin.router)
 app.include_router(polls.router)
 app.include_router(notifications.router)
+app.include_router(live.router)
 app.include_router(attachments.router)
 app.include_router(steam.router)
 app.include_router(quests.router)

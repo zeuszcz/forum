@@ -7,7 +7,6 @@ import {
   Send,
   Target,
   Users,
-  X,
 } from "lucide-react";
 import {
   useCallback,
@@ -20,7 +19,13 @@ import { toast } from "sonner";
 
 import { api, ApiError } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
+import { actionAnnounceColor } from "@/lib/jbf-quick-actions";
 import { cn } from "@/lib/utils";
+
+import {
+  PlayerPopover,
+  type ActionRunner,
+} from "./_components/player-popover";
 
 // -----------------------------------------------------------------------------
 // Constants
@@ -1012,34 +1017,87 @@ export default function LivePage() {
   // ---------------------------------------------------------------------------
   // Quick admin action helpers
   // ---------------------------------------------------------------------------
-  const runAction = useCallback(
-    async (
-      target: { userid: number; nick: string },
-      command: string,
-      announce: string,
-    ) => {
-      const rosterRow = roster.find((r) => r.userid === target.userid);
+  const runQuickAction = useCallback<ActionRunner>(
+    async (target, action, mode) => {
+      const builder = mode === "off" ? action.build.off : action.build.on;
+      if (!builder) return;
+      const cmd = builder(target.nick);
+      const announceLabel = `${action.emoji} ${action.label}${mode === "off" ? " · off" : ""} → ${target.nick}`;
+      const announceColor = actionAnnounceColor(action, mode);
       try {
         const r = await api<{ ok: boolean; latency_ms: number }>(
           "/cs-rcon/action",
           {
             method: "POST",
             body: JSON.stringify({
-              command,
-              announce,
+              command: cmd,
+              announce: announceLabel,
+              announce_color: announceColor,
               target_nick: target.nick,
-              target_steamid: rosterRow?.steamid ?? null,
+              target_steamid: target.steamid,
+              effect_slug: action.effectSlug,
+              effect_label: action.label,
+              effect_emoji: action.emoji,
+              state: action.oneShot ? null : (mode === "on" ? "grant" : "revoke"),
+              duration_s: action.duration ?? null,
             }),
           },
         );
-        toast.success(`${announce} (${r.latency_ms}ms)`);
+        toast.success(`${announceLabel} (${r.latency_ms}ms)`);
       } catch (e) {
         if (e instanceof ApiError) toast.error(e.detail);
         else toast.error("RCON error");
       }
     },
-    [roster],
+    [],
   );
+
+  const kickPlayer = useCallback(async (nick: string, reason: string) => {
+    try {
+      const r = await api<{ ok: boolean; latency_ms: number }>(
+        "/cs-rcon/action",
+        {
+          method: "POST",
+          body: JSON.stringify({
+            command: `jbf_uaio_kick -n ${nick}`,
+            announce: `kick → ${nick}: ${reason}`,
+            announce_color: "red",
+            target_nick: nick,
+          }),
+        },
+      );
+      toast.success(`kick → ${nick} (${r.latency_ms}ms)`);
+    } catch (e) {
+      if (e instanceof ApiError) toast.error(e.detail);
+      else toast.error("RCON error");
+    }
+  }, []);
+
+  const forumMute = useCallback(async (userId: number, durationMin: number) => {
+    try {
+      await api("/shoutbox/mute", {
+        method: "POST",
+        body: JSON.stringify({ user_id: userId, duration_min: durationMin }),
+      });
+      toast.success(`forum chat mute · ${durationMin}m`);
+    } catch (e) {
+      if (e instanceof ApiError) toast.error(e.detail);
+      else toast.error("Mute error");
+    }
+  }, []);
+
+  const forumBan = useCallback(async (userId: number, reason: string) => {
+    try {
+      await api(`/admin/users/${userId}/ban`, {
+        method: "POST",
+        body: JSON.stringify({ reason }),
+      });
+      toast.success("forum ban applied");
+    } catch (e) {
+      if (e instanceof ApiError) toast.error(e.detail);
+      else toast.error("Ban error");
+    }
+  }, []);
 
   const privateSay = useCallback(
     async (userid: number, text: string) => {
@@ -1150,8 +1208,11 @@ export default function LivePage() {
               isStaff={isStaff}
               onClose={() => setSelectedUserid(null)}
               onFollow={() => setFollowUserid(selectedPlayer.userid)}
-              onAction={runAction}
+              onAction={runQuickAction}
               onPrivateSay={privateSay}
+              onKick={kickPlayer}
+              onForumMute={forumMute}
+              onForumBan={forumBan}
             />
           )}
         </div>
@@ -1251,204 +1312,6 @@ function ToggleChip({
     >
       {label}: {on ? "on" : "off"}
     </button>
-  );
-}
-
-// -----------------------------------------------------------------------------
-// PlayerPopover
-// -----------------------------------------------------------------------------
-type ActionRunner = (
-  target: { userid: number; nick: string },
-  command: string,
-  announce: string,
-) => Promise<void>;
-
-function PlayerPopover({
-  player,
-  roster,
-  isStaff,
-  onClose,
-  onFollow,
-  onAction,
-  onPrivateSay,
-}: {
-  player: Player;
-  roster: RosterRow | null;
-  isStaff: boolean;
-  onClose: () => void;
-  onFollow: () => void;
-  onAction: ActionRunner;
-  onPrivateSay: (userid: number, text: string) => Promise<void>;
-}) {
-  const [psayText, setPsayText] = useState("");
-  const submitPsay = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!psayText.trim()) return;
-    await onPrivateSay(player.userid, psayText.trim());
-    setPsayText("");
-  };
-
-  const target = { userid: player.userid, nick: player.nick };
-  const QUICK: Array<{ label: string; cmd: string; announce: string }> = [
-    {
-      label: "Возродить",
-      cmd: `jbf_uaio_modular -p "${player.nick}" -a respawn`,
-      announce: `respawn → ${player.nick}`,
-    },
-    {
-      label: "Убить",
-      cmd: `jbf_uaio_modular -p "${player.nick}" -a kill`,
-      announce: `kill → ${player.nick}`,
-    },
-    {
-      label: "Заморозить",
-      cmd: `jbf_uaio_modular -p "${player.nick}" -a freeze`,
-      announce: `freeze → ${player.nick}`,
-    },
-    {
-      label: "Разморозить",
-      cmd: `jbf_uaio_modular -p "${player.nick}" -a unfreeze`,
-      announce: `unfreeze → ${player.nick}`,
-    },
-    {
-      label: "+100 HP",
-      cmd: `jbf_uaio_modular -p "${player.nick}" -a hp -v 100`,
-      announce: `+100 hp → ${player.nick}`,
-    },
-    {
-      label: "Микрофон",
-      cmd: `jbf_uaio_modular -p "${player.nick}" -a mic_on`,
-      announce: `mic_on → ${player.nick}`,
-    },
-  ];
-
-  return (
-    <div className="absolute right-3 top-3 z-10 w-[300px] rounded-lg border border-border bg-card/95 p-3 shadow-2xl backdrop-blur">
-      <header className="flex items-start justify-between gap-2">
-        <div>
-          <div
-            className="text-base font-semibold tracking-tight"
-            style={{ color: teamColor(player.team) }}
-          >
-            {player.nick}
-          </div>
-          <div className="text-[10px] uppercase tracking-widest text-smoke">
-            team {teamLabel(player.team)} · userid #{player.userid}
-          </div>
-        </div>
-        <button
-          type="button"
-          onClick={onClose}
-          className="text-smoke transition-colors hover:text-bone"
-          aria-label="Закрыть"
-        >
-          <X className="h-4 w-4" />
-        </button>
-      </header>
-
-      <div className="mt-3 grid grid-cols-3 gap-1.5 text-center font-mono text-[11px]">
-        <Cell label="HP" value={String(player.hp)} tone={hpColor(player.hp)} />
-        <Cell
-          label="K/D"
-          value={
-            player.kills != null ? `${player.kills}/${player.deaths ?? 0}` : "—"
-          }
-        />
-        <Cell
-          label="Money"
-          value={player.money != null ? `$${player.money}` : "—"}
-        />
-        <Cell
-          label="Weapon"
-          value={player.weapon ?? "—"}
-          full
-        />
-        <Cell
-          label="Ping"
-          value={roster ? `${roster.ping}ms` : "—"}
-        />
-        <Cell
-          label="Time"
-          value={roster?.time ?? "—"}
-        />
-      </div>
-
-      {roster && (
-        <div className="mt-2 rounded-md border border-border bg-void/30 px-2 py-1.5 font-mono text-[10px] text-smoke">
-          <div className="truncate">SteamID: {roster.steamid}</div>
-        </div>
-      )}
-
-      <button
-        type="button"
-        onClick={onFollow}
-        className="mt-3 inline-flex h-7 w-full items-center justify-center gap-1 rounded-md border border-flame/40 bg-flame/10 text-[10px] uppercase tracking-widest text-flame transition-colors hover:bg-flame/15"
-      >
-        <Target className="h-3 w-3" />
-        Камера за ним
-      </button>
-
-      {isStaff && (
-        <>
-          <div className="mt-3 grid grid-cols-2 gap-1.5">
-            {QUICK.map((q) => (
-              <button
-                key={q.label}
-                type="button"
-                onClick={() => onAction(target, q.cmd, q.announce)}
-                className="inline-flex h-7 items-center justify-center rounded-md border border-border bg-card px-2 text-[10px] uppercase tracking-widest text-ash transition-colors hover:border-plasma/40 hover:bg-slate hover:text-bone"
-              >
-                {q.label}
-              </button>
-            ))}
-          </div>
-
-          <form onSubmit={submitPsay} className="mt-3 flex items-stretch gap-1">
-            <input
-              type="text"
-              value={psayText}
-              onChange={(e) => setPsayText(e.target.value)}
-              placeholder="Личное в игре…"
-              maxLength={200}
-              className="h-7 flex-1 rounded-md border border-border bg-void/40 px-2 text-[11px] text-ash outline-none transition-colors placeholder:text-smoke focus:border-plasma/60"
-            />
-            <button
-              type="submit"
-              disabled={!psayText.trim()}
-              className="inline-flex h-7 items-center justify-center rounded-md bg-plasma px-2 text-white transition-all hover:bg-plasma-bright disabled:cursor-not-allowed disabled:opacity-50"
-              aria-label="Отправить"
-            >
-              <Send className="h-3 w-3" />
-            </button>
-          </form>
-        </>
-      )}
-    </div>
-  );
-}
-
-function Cell({
-  label, value, tone, full,
-}: {
-  label: string;
-  value: string;
-  tone?: string;
-  full?: boolean;
-}) {
-  return (
-    <div
-      className={cn(
-        "rounded-md border border-border bg-void/40 px-2 py-1",
-        full && "col-span-3",
-      )}
-    >
-      <div className="text-[9px] uppercase tracking-widest text-smoke/70">
-        {label}
-      </div>
-      <div className="truncate text-ash" style={tone ? { color: tone } : {}}>
-        {value}
-      </div>
-    </div>
   );
 }
 
