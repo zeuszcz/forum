@@ -27,6 +27,8 @@ from app.models.cs_active_effect import CsActiveEffect
 from app.models.cs_rcon_log import CsRconLog
 from app.models.user import User
 from app.schemas.cs_rcon import (
+    SpecTeleportRequest,
+    SpecTeleportResult,
     ActiveEffectRead,
     RconLogRead,
     SpecFollowRequest,
@@ -182,5 +184,43 @@ async def spec_follow(
     return SpecFollowResult(
         ok=True,
         target_userid=payload.target_userid,
+        latency_ms=result.latency_ms,
+    )
+
+
+@router.post("/spec/teleport", response_model=SpecTeleportResult)
+async def spec_teleport(
+    payload: SpecTeleportRequest,
+    user: CurrentUser,
+    db: DbSession,
+) -> SpecTeleportResult:
+    """Free-roam pilot: warp the headless spectator to (x, y, [z]).
+
+    Fires `forum_spec_teleport <x> <y> [z]` via RCON. The
+    jbf_forum_spectator AMX plugin (v0.7+) sets pev_origin directly on
+    the spec player entity and parks them in spec_mode 3 (free-roam),
+    so the camera stays at the requested point until the operator
+    follows someone or releases.
+    """
+    if not await _is_staff(db, user):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Только для модераторов"
+        )
+
+    if payload.z is None:
+        cmd = f"forum_spec_teleport {payload.x:.1f} {payload.y:.1f}"
+    else:
+        cmd = f"forum_spec_teleport {payload.x:.1f} {payload.y:.1f} {payload.z:.1f}"
+    try:
+        result = await cs_rcon.execute(cmd, timeout=4.0)
+    except cs_rcon.RconError as e:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY, detail=f"RCON: {e}"
+        )
+    return SpecTeleportResult(
+        ok=True,
+        x=payload.x,
+        y=payload.y,
+        z=payload.z,
         latency_ms=result.latency_ms,
     )

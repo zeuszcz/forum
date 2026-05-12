@@ -1069,8 +1069,30 @@ export default function LivePage() {
     // Narrowed deps: selectedUserid + showTrails read via refs above.
   }, [mapName]);
 
+  // Free-roam teleport: warp the headless spectator to the clicked
+  // world coords. Called from canvas shift+click; the click handler
+  // resolves the screen point to (x, y) using the cached projection.
+  // Defined here (before handleCanvasClick) for TypeScript's no-use-
+  // before-defined rule.
+  const specTeleport = useCallback(async (worldX: number, worldY: number) => {
+    try {
+      const r = await api<{ ok: boolean; latency_ms: number }>(
+        "/live/spec/teleport",
+        { method: "POST", body: JSON.stringify({ x: worldX, y: worldY }) },
+      );
+      toast.success(`Spec → (${Math.round(worldX)}, ${Math.round(worldY)}) (${r.latency_ms}ms)`);
+    } catch (e) {
+      if (e instanceof ApiError) toast.error(e.detail);
+      else toast.error("Teleport error");
+    }
+  }, []);
+
   // ---------------------------------------------------------------------------
   // Canvas click → hit-test → select / popover
+  //
+  // Shift+click anywhere on the radar teleports the headless spectator
+  // to that world coord (free-roam pilot mode). Plain click is regular
+  // player select / hit-test as before. Staff-gated server-side.
   // ---------------------------------------------------------------------------
   const handleCanvasClick = useCallback(
     (e: React.MouseEvent<HTMLCanvasElement>) => {
@@ -1083,6 +1105,24 @@ export default function LivePage() {
 
       const proj = projRef.current;
       if (!proj) return;
+
+      // Shift+click → world coord → teleport spec
+      if (e.shiftKey && isStaff) {
+        const { bMinX, bMaxY } = proj.bounds;
+        // Invert toPx: gx = bMinX + (px - offsetX) / scale
+        //              gy = bMaxY - (py - offsetY) / scale
+        // We need the canvas offset to invert correctly. Use the
+        // projection's transform via solving for the world point that
+        // lands at (cx, cy). Sample two known world points to derive
+        // offsetX/offsetY robustly.
+        const [oxAt0, oyAt0] = proj.toPx(bMinX, bMaxY);
+        const wx = bMinX + (cx - oxAt0) / proj.scale;
+        const wy = bMaxY - (cy - oyAt0) / proj.scale;
+        if (Number.isFinite(wx) && Number.isFinite(wy)) {
+          void specTeleport(wx, wy);
+        }
+        return;
+      }
 
       // Hit test: nearest player within HIT_RADIUS px
       const HIT_RADIUS_PX = 18 * dpr;
@@ -1099,7 +1139,7 @@ export default function LivePage() {
       }
       setSelectedUserid(best ? best.uid : null);
     },
-    [],
+    [isStaff, specTeleport],
   );
 
   // ---------------------------------------------------------------------------

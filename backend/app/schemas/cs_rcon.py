@@ -56,6 +56,24 @@ class SpecFollowResult(BaseModel):
     target_userid: int
     latency_ms: int
 
+class SpecTeleportRequest(BaseModel):
+    """Free-roam pilot: warp the headless spectator to world coords.
+
+    `z` is optional — if omitted, the plugin keeps the current Z so
+    the camera does a smooth XY-pan instead of a vertical jump."""
+
+    x: float
+    y: float
+    z: float | None = None
+
+
+class SpecTeleportResult(BaseModel):
+    ok: bool
+    x: float
+    y: float
+    z: float | None
+    latency_ms: int
+
 
 class RconBatch(BaseModel):
     """Up to 10 commands fired sequentially as one batch. Total time-budget

@@ -1,5 +1,5 @@
 [Unit]
-Description=endless-war CS spectator video encoder (Xvfb :99 → RTMP to MediaMTX)
+Description=endless-war CS spectator video+audio encoder (Xvfb :99 → RTMP to MediaMTX)
 After=cs-spectator.service cs-stream-mediamtx.service
 Requires=cs-spectator.service
 PartOf=cs-spectator.service
@@ -9,36 +9,40 @@ Type=simple
 User=i48ptgvnis
 Group=i48ptgvnis
 
-# Wait for Xvfb to have actual content before starting the encoder.
-ExecStartPre=/bin/sleep 5
+# Share the same per-user runtime dir as cs-spectator so we can reach
+# the pulse daemon it spawned.
+Environment="XDG_RUNTIME_DIR=/run/user/1000"
+Environment="PULSE_SERVER=unix:/run/user/1000/pulse/native"
 
-# Encoder profile v2 — tuned for VPS bandwidth + CPU:
-#   * 854x480 @ 24 fps  (vs 1280x720@30) → ~½ CPU, ~½ bandwidth
-#   * baseline H.264 profile + level 3.0 (max compat with hls.js + iOS)
-#   * 800 kbps target, 1200 kbps max — fits 6 viewers on a 10 Mbps egress
-#     without spilling other VPS traffic
-#   * GOP=48 / keyframe every 2 s → matches LL-HLS 1-s seg / 200-ms part
-#     boundaries for the lowest stall-on-segment-fetch latency
-#   * pix_fmt yuv420p so the stream plays on every browser <video>
-#   * audio off — saves another ~80 KB/s + avoids the ALSA-in-headless
-#     headache
+# Wait for Xvfb + the pulse null sink + monitor source to be ready
+# before starting ffmpeg.
+ExecStartPre=/bin/sleep 8
+
+# Encoder profile v3 — adds AAC audio track via pulse monitor capture.
+#   * 854×480 @ 24 fps video (libx264 superfast, baseline 3.0, 800k)
+#   * AAC 64k stereo audio from cs_audio.monitor
+#   * GOP=48 / keyframe every 2 s — LL-HLS 1-s seg / 200-ms part boundary
+#   * audio resampled to 44100 Hz which is the GoldSrc engine's native
+#     mixer rate, no SRC cost in libavfilter
 ExecStart=/usr/bin/ffmpeg \
     -nostdin -hide_banner -loglevel warning \
     -f x11grab -framerate 24 -video_size 854x480 -draw_mouse 0 -i :99.0+0,0 \
+    -f pulse -ac 2 -ar 44100 -i cs_audio.monitor \
+    -map 0:v:0 -map 1:a:0 \
     -c:v libx264 -preset superfast -tune zerolatency \
     -profile:v baseline -level 3.0 \
     -g 48 -keyint_min 24 -sc_threshold 0 \
     -b:v 800k -maxrate 1200k -bufsize 2400k \
     -pix_fmt yuv420p \
-    -an \
+    -c:a aac -b:a 64k -ac 2 -ar 44100 \
     -f flv rtmp://127.0.0.1:1935/cs1
 
 StandardOutput=append:/tmp/cs-encoder.log
 StandardError=append:/tmp/cs-encoder.log
 
 # Tighter caps now that we encode 480p with superfast.
-MemoryMax=200M
-CPUQuota=70%
+MemoryMax=250M
+CPUQuota=85%
 
 Restart=on-failure
 RestartSec=5s
