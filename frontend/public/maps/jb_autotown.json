@@ -1,0 +1,14 @@
+{
+  "name": "jb_autotown",
+  "image": "jb_autotown.png",
+  "size_px": 1024,
+  "origin_x": -9.0,
+  "origin_y": 887.0,
+  "zoom": 1.23,
+  "rotated": 1,
+  "world_min_x": -3339.081300813008,
+  "world_min_y": -2443.081300813008,
+  "world_max_x": 3321.081300813008,
+  "world_max_y": 4217.081300813008,
+  "world_per_px": 6.504065040650406
+}

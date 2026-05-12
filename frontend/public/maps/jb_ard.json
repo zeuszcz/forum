@@ -1,0 +1,14 @@
+{
+  "name": "jb_ard",
+  "image": "jb_ard.png",
+  "size_px": 1024,
+  "origin_x": 95.88,
+  "origin_y": -681.31,
+  "zoom": 1.15,
+  "rotated": 0,
+  "world_min_x": -3465.859130434783,
+  "world_min_y": -4243.049130434783,
+  "world_max_x": 3657.619130434783,
+  "world_max_y": 2880.429130434783,
+  "world_per_px": 6.9565217391304355
+}

@@ -1,0 +1,14 @@
+{
+  "name": "jb_snow",
+  "image": "jb_snow.png",
+  "size_px": 1024,
+  "origin_x": 80.0,
+  "origin_y": 112.0,
+  "zoom": 1.18,
+  "rotated": 1,
+  "world_min_x": -3391.1864406779664,
+  "world_min_y": -3359.1864406779664,
+  "world_max_x": 3551.1864406779664,
+  "world_max_y": 3583.1864406779664,
+  "world_per_px": 6.779661016949153
+}

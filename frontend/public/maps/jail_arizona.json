@@ -1,0 +1,14 @@
+{
+  "name": "jail_arizona",
+  "image": "jail_arizona.png",
+  "size_px": 1024,
+  "origin_x": 104.0,
+  "origin_y": -672.0,
+  "zoom": 1.67,
+  "rotated": 1,
+  "world_min_x": -2348.6946107784433,
+  "world_min_y": -3124.6946107784433,
+  "world_max_x": 2556.6946107784433,
+  "world_max_y": 1780.6946107784433,
+  "world_per_px": 4.790419161676647
+}

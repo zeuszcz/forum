@@ -1,0 +1,14 @@
+{
+  "name": "jail_russia",
+  "image": "jail_russia.png",
+  "size_px": 1024,
+  "origin_x": 741.67,
+  "origin_y": 31.5,
+  "zoom": 0.93,
+  "rotated": 0,
+  "world_min_x": -3662.631075268817,
+  "world_min_y": -4372.801075268817,
+  "world_max_x": 5145.971075268817,
+  "world_max_y": 4435.801075268817,
+  "world_per_px": 8.602150537634408
+}

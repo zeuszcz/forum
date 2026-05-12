@@ -5,14 +5,9 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { cn } from "@/lib/utils";
 
-// Interpolation window — should match the AMX plugin dump period.
-// The plugin pushes a fresh snapshot every PLUGIN_TICK_MS, we lerp between
-// the previous and current snapshot over the same duration so motion looks
-// continuous.
+// Interpolation window — matches AMX plugin dump period.
 const PLUGIN_TICK_MS = 2000;
-
-// If we haven't received a position update for a userid in this many ms,
-// drop them from the canvas (left the server, dead, etc).
+// Drop players that haven't pinged for this long (left the server, dead, etc).
 const PLAYER_STALE_MS = 6000;
 
 type Player = {
@@ -21,10 +16,21 @@ type Player = {
   y: number;
   z: number;
   yaw: number;
-  team: number; // 1=T, 2=CT, 0=spec, 3=spec
+  team: number; // 1=T, 2=CT, 0/3=spec
   hp: number;
   nick: string;
   updatedAt: number;
+};
+
+type MapMeta = {
+  name: string;
+  image: string;
+  size_px: number;
+  world_min_x: number;
+  world_min_y: number;
+  world_max_x: number;
+  world_max_y: number;
+  generated_from_bsp?: boolean;
 };
 
 type WsEvent =
@@ -39,8 +45,6 @@ type WsEvent =
   | { type: string; [k: string]: unknown };
 
 function parsePos(body: string, now: number): Player | null {
-  // Format: JBF_POS|userid|x|y|z|yaw|team|hp|nick
-  // Nick may itself contain `|`, so we slice from index 8 to the end.
   if (!body.startsWith("JBF_POS|")) return null;
   const parts = body.split("|");
   if (parts.length < 9) return null;
@@ -59,15 +63,15 @@ function parsePos(body: string, now: number): Player | null {
 }
 
 function teamColor(team: number): string {
-  if (team === 1) return "#e7572f"; // T
-  if (team === 2) return "#5fb3e9"; // CT
-  return "#9ea0a8"; // spec / unassigned
+  if (team === 1) return "#e7572f";
+  if (team === 2) return "#5fb3e9";
+  return "#9ea0a8";
 }
 
 function teamGlow(team: number): string {
-  if (team === 1) return "rgba(231, 87, 47, 0.35)";
-  if (team === 2) return "rgba(95, 179, 233, 0.35)";
-  return "rgba(158, 160, 168, 0.25)";
+  if (team === 1) return "rgba(231, 87, 47, 0.45)";
+  if (team === 2) return "rgba(95, 179, 233, 0.45)";
+  return "rgba(158, 160, 168, 0.30)";
 }
 
 function hpColor(hp: number): string {
@@ -80,7 +84,6 @@ function lerp(a: number, b: number, t: number): number {
   return a + (b - a) * t;
 }
 
-// Shortest-arc lerp for yaw (so a turn from 170° to -170° goes 20°, not 340°).
 function lerpAngle(a: number, b: number, t: number): number {
   const d = ((b - a + 540) % 360) - 180;
   return a + d * t;
@@ -94,17 +97,60 @@ export default function LivePage() {
   const [liveOn, setLiveOn] = useState(true);
   const [wsConnected, setWsConnected] = useState(false);
   const [mapName, setMapName] = useState<string | null>(null);
+  const [mapMeta, setMapMeta] = useState<MapMeta | null>(null);
+  const mapImgRef = useRef<HTMLImageElement | null>(null);
+  const [mapImgReady, setMapImgReady] = useState(false);
   const [playerCount, setPlayerCount] = useState(0);
   const [tickAgeMs, setTickAgeMs] = useState<number>(0);
 
-  // Two-snapshot interpolation buffer. Each map is keyed by userid.
-  // `prev` is the snapshot frozen at the last tick boundary.
-  // `cur`  is the in-flight snapshot the WS keeps updating.
-  // `tickStart` is when `cur` was promoted from a previous `cur`.
   const prevRef = useRef<Map<number, Player>>(new Map());
   const curRef = useRef<Map<number, Player>>(new Map());
   const tickStartRef = useRef<number>(Date.now());
-  const lastFlipRef = useRef<number>(Date.now());
+  const mapMetaRef = useRef<MapMeta | null>(null);
+
+  // Keep ref in sync with state for render-loop reads.
+  useEffect(() => {
+    mapMetaRef.current = mapMeta;
+  }, [mapMeta]);
+
+  // -------- Load map metadata + image on map change --------
+  useEffect(() => {
+    if (!mapName) {
+      setMapMeta(null);
+      mapImgRef.current = null;
+      setMapImgReady(false);
+      return;
+    }
+    let cancelled = false;
+    setMapImgReady(false);
+    mapImgRef.current = null;
+
+    fetch(`/maps/${encodeURIComponent(mapName)}.json`)
+      .then((r) => (r.ok ? r.json() : Promise.reject()))
+      .then((meta: MapMeta) => {
+        if (cancelled) return;
+        setMapMeta(meta);
+        const img = new Image();
+        img.onload = () => {
+          if (cancelled) return;
+          mapImgRef.current = img;
+          setMapImgReady(true);
+        };
+        img.onerror = () => {
+          if (cancelled) return;
+          mapImgRef.current = null;
+          setMapImgReady(false);
+        };
+        img.src = `/maps/${encodeURIComponent(meta.image)}`;
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setMapMeta(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [mapName]);
 
   // -------- WS lifecycle --------
   useEffect(() => {
@@ -120,7 +166,6 @@ export default function LivePage() {
       setWsConnected(false);
       return;
     }
-
     const apiUrl = process.env.NEXT_PUBLIC_API_URL || "";
     if (!apiUrl) return;
     const wsUrl = apiUrl.replace(/^http(s?):/, "ws$1:") + "/shoutbox/ws";
@@ -143,11 +188,9 @@ export default function LivePage() {
         return;
       }
       if (cat === "map") {
-        // Body: JBF_MAP|<name>
         const m = body.match(/^JBF_MAP\|(.+)$/);
         if (m) {
           setMapName(m[1] || null);
-          // Map change → wipe both buffers, no lerp across maps.
           prevRef.current = new Map();
           curRef.current = new Map();
         }
@@ -197,7 +240,6 @@ export default function LivePage() {
     };
 
     connect();
-
     return () => {
       alive = false;
       if (reconnectTimer) window.clearTimeout(reconnectTimer);
@@ -211,37 +253,42 @@ export default function LivePage() {
     };
   }, [liveOn]);
 
-  // -------- Tick promotion (snapshot flip) --------
-  // Every PLUGIN_TICK_MS, freeze `cur` into `prev` so the render lerp has
-  // two stable endpoints. Players that did not receive an update in the
-  // current window get carried over from prev so they don't blink in/out.
+  // -------- Snapshot promotion --------
   useEffect(() => {
     const id = window.setInterval(() => {
       const now = Date.now();
-      // Carry over players from prev that did NOT get an update this tick,
-      // but only if they are still fresh. This avoids the visual blink when
-      // the plugin tick aligns with the WS dispatch and some players are
-      // still in flight.
       const newPrev = new Map(curRef.current);
-      // Drop stale (player left)
       for (const [uid, p] of newPrev) {
         if (now - p.updatedAt > PLAYER_STALE_MS) newPrev.delete(uid);
       }
       prevRef.current = newPrev;
       curRef.current = new Map(newPrev);
       tickStartRef.current = now;
-      lastFlipRef.current = now;
     }, PLUGIN_TICK_MS);
     return () => window.clearInterval(id);
   }, []);
 
+  // -------- One-time bootstrap probe --------
+  // If the page is loaded before any JBF_MAP event arrives (e.g. WS lost the
+  // race), guess the map from /api/shoutbox/server-status which already
+  // exposes the active map name (cached 5s on the backend).
+  useEffect(() => {
+    if (mapName) return;
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || "";
+    if (!apiUrl) return;
+    fetch(`${apiUrl}/shoutbox/server-status`, { credentials: "include" })
+      .then((r) => (r.ok ? r.json() : Promise.reject()))
+      .then((s: { map?: string | null }) => {
+        if (s.map) setMapName(s.map);
+      })
+      .catch(() => {});
+  }, [mapName]);
+
   // -------- Canvas render loop --------
-  const renderRef = useRef<() => void>(() => {});
   useEffect(() => {
     const canvas = canvasRef.current;
     const container = containerRef.current;
     if (!canvas || !container) return;
-
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
 
     const resize = () => {
@@ -257,7 +304,6 @@ export default function LivePage() {
 
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
-
     let raf = 0;
 
     const render = () => {
@@ -266,94 +312,112 @@ export default function LivePage() {
       ctx.setTransform(1, 0, 0, 1, 0, 0);
       ctx.clearRect(0, 0, w, h);
 
-      // Background gradient
+      // Background
       const bg = ctx.createLinearGradient(0, 0, 0, h);
       bg.addColorStop(0, "#0a0b14");
       bg.addColorStop(1, "#11131f");
       ctx.fillStyle = bg;
       ctx.fillRect(0, 0, w, h);
 
-      // Grid
-      ctx.strokeStyle = "rgba(140,150,180,0.07)";
-      ctx.lineWidth = 1;
-      const gridStep = 64 * dpr;
-      for (let x = 0; x <= w; x += gridStep) {
-        ctx.beginPath();
-        ctx.moveTo(x, 0);
-        ctx.lineTo(x, h);
-        ctx.stroke();
-      }
-      for (let y = 0; y <= h; y += gridStep) {
-        ctx.beginPath();
-        ctx.moveTo(0, y);
-        ctx.lineTo(w, y);
-        ctx.stroke();
-      }
+      const meta = mapMetaRef.current;
+      const img = mapImgRef.current;
 
-      const now = Date.now();
-      const prev = prevRef.current;
+      // Decide projection bounds: prefer the map meta (stable across ticks
+      // and ages well with single-player maps), then auto-fit fallback.
+      let bMinX: number, bMinY: number, bMaxX: number, bMaxY: number;
       const cur = curRef.current;
-      // Combine current + prev ids so a player who left this tick still
-      // draws (faded) until they are carried out by the next flip.
+      const prev = prevRef.current;
       const allIds = new Set<number>([
         ...Array.from(prev.keys()),
         ...Array.from(cur.keys()),
       ]);
       setPlayerCount(allIds.size);
 
-      const tickElapsed = now - tickStartRef.current;
-      setTickAgeMs(tickElapsed);
-      const t = Math.min(1, tickElapsed / PLUGIN_TICK_MS);
-
-      // Compute bbox from interpolated positions for auto-fit.
-      let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-      for (const uid of allIds) {
-        const a = prev.get(uid);
-        const b = cur.get(uid);
-        const src = a ?? b;
-        const dst = b ?? a;
-        if (!src || !dst) continue;
-        const px = lerp(src.x, dst.x, t);
-        const py = lerp(src.y, dst.y, t);
-        if (px < minX) minX = px;
-        if (px > maxX) maxX = px;
-        if (py < minY) minY = py;
-        if (py > maxY) maxY = py;
+      if (meta) {
+        bMinX = meta.world_min_x;
+        bMinY = meta.world_min_y;
+        bMaxX = meta.world_max_x;
+        bMaxY = meta.world_max_y;
+      } else {
+        let mnx = Infinity, mxx = -Infinity, mny = Infinity, mxy = -Infinity;
+        for (const uid of allIds) {
+          const p = cur.get(uid) ?? prev.get(uid);
+          if (!p) continue;
+          if (p.x < mnx) mnx = p.x;
+          if (p.x > mxx) mxx = p.x;
+          if (p.y < mny) mny = p.y;
+          if (p.y > mxy) mxy = p.y;
+        }
+        if (!Number.isFinite(mnx)) {
+          ctx.fillStyle = "#7f8395";
+          ctx.font = `${14 * dpr}px ui-monospace, SFMono-Regular, monospace`;
+          ctx.fillText(
+            mapName
+              ? `Карта ${mapName} — нет radar PNG, жду JBF_POS для оценки границ…`
+              : "Жду карту от сервера…",
+            16 * dpr,
+            32 * dpr,
+          );
+          raf = requestAnimationFrame(render);
+          return;
+        }
+        // Pad ~10% so single-player maps don't render at canvas center.
+        const padW = Math.max(256, (mxx - mnx) * 0.1);
+        const padH = Math.max(256, (mxy - mny) * 0.1);
+        bMinX = mnx - padW;
+        bMaxX = mxx + padW;
+        bMinY = mny - padH;
+        bMaxY = mxy + padH;
       }
-      const haveBounds = Number.isFinite(minX);
 
-      // Auto-fit with padding. We pad coordinates AND canvas so single
-      // stationary player doesn't render at canvas center as a giant dot.
-      const padPx = 64 * dpr;
-      const coordPad = haveBounds ? Math.max(256, (maxX - minX) * 0.1) : 0;
-      const sx = haveBounds
-        ? (w - 2 * padPx) / ((maxX - minX || 1) + 2 * coordPad)
-        : 1;
-      const sy = haveBounds
-        ? (h - 2 * padPx) / ((maxY - minY || 1) + 2 * coordPad)
-        : 1;
+      // Fit world bbox into canvas with letterbox (preserve aspect).
+      const worldW = bMaxX - bMinX;
+      const worldH = bMaxY - bMinY;
+      const sx = w / worldW;
+      const sy = h / worldH;
       const scale = Math.min(sx, sy);
+      const drawW = worldW * scale;
+      const drawH = worldH * scale;
+      const offsetX = (w - drawW) / 2;
+      const offsetY = (h - drawH) / 2;
 
       const toPx = (gx: number, gy: number): [number, number] => {
-        // GoldSrc world: +X right, +Y up. Canvas: +Y down. Flip Y.
-        const px = padPx + (gx - minX + coordPad) * scale;
-        const py = padPx + (maxY - gy + coordPad) * scale;
+        const px = offsetX + (gx - bMinX) * scale;
+        const py = offsetY + (bMaxY - gy) * scale; // flip Y
         return [px, py];
       };
 
-      if (!haveBounds) {
-        ctx.fillStyle = "#7f8395";
-        ctx.font = `${14 * dpr}px ui-monospace, SFMono-Regular, monospace`;
-        ctx.fillText(
-          "Жду данные от сервера… (нужен AMX плагин jbf_position_dump)",
-          16 * dpr,
-          32 * dpr,
-        );
-        raf = requestAnimationFrame(render);
-        return;
+      // Draw map image as background if loaded
+      if (img && meta) {
+        ctx.drawImage(img, offsetX, offsetY, drawW, drawH);
+        // Subtle darken so player dots pop
+        ctx.fillStyle = "rgba(10, 12, 20, 0.18)";
+        ctx.fillRect(offsetX, offsetY, drawW, drawH);
+      } else {
+        // No image: thin grid overlay
+        ctx.strokeStyle = "rgba(140,150,180,0.08)";
+        ctx.lineWidth = 1;
+        const gridStep = 64 * dpr;
+        for (let x = 0; x <= w; x += gridStep) {
+          ctx.beginPath();
+          ctx.moveTo(x, 0);
+          ctx.lineTo(x, h);
+          ctx.stroke();
+        }
+        for (let y = 0; y <= h; y += gridStep) {
+          ctx.beginPath();
+          ctx.moveTo(0, y);
+          ctx.lineTo(w, y);
+          ctx.stroke();
+        }
       }
 
-      // Players
+      // Now draw players
+      const tickElapsed = Date.now() - tickStartRef.current;
+      setTickAgeMs(tickElapsed);
+      const t = Math.min(1, tickElapsed / PLUGIN_TICK_MS);
+      const now = Date.now();
+
       for (const uid of allIds) {
         const a = prev.get(uid);
         const b = cur.get(uid);
@@ -370,29 +434,26 @@ export default function LivePage() {
         const color = teamColor(dst.team);
         const glow = teamGlow(dst.team);
 
-        // Fade out if missing from the current snapshot for too long.
         const stale = !b ? Math.min(1, (now - a!.updatedAt) / PLAYER_STALE_MS) : 0;
-        const alpha = 1 - stale * 0.85;
-        ctx.globalAlpha = alpha;
+        ctx.globalAlpha = 1 - stale * 0.85;
+
+        const r = 7 * dpr;
 
         // Glow
-        const r = 7 * dpr;
-        const gradient = ctx.createRadialGradient(px, py, 0, px, py, r * 3);
+        const gradient = ctx.createRadialGradient(px, py, 0, px, py, r * 3.2);
         gradient.addColorStop(0, glow);
         gradient.addColorStop(1, "transparent");
         ctx.fillStyle = gradient;
         ctx.beginPath();
-        ctx.arc(px, py, r * 3, 0, Math.PI * 2);
+        ctx.arc(px, py, r * 3.2, 0, Math.PI * 2);
         ctx.fill();
 
-        // View cone — short triangle pointing where the player looks.
+        // View cone
         const yawRad = (iyaw * Math.PI) / 180;
-        // GoldSrc yaw: 0° = +X, 90° = +Y. Canvas Y is inverted.
         const cx = Math.cos(yawRad);
         const cy = -Math.sin(yawRad);
         const coneLen = 22 * dpr;
         const coneHalf = 8 * dpr;
-        // Perpendicular vector for cone base
         const ncx = -cy;
         const ncy = cx;
         ctx.beginPath();
@@ -409,23 +470,23 @@ export default function LivePage() {
         ctx.fillStyle = glow;
         ctx.fill();
 
-        // Body dot
+        // Dot
         ctx.beginPath();
         ctx.arc(px, py, r, 0, Math.PI * 2);
         ctx.fillStyle = color;
         ctx.fill();
-        ctx.strokeStyle = "rgba(255,255,255,0.8)";
+        ctx.strokeStyle = "rgba(255,255,255,0.85)";
         ctx.lineWidth = 1.5 * dpr;
         ctx.stroke();
 
-        // Nickname label
-        ctx.fillStyle = "rgba(15, 18, 30, 0.85)";
+        // Nick label
         const nickFontPx = 11 * dpr;
         ctx.font = `${nickFontPx}px ui-sans-serif, system-ui, sans-serif`;
         const nick = dst.nick.slice(0, 18);
         const tw = ctx.measureText(nick).width;
         const labelX = px + r + 6 * dpr;
         const labelY = py - r - 4 * dpr;
+        ctx.fillStyle = "rgba(15, 18, 30, 0.85)";
         ctx.fillRect(
           labelX - 3 * dpr,
           labelY - nickFontPx,
@@ -443,31 +504,36 @@ export default function LivePage() {
         ctx.fillStyle = "rgba(0,0,0,0.6)";
         ctx.fillRect(barX, barY, barW, barH);
         ctx.fillStyle = hpColor(ihp);
-        ctx.fillRect(barX, barY, barW * Math.max(0, Math.min(1, ihp / 100)), barH);
+        ctx.fillRect(
+          barX,
+          barY,
+          barW * Math.max(0, Math.min(1, ihp / 100)),
+          barH,
+        );
 
         ctx.globalAlpha = 1;
       }
 
-      // HUD overlay
-      ctx.globalAlpha = 1;
-      ctx.fillStyle = "rgba(10,12,20,0.65)";
+      // HUD strip
+      ctx.fillStyle = "rgba(10,12,20,0.7)";
       ctx.fillRect(0, h - 28 * dpr, w, 28 * dpr);
       ctx.fillStyle = "#a8acbd";
       ctx.font = `${11 * dpr}px ui-monospace, SFMono-Regular, monospace`;
       const hudY = h - 10 * dpr;
       const map = mapName ?? "?";
       const players = allIds.size;
+      const radarTag = img ? (meta?.generated_from_bsp ? "BSP" : "RADAR") : "GRID";
       ctx.fillText(
-        `MAP ${map}  ·  PLAYERS ${players}  ·  TICK ${Math.round(tickElapsed)}ms / ${PLUGIN_TICK_MS}ms  ·  scale 1px = ${(1 / scale).toFixed(0)}u`,
+        `MAP ${map}  ·  ${radarTag}  ·  PLAYERS ${players}  ·  TICK ${Math.round(
+          tickElapsed,
+        )}ms / ${PLUGIN_TICK_MS}ms  ·  1px ≈ ${(1 / scale).toFixed(0)}u`,
         12 * dpr,
         hudY,
       );
 
       raf = requestAnimationFrame(render);
     };
-    renderRef.current = render;
     render();
-
     return () => {
       cancelAnimationFrame(raf);
       ro.disconnect();
@@ -490,8 +556,9 @@ export default function LivePage() {
             Top-down позиции игроков в режиме реального времени. Источник —
             AMX-X плагин <code className="font-mono text-iridescent">jbf_position_dump</code>{" "}
             (тик {PLUGIN_TICK_MS / 1000}с) → cs-log-listener → WS ephemeral
-            broadcast. Картинка интерполируется между двумя snapshot&apos;ами,
-            данные нигде не сохраняются.
+            broadcast. Фон карты — стоковый radar (<code className="font-mono">RADAR</code>)
+            или BSP-render (<code className="font-mono">BSP</code>) если стокового нет;
+            если ни того ни другого — grid (<code className="font-mono">GRID</code>).
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -532,10 +599,7 @@ export default function LivePage() {
         ref={containerRef}
         className="relative aspect-[4/3] w-full overflow-hidden rounded-lg border border-border bg-card shadow-xl"
       >
-        <canvas
-          ref={canvasRef}
-          className="absolute inset-0 h-full w-full"
-        />
+        <canvas ref={canvasRef} className="absolute inset-0 h-full w-full" />
         {!liveOn && (
           <div className="absolute inset-0 flex items-center justify-center bg-void/60 text-xs text-smoke">
             Live-стрим выключен. Включи переключатель чтобы открыть WS.
@@ -543,12 +607,26 @@ export default function LivePage() {
         )}
       </div>
 
-      <div className="mt-4 grid gap-2 text-[11px] text-smoke sm:grid-cols-3">
+      <div className="mt-4 grid gap-2 text-[11px] text-smoke sm:grid-cols-4">
         <div className="rounded-md border border-border bg-card px-3 py-2">
           <span className="block text-[9px] uppercase tracking-widest text-smoke/70">
             карта
           </span>
           <span className="font-mono text-ash">{mapName ?? "—"}</span>
+        </div>
+        <div className="rounded-md border border-border bg-card px-3 py-2">
+          <span className="block text-[9px] uppercase tracking-widest text-smoke/70">
+            radar
+          </span>
+          <span className="font-mono text-ash">
+            {mapMeta
+              ? mapMeta.generated_from_bsp
+                ? "BSP-render"
+                : "сток"
+              : mapImgReady
+                ? "загр."
+                : "нет"}
+          </span>
         </div>
         <div className="rounded-md border border-border bg-card px-3 py-2">
           <span className="block text-[9px] uppercase tracking-widest text-smoke/70">

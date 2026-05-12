@@ -1,0 +1,14 @@
+{
+  "name": "jb_oasis",
+  "image": "jb_oasis.png",
+  "size_px": 1024,
+  "origin_x": 0.0,
+  "origin_y": 0.0,
+  "zoom": 1.13,
+  "rotated": 1,
+  "world_min_x": -3624.778761061947,
+  "world_min_y": -3624.778761061947,
+  "world_max_x": 3624.778761061947,
+  "world_max_y": 3624.778761061947,
+  "world_per_px": 7.079646017699115
+}

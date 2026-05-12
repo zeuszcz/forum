@@ -1,0 +1,14 @@
+{
+  "name": "jail_xgames",
+  "image": "jail_xgames.png",
+  "size_px": 1024,
+  "origin_x": 16.0,
+  "origin_y": -103.0,
+  "zoom": 0.91,
+  "rotated": 1,
+  "world_min_x": -4485.098901098901,
+  "world_min_y": -4604.098901098901,
+  "world_max_x": 4517.098901098901,
+  "world_max_y": 4398.098901098901,
+  "world_per_px": 8.79120879120879
+}

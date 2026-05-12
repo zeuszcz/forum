@@ -1,0 +1,14 @@
+{
+  "name": "jail_simple_mr",
+  "image": "jail_simple_mr.png",
+  "size_px": 1024,
+  "origin_x": 504.0,
+  "origin_y": -1472.0,
+  "zoom": 1.75,
+  "rotated": 1,
+  "world_min_x": -1836.5714285714284,
+  "world_min_y": -3812.5714285714284,
+  "world_max_x": 2844.5714285714284,
+  "world_max_y": 868.5714285714284,
+  "world_per_px": 4.571428571428571
+}

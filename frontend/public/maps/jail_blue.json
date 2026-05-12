@@ -1,0 +1,14 @@
+{
+  "name": "jail_blue",
+  "image": "jail_blue.png",
+  "size_px": 1024,
+  "origin_x": -561.89,
+  "origin_y": -16.41,
+  "zoom": 0.88,
+  "rotated": 0,
+  "world_min_x": -5216.435454545455,
+  "world_min_y": -4670.955454545455,
+  "world_max_x": 4092.655454545455,
+  "world_max_y": 4638.135454545455,
+  "world_per_px": 9.090909090909092
+}
