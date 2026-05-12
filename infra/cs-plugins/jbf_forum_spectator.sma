@@ -1,13 +1,20 @@
-/*  jbf_forum_spectator.sma v0.5.0 — endless·war
+/*  jbf_forum_spectator.sma v0.6.0 — endless·war
  *
- *  v0.4 hooked Round_Start + ResetHUD, but the spectator still
- *  respawned with HP 100 because cs_set_user_team only flips the
- *  internal field. The visible player stays alive in their old
- *  team until they die. Need to user_kill first if alive.
+ *  v0.3 added forum_spec_follow but used engclient_cmd(spec, "spec_player",
+ *       "#<uid>") to switch the target. cs16-client (our headless
+ *       spectator) does NOT register a `spec_player` console command —
+ *       only spec_mode / spec_autodirector / _spec_find_next_player.
+ *       So the command was silently ignored.
  *
- *  v0.5: in force_spec, silent-kill the spec if they're currently
- *        alive on a team, THEN set team SPECTATOR. Engine moves
- *        them into the spec free-roam camera on the next think.
+ *  v0.6 switches to the ENGINE-LEVEL way: GoldSrc CS 1.6 stores the
+ *       spectator's observer state in two pev fields on the player
+ *       entity:
+ *         pev_iuser1 = observer mode (4 = chase cam)
+ *         pev_iuser2 = observed entity index
+ *       Setting these two directly via fakemeta moves the spectator
+ *       camera to the target with no dependency on what console
+ *       commands the client exposes. spec_autodirector OFF is still
+ *       relayed via engclient_cmd so it doesn't override us.
  */
 
 #include <amxmodx>
@@ -18,8 +25,11 @@
 #include <fun>
 
 #define PLUGIN_NAME    "JBF Forum Spectator"
-#define PLUGIN_VERSION "0.5.0"
+#define PLUGIN_VERSION "0.6.0"
 #define PLUGIN_AUTHOR  "endless-war"
+
+#define OBS_NONE     0
+#define OBS_CHASE    4
 
 new g_cv_steamid;
 new g_cv_nick;
@@ -40,9 +50,6 @@ public plugin_init()
 
     register_logevent("event_round_start", 2, "1=Round_Start");
     register_event("ResetHUD", "event_reset_hud", "b");
-    // SpawnPlayer-like: HLTV "Begin/End" is unreliable. CurWeapon
-    // fires immediately after a player gains a weapon — perfect
-    // signal that the engine respawned us. ('be' = both, alive).
     register_event("CurWeapon", "event_curweapon", "be", "1=1");
 }
 
@@ -62,9 +69,6 @@ public event_round_start()
 {
     new spec_id = find_forum_spec();
     if (spec_id <= 0) return;
-    // Server respawns everyone on round_start; we slap our spec back
-    // to SPECTATOR at +0.4s (post-respawn) and again at +1.2s (post
-    // any other plugin's force-team).
     set_task(0.4, "force_spec", spec_id);
     set_task(1.2, "force_spec", spec_id);
 }
@@ -77,7 +81,6 @@ public event_reset_hud(id)
 
 public event_curweapon(id)
 {
-    // The spec just got a weapon → engine respawned them.
     if (!is_forum_spec(id)) return;
     set_task(0.2, "force_spec", id);
 }
@@ -88,13 +91,9 @@ public force_spec(id)
     new CsTeams:team = cs_get_user_team(id);
     if (team == CS_TEAM_SPECTATOR) return;
 
-    // The critical fix: if they're walking around alive in a team,
-    // killing them releases the model + weapons so the engine can
-    // then accept the spec-team flip on the next think.
     if (is_user_alive(id)) {
-        user_kill(id, 1); // 1 = silent (no death message, no score)
+        user_kill(id, 1);
     }
-
     cs_set_user_team(id, CS_TEAM_SPECTATOR, CS_DONTCHANGE);
     engclient_cmd(id, "menuselect", "6");
     engclient_cmd(id, "jointeam", "6");
@@ -107,7 +106,7 @@ public force_spec(id)
 }
 
 // ------------------------------------------------------------------
-//  Click-to-follow
+//  Click-to-follow — engine-level field set, no client command needed
 // ------------------------------------------------------------------
 
 public cmd_follow(id, level, cid)
@@ -125,6 +124,9 @@ public cmd_follow(id, level, cid)
     }
 
     if (userid <= 0) {
+        // Release → back to autodirector (engine picks targets)
+        set_pev(spec_id, pev_iuser1, OBS_CHASE);
+        set_pev(spec_id, pev_iuser2, 0);
         engclient_cmd(spec_id, "spec_autodirector", "1");
         engclient_cmd(spec_id, "spec_mode", "4");
         log_amx("forum_spec_follow: released to autodirector");
@@ -136,17 +138,28 @@ public cmd_follow(id, level, cid)
         log_amx("forum_spec_follow: target userid=%d not found", userid);
         return PLUGIN_HANDLED;
     }
+    if (!is_user_alive(target_id)) {
+        log_amx("forum_spec_follow: target userid=%d not alive — can't spectate", userid);
+        return PLUGIN_HANDLED;
+    }
 
     new tname[32];
     get_user_name(target_id, tname, charsmax(tname));
 
+    // ENGINE-LEVEL observer-target swap. GoldSrc CS 1.6 stores the
+    // spectator's current observed entity in pev_iuser2 and the mode
+    // (1=in-eye, 2=chase, 4=director-chase, 3=free-roam) in pev_iuser1.
+    // Setting these directly moves the camera even when the client
+    // exposes no `spec_player` command (cs16-client doesn't).
+    set_pev(spec_id, pev_iuser1, OBS_CHASE);
+    set_pev(spec_id, pev_iuser2, target_id);
+
+    // Disable autodirector so it doesn't steal the focus back next tick.
     engclient_cmd(spec_id, "spec_autodirector", "0");
     engclient_cmd(spec_id, "spec_mode", "4");
-    new uid_arg[12];
-    formatex(uid_arg, charsmax(uid_arg), "#%d", userid);
-    engclient_cmd(spec_id, "spec_player", uid_arg);
 
-    log_amx("forum_spec_follow: locked onto userid=%d (%s)", userid, tname);
+    log_amx("forum_spec_follow: locked onto userid=%d (%s) ent=%d",
+        userid, tname, target_id);
     return PLUGIN_HANDLED;
 }
 
@@ -155,6 +168,8 @@ public cmd_release(id, level, cid)
     if (!cmd_access(id, level, cid, 1)) return PLUGIN_HANDLED;
     new spec_id = find_forum_spec();
     if (spec_id <= 0) return PLUGIN_HANDLED;
+    set_pev(spec_id, pev_iuser1, OBS_CHASE);
+    set_pev(spec_id, pev_iuser2, 0);
     engclient_cmd(spec_id, "spec_autodirector", "1");
     engclient_cmd(spec_id, "spec_mode", "4");
     log_amx("forum_spec_follow: released to autodirector");
