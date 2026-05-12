@@ -1,10 +1,13 @@
 #!/bin/bash
-# /opt/cs-stream/spectator/start.sh — Phase S3+S4 launcher (v5).
+# /opt/cs-stream/spectator/start.sh — Phase S3+S4 launcher (v6).
 #
-# Match the headless display resolution to the encoder's capture size
-# so x11grab's full grab IS the full Xvfb root; no top-left crop, no
-# scale filter in ffmpeg. 854x480x24 also takes ~half the SHM and
-# rendering work compared to 720p.
+# v5 → v6: drop `-dev 1` from the xash3d command line. Developer mode
+# routes engine warnings (notably "Overflow 500 temporary ents!" from
+# CL_TempEntAlloc when a busy round saturates the tempent ring buffer)
+# through Con_DPrintf, which the HUD echoes onto the visible notify
+# overlay. The encoder then bakes that text into the stream that gets
+# pushed to viewers. We do not need dev console for production —
+# qconsole.log via `-log` still captures every line for debugging.
 
 set -u
 
@@ -40,5 +43,4 @@ exec env \
         -window \
         -ref soft \
         -width $WIDTH -height $HEIGHT \
-        -dev 1 \
         -log
