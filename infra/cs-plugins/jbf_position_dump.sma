@@ -20,6 +20,7 @@
  */
 
 #include <amxmodx>
+#include <amxmisc>
 #include <fakemeta>
 
 #define PLUGIN_NAME    "JBF Position Dump"
