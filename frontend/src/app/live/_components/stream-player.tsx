@@ -16,7 +16,19 @@ const COLD_START_GRACE_MS = 20_000;
 
 type PlayerState = "idle" | "loading" | "playing" | "stalled" | "offline";
 
-export function StreamPlayer({ active }: { active: boolean }) {
+export function StreamPlayer({
+  active,
+  lowLatency = false,
+}: {
+  active: boolean;
+  /**
+   * Pilot mode flag. When true the HLS profile is re-tuned to the
+   * tightest practical buffer (≈1 s end-to-end vs the default ≈4 s)
+   * so WASD inputs surface fast enough to control the spec camera.
+   * Stalls more often on jittery networks — that is the trade.
+   */
+  lowLatency?: boolean;
+}) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const hlsRef = useRef<Hls | null>(null);
   const [state, setState] = useState<PlayerState>("idle");
@@ -30,6 +42,10 @@ export function StreamPlayer({ active }: { active: boolean }) {
       setState("idle");
       return;
     }
+    // Keep the lowLatency flag in the effect deps so toggling pilot
+    // mode tears down + rebuilds the HLS instance with the new
+    // buffer profile.
+    void lowLatency;
 
     const video = videoRef.current;
     if (!video) return;
@@ -40,37 +56,51 @@ export function StreamPlayer({ active }: { active: boolean }) {
     }, COLD_START_GRACE_MS);
 
     if (Hls.isSupported()) {
-      const hls = new Hls({
-        // Smooth-playback tuning — we trade ~1.5 s of extra wall-clock
-        // latency for a buffer large enough to absorb VPS jitter and
-        // typical residential network blips without stalling. The
-        // earlier ultra-aggressive profile (maxBufferLength 3,
-        // liveSyncDuration 1.5) buffered too little to survive a 200 ms
-        // upstream hiccup, which surfaced as visible freezes on /live.
-        //
-        // 4 s sync target + 12 s panic threshold + 10 s back-buffer
-        // gives the player about 6 s of swing between healthy live edge
-        // and a panic re-sync.
-        lowLatencyMode: true,
-        backBufferLength: 10,
-        maxBufferLength: 10,
-        maxMaxBufferLength: 15,
-        liveSyncDuration: 4,
-        liveMaxLatencyDuration: 12,
-        manifestLoadingMaxRetry: 8,
-        manifestLoadingRetryDelay: 1500,
-        levelLoadingMaxRetry: 6,
-        fragLoadingMaxRetry: 6,
-        // Nudging — when we drift off the live edge, micro-seek instead
-        // of redownloading. Cheaper and visually less jarring than a
-        // full re-sync.
-        nudgeMaxRetry: 10,
-        nudgeOffset: 0.1,
-        // Workers for HLS parsing — keeps the main thread free for the
-        // /live canvas next to us.
-        enableWorker: true,
-        progressive: true,
-      });
+      // Two tuning profiles:
+      //
+      //   default (lowLatency=false): smooth-playback. ~4 s wall-clock
+      //   lag, big buffer absorbs 200 ms VPS hiccups without stalling.
+      //   This is the right profile for casual viewing on /live.
+      //
+      //   lowLatency=true (pilot mode): aggressive. ~1 s end-to-end
+      //   lag at the cost of frequent re-syncs on network blips —
+      //   acceptable because the operator is actively piloting and
+      //   wants snappy feedback on WASD/mouselook input.
+      const hlsCfg = lowLatency
+        ? {
+            lowLatencyMode: true,
+            backBufferLength: 2,
+            maxBufferLength: 2,
+            maxMaxBufferLength: 4,
+            liveSyncDuration: 0.6,
+            liveMaxLatencyDuration: 3,
+            manifestLoadingMaxRetry: 8,
+            manifestLoadingRetryDelay: 800,
+            levelLoadingMaxRetry: 6,
+            fragLoadingMaxRetry: 6,
+            nudgeMaxRetry: 20,
+            nudgeOffset: 0.05,
+            enableWorker: true,
+            progressive: true,
+            maxLiveSyncPlaybackRate: 1.5,
+          }
+        : {
+            lowLatencyMode: true,
+            backBufferLength: 10,
+            maxBufferLength: 10,
+            maxMaxBufferLength: 15,
+            liveSyncDuration: 4,
+            liveMaxLatencyDuration: 12,
+            manifestLoadingMaxRetry: 8,
+            manifestLoadingRetryDelay: 1500,
+            levelLoadingMaxRetry: 6,
+            fragLoadingMaxRetry: 6,
+            nudgeMaxRetry: 10,
+            nudgeOffset: 0.1,
+            enableWorker: true,
+            progressive: true,
+          };
+      const hls = new Hls(hlsCfg);
       hlsRef.current = hls;
       hls.loadSource(STREAM_URL);
       hls.attachMedia(video);
@@ -145,7 +175,7 @@ export function StreamPlayer({ active }: { active: boolean }) {
         }
       }
     }
-  }, [active]);
+  }, [active, lowLatency]);
 
   // -------- render --------
   return (

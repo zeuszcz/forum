@@ -91,13 +91,18 @@ def init_display() -> bool:
 
 def send_key(k: str, down: bool) -> None:
     if _DISPLAY is None:
-        return
+        if not reopen_display():
+            return
     kc = _KEYCODES.get(k, 0)
     if kc == 0:
         return
     with _LOCK:
-        fake_input(_DISPLAY, X.KeyPress if down else X.KeyRelease, kc)
-        _DISPLAY.sync()
+        try:
+            fake_input(_DISPLAY, X.KeyPress if down else X.KeyRelease, kc)
+            _DISPLAY.sync()
+        except Exception as e:
+            log(f"send_key X error, will reconnect: {e}")
+            _force_reopen()
 
 
 def mouse_to_arrows(dx: int, dy: int) -> None:
@@ -136,12 +141,45 @@ def mouse_to_arrows(dx: int, dy: int) -> None:
 
 def send_click(button: int) -> None:
     if _DISPLAY is None:
-        return
+        if not reopen_display():
+            return
     with _LOCK:
-        fake_input(_DISPLAY, X.ButtonPress, button)
-        _DISPLAY.sync()
-        fake_input(_DISPLAY, X.ButtonRelease, button)
-        _DISPLAY.sync()
+        try:
+            fake_input(_DISPLAY, X.ButtonPress, button)
+            _DISPLAY.sync()
+            fake_input(_DISPLAY, X.ButtonRelease, button)
+            _DISPLAY.sync()
+        except Exception as e:
+            log(f"send_click X error, will reconnect: {e}")
+            _force_reopen()
+
+
+def _force_reopen() -> None:
+    """Mark the X display as dead so the next send_* call reconnects."""
+    global _DISPLAY
+    try:
+        if _DISPLAY is not None:
+            _DISPLAY.close()
+    except Exception:
+        pass
+    _DISPLAY = None
+
+
+def reopen_display() -> bool:
+    """Reopen the X display — used after Xvfb restart."""
+    global _DISPLAY
+    for i in range(10):
+        try:
+            _DISPLAY = display.Display(DISPLAY)
+            log(f"X display :99 reopened after retry {i}")
+            # Re-resolve keycodes (Xvfb-fresh layout might differ).
+            for k, sym in KEY_MAP.items():
+                _KEYCODES[k] = _DISPLAY.keysym_to_keycode(sym)
+            return True
+        except Exception as e:
+            log(f"reopen retry {i+1}/10: {e}")
+            time.sleep(0.3)
+    return False
 
 
 def handle_event(evt: dict) -> None:

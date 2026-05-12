@@ -1,7 +1,10 @@
 [Unit]
-Description=endless-war CS spectator input relay (xdotool host bridge)
+Description=endless-war CS spectator input relay (X11 XTEST bridge)
 After=cs-spectator.service
 Wants=cs-spectator.service
+# PartOf: when cs-spectator restarts, restart us too — Xvfb dies + comes
+# back at a new socket, our cached display ref needs to reopen.
+PartOf=cs-spectator.service
 
 [Service]
 Type=simple

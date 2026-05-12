@@ -1557,7 +1557,7 @@ export default function LivePage() {
             } catch { /* ignore */ }
           }}
         >
-          <StreamPlayer active={streamOn} />
+          <StreamPlayer active={streamOn} lowLatency={pilotOn} />
           {pilotOn && (
             <div className="pointer-events-none absolute inset-x-0 bottom-2 flex justify-center">
               <div className="rounded bg-void/80 px-2 py-1 text-[10px] uppercase tracking-widest text-cyan">
