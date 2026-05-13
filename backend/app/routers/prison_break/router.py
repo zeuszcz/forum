@@ -22,7 +22,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.core.deps import CurrentUser, DbSession
+from app.core.deps import CurrentUser, DbSession, OptionalUser
 from app.models.prison_break import (
     PrisonBreakEvent,
     PrisonBreakPlayer,
@@ -125,10 +125,14 @@ def _player_to_me(p: PrisonBreakPlayer) -> PlayerMe:
 
 @router.get("/status", response_model=EventStatus)
 async def get_status(
-    user: CurrentUser,
+    user: OptionalUser,
     db: DbSession,
 ) -> EventStatus:
-    """Return the current event + own player state (if any)."""
+    """Return the current event + own player state (if logged-in).
+
+    Anonymous visitors get the event card with `player: null` and
+    `can_signup: false` — used by the homepage banner.
+    """
     event = await event_service.find_current_event(db)
     # Also surface most-recent finished event if no current — that lets
     # the dashboard show "Season X ended on Y" instead of blank slate.
@@ -142,15 +146,18 @@ async def get_status(
         event = rows.scalar_one_or_none()
     if event is None:
         return EventStatus(event=None, player=None)
-    event_pub = await _build_event_public(db, event, user.id)
-    rows = await db.execute(
-        select(PrisonBreakPlayer)
-        .where(
-            PrisonBreakPlayer.event_id == event.id,
-            PrisonBreakPlayer.user_id == user.id,
+    me_id = user.id if user is not None else None
+    event_pub = await _build_event_public(db, event, me_id)
+    player = None
+    if user is not None:
+        rows = await db.execute(
+            select(PrisonBreakPlayer)
+            .where(
+                PrisonBreakPlayer.event_id == event.id,
+                PrisonBreakPlayer.user_id == user.id,
+            )
         )
-    )
-    player = rows.scalar_one_or_none()
+        player = rows.scalar_one_or_none()
     return EventStatus(
         event=event_pub,
         player=_player_to_me(player) if player else None,

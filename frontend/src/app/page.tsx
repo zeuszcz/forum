@@ -19,13 +19,14 @@ import { LiveActivityFeed } from "@/components/forum/LiveActivityFeed";
 import { OnlineList } from "@/components/forum/OnlineList";
 import { DailyQuestsWidget } from "@/components/forum/DailyQuestsWidget";
 import { PersonalCard } from "@/components/forum/PersonalCard";
+import { PrisonBreakBanner } from "@/components/forum/PrisonBreakBanner";
 import { RulesShortcut } from "@/components/forum/RulesShortcut";
 import { RecentThreads } from "@/components/forum/RecentThreads";
 import { SectionCard } from "@/components/forum/SectionCard";
 import { ServerStatusWidget } from "@/components/forum/ServerStatusWidget";
 import { Shoutbox } from "@/components/forum/Shoutbox";
 import { TopPodium, type TopUser } from "@/components/forum/TopPodium";
-import { apiServer } from "@/lib/api";
+import { apiServer, apiServerOptional } from "@/lib/api";
 import { relativeTime } from "@/lib/format";
 import type {
   ActivityResponse,
@@ -56,6 +57,7 @@ async function loadHomeData() {
     birthdays,
     recentVisitors,
     scandal,
+    prisonBreakStatus,
   ] = await Promise.all([
     apiServer<Section[]>("/sections"),
     apiServer<Thread[]>("/threads/recent?limit=8"),
@@ -70,6 +72,24 @@ async function loadHomeData() {
     apiServer<UserPublic[]>("/users/birthdays-today"),
     apiServer<UserPublic[]>("/users/recent-visitors?hours=24"),
     apiServer<ScandalThread | null>("/stats/scandal-of-week"),
+    apiServerOptional<{
+      event: {
+        id: number;
+        season: string;
+        title: string;
+        status: string;
+        current_phase: string;
+        current_day: number;
+        signup_opens_at: string | null;
+        starts_at: string | null;
+        ends_at: string | null;
+        config: Record<string, unknown>;
+        registered_count: number;
+        is_signed_up: boolean;
+        can_signup: boolean;
+      } | null;
+      player: { id: number } | null;
+    }>("/api/event/prison-break/status"),
   ]);
   return {
     sections,
@@ -85,6 +105,7 @@ async function loadHomeData() {
     birthdays,
     recentVisitors,
     scandal,
+    prisonBreakStatus,
   };
 }
 
@@ -103,6 +124,7 @@ export default async function HomePage() {
     birthdays,
     recentVisitors,
     scandal,
+    prisonBreakStatus,
   } = await loadHomeData();
 
   const totalThreads = sections.reduce((s, x) => s + x.thread_count, 0);
@@ -171,6 +193,7 @@ export default async function HomePage() {
 
       {/* === Personal greeting + rules CTA + daily quests === */}
       <div className="container space-y-4 pt-6">
+        <PrisonBreakBanner status={prisonBreakStatus} />
         <PersonalCard />
         <RulesShortcut />
         <DailyQuestsWidget />
