@@ -78,6 +78,7 @@ app.include_router(prison_break.market_router)
 app.include_router(prison_break.social_router)
 app.include_router(prison_break.minigames_router)
 app.include_router(prison_break.arena_router)
+app.include_router(prison_break.finale_router)
 
 
 @app.get("/", include_in_schema=False)

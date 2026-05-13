@@ -3,6 +3,8 @@
 import { AnimatePresence, motion } from "framer-motion";
 import {
   Coins,
+  Film,
+  Flame,
   Gavel,
   Hammer,
   Handshake,
@@ -725,6 +727,41 @@ function PlayerView({
               <div className="text-xs font-semibold text-bone">Арена 1×1</div>
               <div className="text-[9px] uppercase tracking-widest text-smoke">
                 12 спецприёмов · server-tick 15Hz · ставки 1.95×
+              </div>
+            </div>
+            <span className="text-flame">→</span>
+          </Link>
+        </motion.div>
+
+        {/* EPIC 7 — Хроника + финал */}
+        <motion.div
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.3, delay: 0.27 }}
+          className="grid gap-2 sm:grid-cols-2"
+        >
+          <Link
+            href="/event/prison-break/reveals"
+            className="flex items-center gap-3 rounded-lg border border-purple-500/30 bg-purple-500/5 p-3 transition-colors hover:border-purple-500/60 hover:bg-purple-500/10"
+          >
+            <Film className="h-5 w-5 text-purple-400" />
+            <div className="flex-1">
+              <div className="text-xs font-semibold text-bone">Хроника</div>
+              <div className="text-[9px] uppercase tracking-widest text-smoke">
+                7 раскрытий · роли · альянсы · тоннели
+              </div>
+            </div>
+            <span className="text-purple-400">→</span>
+          </Link>
+          <Link
+            href="/event/prison-break/finale"
+            className="flex items-center gap-3 rounded-lg border border-flame/40 bg-flame/10 p-3 transition-colors hover:border-flame/70 hover:bg-flame/15"
+          >
+            <Flame className="h-5 w-5 text-flame" />
+            <div className="flex-1">
+              <div className="text-xs font-semibold text-bone">Финал</div>
+              <div className="text-[9px] uppercase tracking-widest text-smoke">
+                isometric · голосование · выплаты
               </div>
             </div>
             <span className="text-flame">→</span>

@@ -238,8 +238,7 @@ async def list_players(
     )
     out: list[PlayerPublic] = []
     for p in rows.scalars():
-        # Show role publicly only once it's revealed (after a Reveal phase
-        # in future EPIC 7). For now hide all roles.
+        # EPIC 7 — surface revealed_role to everyone once a Reveal exposed it.
         out.append(PlayerPublic(
             id=p.id,
             nickname=p.nickname,
@@ -247,7 +246,7 @@ async def list_players(
             block=p.block,
             cell_id=p.cell_id,
             status=p.status,
-            revealed_role=None,
+            revealed_role=p.revealed_role,
         ))
     return out
 

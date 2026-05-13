@@ -578,4 +578,11 @@ async def daily_tick(db: AsyncSession, event: PrisonBreakEvent) -> int:
         # Don't let intel/alliance hiccups block the AP refill.
         pass
 
+    # EPIC 7 — auto-fire any reveals whose scheduled_for has passed.
+    try:
+        from app.services.prison_break import reveal_service
+        await reveal_service.auto_fire_due(db, event)
+    except Exception:
+        pass
+
     return n

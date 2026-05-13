@@ -5,11 +5,13 @@ from app.services.prison_break import (
     arena_service,
     craft_service,
     event_service,
+    finale_service,
     intel_service,
     interrogation_service,
     lockpick_service,
     market_service,
     patrol_service,
+    reveal_service,
     trust_service,
 )
 
@@ -20,10 +22,12 @@ __all__ = [
     "arena_service",
     "craft_service",
     "event_service",
+    "finale_service",
     "intel_service",
     "interrogation_service",
     "lockpick_service",
     "market_service",
     "patrol_service",
+    "reveal_service",
     "trust_service",
 ]

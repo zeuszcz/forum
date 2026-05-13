@@ -96,6 +96,7 @@ class PrisonBreakPlayer(Base):
     arena_loadout: Mapped[dict[str, Any]] = mapped_column(
         JSON, nullable=False, default=dict,
     )
+    revealed_role: Mapped[str | None] = mapped_column(String(20), nullable=True)
 
 
 class PrisonBreakCell(Base):

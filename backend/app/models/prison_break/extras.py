@@ -185,3 +185,35 @@ class PrisonBreakInterrogationTurn(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
+
+
+# ---------------------------------------------------------------------------
+# EPIC 7 — Final Night vote
+# ---------------------------------------------------------------------------
+
+
+class PrisonBreakFinalVote(Base):
+    """One row per (event, voter, kind)."""
+
+    __tablename__ = "prison_break_final_vote"
+    __table_args__ = (
+        UniqueConstraint(
+            "event_id", "voter_id", "kind",
+            name="uq_prison_break_final_vote_event_voter_kind",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    event_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("prison_break_event.id", ondelete="CASCADE"), nullable=False
+    )
+    voter_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("prison_break_player.id", ondelete="CASCADE"), nullable=False
+    )
+    target_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("prison_break_player.id", ondelete="CASCADE"), nullable=False
+    )
+    kind: Mapped[str] = mapped_column(String(20), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )

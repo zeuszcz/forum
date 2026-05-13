@@ -470,5 +470,80 @@ class ArenaStateOut(BaseModel):
     recent_events: list[dict[str, Any]] = Field(default_factory=list)
 
 
+# --- EPIC 7: Reveals + Finale -------------------------------------------------
+
+
+class RevealOut(BaseModel):
+    id: int
+    day: int
+    reveal_type: str
+    payload: dict[str, Any] = Field(default_factory=dict)
+    scheduled_for: datetime
+    revealed_at: datetime | None = None
+
+
+class AdminRevealTrigger(BaseModel):
+    reveal_type: str = Field(
+        pattern=r"^(role_reveal|alliance_dump|tunnel_status|intel_truth|faction_count|boss_reveal|final_curtain)$",
+    )
+    day: int | None = Field(default=None, ge=0, le=42)
+
+
+class FinalVoteRequest(BaseModel):
+    target_player_id: int = Field(ge=1)
+    kind: str = Field(pattern=r"^(boss|snitch|hero)$")
+
+
+class FinalVoteOut(BaseModel):
+    id: int
+    voter_id: int
+    target_id: int
+    kind: str
+    created_at: datetime
+
+
+class FinalVoteTallyEntry(BaseModel):
+    target_id: int
+    target_nickname: str
+    count: int
+
+
+class FinalVoteTally(BaseModel):
+    boss: list[FinalVoteTallyEntry] = Field(default_factory=list)
+    snitch: list[FinalVoteTallyEntry] = Field(default_factory=list)
+    hero: list[FinalVoteTallyEntry] = Field(default_factory=list)
+
+
+class FinalOutcomeOut(BaseModel):
+    escaped_player_ids: list[int] = Field(default_factory=list)
+    escape_count: int
+    escape_rate: float
+    boss_correct_votes: int
+    boss_voter_count: int
+    boss_correctly_identified: bool
+    winning_side: str
+    most_voted: dict[str, int] = Field(default_factory=dict)
+    payouts: dict[str, int] = Field(default_factory=dict)
+
+
+class IsometricCell(BaseModel):
+    id: int
+    block: str
+    number: int
+    tunnel_progress: int
+    tunnel_discovered: bool
+    locked_until: str | None = None
+    members: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class IsometricSnapshot(BaseModel):
+    event: dict[str, Any] = Field(default_factory=dict)
+    cells: list[IsometricCell] = Field(default_factory=list)
+    guards_unassigned: list[dict[str, Any]] = Field(default_factory=list)
+    arena_active: list[dict[str, Any]] = Field(default_factory=list)
+    alliances_active: int = 0
+    ts: str
+
+
 # Resolve forward ref so EventStatus can reference PlayerMe.
 EventStatus.model_rebuild()

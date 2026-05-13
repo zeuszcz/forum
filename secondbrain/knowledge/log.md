@@ -3,6 +3,29 @@
 Append-only build / compile / query / lint events. `merge=union` in `.gitattributes`
 keeps merges painless across branches.
 
+## [2026-05-14] ingest | Prison Break EPIC 7 — reveals + Final Night + voting (arc closed)
+
+- Migration `20260514_2100` adds `prison_break_final_vote` (unique on
+  event+voter+kind) + `prison_break_player.revealed_role` nullable
+  string. No other DB churn.
+- `reveal_service.py` — 7 reveal types with per-type handlers. Default
+  schedule is created idempotently when first asked; `auto_fire_due`
+  fires past-due reveals (chained into `daily_tick`).
+- `finale_service.py` — vote storage with anti-self-vote + update-by-key
+  semantics; majority threshold for boss-identification; canonical
+  outcome computation with parallel spy-escape win condition;
+  idempotent payout application via `event.config.final_payouts_applied`.
+- `finale_router.py` — 10 endpoints covering reveals (list + admin
+  fire), finale (snapshot, tally, outcome, my-votes, vote, finalise).
+- `/players` endpoint now surfaces `revealed_role` from the player row
+  (was hardcoded `None`). Every reveal that sets the flag becomes
+  visible across the whole UI automatically.
+- Frontend: `/reveals` cinematic timeline + `/finale` isometric Canvas
+  with 3-row blocks, tunnel bars, member dots colored by status/role,
+  3-category voting card.
+- Concept: `concepts/prison-break-finale.md`. Index + log updated.
+- **Arc closed**: EPICs 1-7 all in prod.
+
 ## [2026-05-14] ingest | Prison Break EPIC 6 — arena 2D fighter + server-authoritative netcode
 
 - Migration `20260514_1800` adds a single `arena_loadout JSON` column on
