@@ -243,5 +243,138 @@ class AllianceActionResult(BaseModel):
     message: str | None = None
 
 
+# --- EPIC 5: Lock-pick --------------------------------------------------------
+
+
+class LockpickStartRequest(BaseModel):
+    target_cell_id: int = Field(ge=1)
+
+
+class LockpickTapRequest(BaseModel):
+    pin_pick: int = Field(ge=0, le=6)
+
+
+class LockpickStatus(BaseModel):
+    id: int
+    target_cell_id: int
+    difficulty: int
+    current_pin: int
+    misses: int
+    forgive_misses: int
+    key_quality: str
+    status: str
+    started_at: datetime
+    ended_at: datetime | None = None
+    outcome: dict[str, Any] = Field(default_factory=dict)
+
+
+class LockpickTapResult(BaseModel):
+    correct: bool
+    current_pin: int
+    misses: int
+    forgive_misses: int
+    status: str  # active|won|lost|abandoned
+    outcome: dict[str, Any] = Field(default_factory=dict)
+
+
+# --- EPIC 5: Patrol planner ---------------------------------------------------
+
+
+class PatrolCellInfo(BaseModel):
+    cell_id: int
+    block: str
+    number: int
+    tunnel_progress: int
+    tunnel_discovered: bool
+
+
+class PatrolPlanRequest(BaseModel):
+    route: list[int] = Field(min_length=1, max_length=6)
+    focus: str = Field(pattern=r"^(balanced|aggressive|stealth)$")
+
+
+class PatrolPlanOut(BaseModel):
+    id: int
+    block: str
+    route: list[int]
+    focus: str
+    valid_for_day: int
+    executed: bool
+    executed_at: datetime | None = None
+    result: dict[str, Any] = Field(default_factory=dict)
+    created_at: datetime
+
+
+class PatrolStepOut(BaseModel):
+    cell_id: int
+    block: str
+    number: int
+    outcome: str  # busted|empty|stealth_pass
+    tunnel_progress_before: int
+    tunnel_progress_after: int
+
+
+class PatrolExecuteResult(BaseModel):
+    ok: bool
+    plan_id: int
+    ap_spent: int
+    ap_remaining: int
+    steps: list[PatrolStepOut]
+
+
+# --- EPIC 5: Interrogation ----------------------------------------------------
+
+
+class InterrogationStartRequest(BaseModel):
+    suspect_player_id: int = Field(ge=1)
+    topic: str = Field(pattern=r"^(general|tunnel|alliance|intel_leak|role)$")
+
+
+class InterrogationQuestion(BaseModel):
+    tactic: str = Field(pattern=r"^(ask|bluff|threat|offer)$")
+    body: str = Field(default="", max_length=500)
+
+
+class InterrogationAnswer(BaseModel):
+    tactic: str = Field(pattern=r"^(truth|lie|silence)$")
+    body: str = Field(default="", max_length=500)
+
+
+class InterrogationTurnOut(BaseModel):
+    id: int
+    role: str  # question|answer|system
+    speaker_id: int
+    tactic: str
+    body: str
+    delta_pressure: int
+    created_at: datetime
+
+
+class InterrogationOut(BaseModel):
+    id: int
+    interrogator_id: int
+    suspect_id: int
+    topic: str
+    status: str
+    rounds_remaining: int
+    pressure: int
+    trust_loss: int
+    started_at: datetime
+    ended_at: datetime | None = None
+    outcome: dict[str, Any] = Field(default_factory=dict)
+    turns: list[InterrogationTurnOut] = Field(default_factory=list)
+    is_interrogator: bool = False
+    is_suspect: bool = False
+
+
+class InterrogationTurnResult(BaseModel):
+    ok: bool
+    pressure: int
+    rounds_remaining: int
+    status: str
+    outcome: dict[str, Any] = Field(default_factory=dict)
+    ap_remaining: int
+
+
 # Resolve forward ref so EventStatus can reference PlayerMe.
 EventStatus.model_rebuild()

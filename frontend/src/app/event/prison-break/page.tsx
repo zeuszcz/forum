@@ -3,15 +3,18 @@
 import { AnimatePresence, motion } from "framer-motion";
 import {
   Coins,
+  Gavel,
   Hammer,
   Handshake,
   Heart,
   Info,
+  Key,
   Lock,
   Newspaper,
   Play,
   Power,
   Settings,
+  Shield,
   ShieldOff,
   ShoppingBag,
   Sparkles,
@@ -646,6 +649,66 @@ function PlayerView({
             <span className="text-purple-400">→</span>
           </Link>
         </motion.div>
+
+        {/* EPIC 5 mini-game links */}
+        <motion.div
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.3, delay: 0.21 }}
+          className="grid gap-2 sm:grid-cols-3"
+        >
+          <Link
+            href="/event/prison-break/lockpick"
+            className="flex items-center gap-3 rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 transition-colors hover:border-amber-500/60 hover:bg-amber-500/10"
+          >
+            <Key className="h-5 w-5 text-amber-400" />
+            <div className="flex-1">
+              <div className="text-xs font-semibold text-bone">Взлом замка</div>
+              <div className="text-[9px] uppercase tracking-widest text-smoke">
+                pin-tumbler · переезд в новую камеру
+              </div>
+            </div>
+            <span className="text-amber-400">→</span>
+          </Link>
+          {player.role === "guard" ? (
+            <Link
+              href="/event/prison-break/patrol"
+              className="flex items-center gap-3 rounded-lg border border-cyan/30 bg-cyan/5 p-3 transition-colors hover:border-cyan/60 hover:bg-cyan/10"
+            >
+              <Shield className="h-5 w-5 text-cyan" />
+              <div className="flex-1">
+                <div className="text-xs font-semibold text-bone">Патруль</div>
+                <div className="text-[9px] uppercase tracking-widest text-smoke">
+                  маршрут на день · 3 фокуса
+                </div>
+              </div>
+              <span className="text-cyan">→</span>
+            </Link>
+          ) : (
+            <div className="flex items-center gap-3 rounded-lg border border-border bg-void/30 p-3 opacity-50">
+              <Shield className="h-5 w-5 text-smoke" />
+              <div className="flex-1">
+                <div className="text-xs font-semibold text-smoke">Патруль</div>
+                <div className="text-[9px] uppercase tracking-widest text-smoke">
+                  только для охраны
+                </div>
+              </div>
+            </div>
+          )}
+          <Link
+            href="/event/prison-break/interrogation"
+            className="flex items-center gap-3 rounded-lg border border-rose-500/30 bg-rose-500/5 p-3 transition-colors hover:border-rose-500/60 hover:bg-rose-500/10"
+          >
+            <Gavel className="h-5 w-5 text-rose-400" />
+            <div className="flex-1">
+              <div className="text-xs font-semibold text-bone">Допрос</div>
+              <div className="text-[9px] uppercase tracking-widest text-smoke">
+                3 раунда · давление · 5 тем
+              </div>
+            </div>
+            <span className="text-rose-400">→</span>
+          </Link>
+        </motion.div>
       </div>
 
       {/* RIGHT: side info */}
@@ -694,20 +757,25 @@ function PlayerView({
           </div>
           <div className="grid grid-cols-2 gap-2 text-[10px]">
             {[
-              { icon: <Swords className="h-3 w-3" />, name: "Арена" },
-              { icon: <Hammer className="h-3 w-3" />, name: "Мастерская" },
-              { icon: <Lock className="h-3 w-3" />, name: "Взлом" },
-              { icon: "👮", name: "Патруль" },
-              { icon: "🚨", name: "Допрос" },
-              { icon: "🛒", name: "Рынок" },
+              { icon: <Hammer className="h-3 w-3" />, name: "Мастерская", ready: true },
+              { icon: <ShoppingBag className="h-3 w-3" />, name: "Рынок", ready: true },
+              { icon: <Key className="h-3 w-3" />, name: "Взлом", ready: true },
+              { icon: <Shield className="h-3 w-3" />, name: "Патруль", ready: true },
+              { icon: <Gavel className="h-3 w-3" />, name: "Допрос", ready: true },
+              { icon: <Swords className="h-3 w-3" />, name: "Арена", ready: false },
             ].map((m, i) => (
               <div
                 key={i}
-                className="flex items-center gap-1.5 rounded-md border border-border bg-void/40 px-2 py-1.5 text-smoke"
+                className={cn(
+                  "flex items-center gap-1.5 rounded-md border px-2 py-1.5",
+                  m.ready ? "border-emerald-500/30 bg-emerald-500/5 text-bone" : "border-border bg-void/40 text-smoke",
+                )}
               >
                 <span>{m.icon}</span>
                 <span className="flex-1">{m.name}</span>
-                <span className="text-[8px] uppercase text-cyan/60">soon</span>
+                <span className={cn("text-[8px] uppercase", m.ready ? "text-emerald-400" : "text-cyan/60")}>
+                  {m.ready ? "live" : "soon"}
+                </span>
               </div>
             ))}
           </div>

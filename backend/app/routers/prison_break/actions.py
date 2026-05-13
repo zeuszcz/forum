@@ -127,6 +127,42 @@ class CellOut(BaseModel):
     members: list[CellMembersOut]
 
 
+class CellSummary(BaseModel):
+    id: int
+    block: str
+    number: int
+    tunnel_progress: int
+    tunnel_discovered: bool
+    locked_until: str | None
+
+
+@actions_router.get("/cells", response_model=list[CellSummary])
+async def list_cells(
+    user: CurrentUser,
+    db: DbSession,
+) -> list[CellSummary]:
+    """Lightweight cell directory — exposed to any registered player so the
+    lock-pick UI can list targets across blocks. Sensitive fields (members,
+    chat) live behind /cells/{id}."""
+    _, _player = await _resolve_player(db, user.id)
+    rows = await db.execute(
+        select(PrisonBreakCell)
+        .where(PrisonBreakCell.event_id == _player.event_id)
+        .order_by(PrisonBreakCell.block, PrisonBreakCell.number)
+    )
+    return [
+        CellSummary(
+            id=c.id,
+            block=c.block,
+            number=c.number,
+            tunnel_progress=c.tunnel_progress,
+            tunnel_discovered=c.tunnel_discovered,
+            locked_until=c.locked_until.isoformat() if c.locked_until else None,
+        )
+        for c in rows.scalars()
+    ]
+
+
 @actions_router.get("/cells/{cell_id}", response_model=CellOut)
 async def get_cell(
     cell_id: int,

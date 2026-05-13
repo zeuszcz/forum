@@ -3,6 +3,21 @@
 Append-only build / compile / query / lint events. `merge=union` in `.gitattributes`
 keeps merges painless across branches.
 
+## [2026-05-14] ingest | Prison Break EPIC 5 — lock-pick, patrol planner, interrogation
+
+- Migration `20260514_1500_prison_break_minigames.py` adds 4 tables:
+  `lockpick_session`, `patrol_plan`, `interrogation`, `interrogation_turn`.
+  Partial unique indexes enforce one-active-per-actor invariants for
+  lock-pick and interrogation; `(guard, day)` unique for patrol plans.
+- Three services + one HTTP router (`minigames_router`) + three frontend
+  pages. Concept: `concepts/prison-break-minigames.md`.
+- All three games resolve into `prison_break_action`, so the EPIC-4 trust
+  history viewer auto-surfaces `lockpick_won`, `patrol_execute`,
+  `interrogation_confession`, etc. without extra plumbing.
+- New public endpoint `GET /api/event/prison-break/cells` — lightweight
+  cell directory for the lock-pick target picker. Sensitive bits still
+  behind `/cells/{id}` with cellmate ACL.
+
 ## [2026-05-14] ingest | Prison Break EPIC 4 — intel + trust + alliance landed
 
 - Shipped the social layer of the 21-day event as one cohesive batch
