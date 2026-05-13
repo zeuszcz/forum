@@ -237,7 +237,7 @@ export default function PrisonBreakDashboardPage() {
         </Link>
       </header>
 
-      {/* ---------- Admin panel ---------- */}
+      {/* ---------- Admin panel (always shown for staff, top-of-page) ---------- */}
       {isStaff && (
         <AdminPanel
           event={event}
@@ -249,12 +249,17 @@ export default function PrisonBreakDashboardPage() {
 
       {/* ---------- Main content ---------- */}
       {!event ? (
-        <NoEventScreen isStaff={isStaff} />
+        <NoEventScreen isStaff={isStaff} onCreateDraft={createDraft} busy={busy} />
       ) : !player ? (
         <NotSignedUpScreen event={event} />
       ) : (
-        <PlayerView event={event} player={player} />
+        <PlayerView event={event} player={player} onRefresh={fetchStatus} />
       )}
+
+      {/* ---------- Debug indicator (visible to everyone, helps diagnose) ---------- */}
+      <div className="mt-8 text-center text-[10px] text-smoke/40 font-mono">
+        debug: user={user?.nickname ?? "anon"} · isStaff={String(isStaff)} · event={event?.season ?? "none"} · status={event?.status ?? "—"}
+      </div>
     </div>
   );
 }
@@ -360,26 +365,42 @@ function AdminPanel({
   );
 }
 
-function NoEventScreen({ isStaff }: { isStaff: boolean }) {
+function NoEventScreen({
+  isStaff,
+  onCreateDraft,
+  busy,
+}: {
+  isStaff: boolean;
+  onCreateDraft: () => void;
+  busy: boolean;
+}) {
   return (
     <div className="rounded-lg border border-border bg-card p-8 text-center">
       <ShieldOff className="mx-auto mb-3 h-10 w-10 text-smoke" />
-      <h2 className="text-lg font-semibold text-bone">Сейчас никакого сезона нет</h2>
+      <h2 className="text-xl font-bold text-bone">Сейчас никакого сезона нет</h2>
       <p className="mt-2 text-sm text-smoke">
         Следующий «Тюремный Бунт» начнётся когда модераторы запустят новый сезон.
       </p>
-      {isStaff && (
-        <p className="mt-3 text-xs text-cyan">
-          Создай сезон через панель сверху ↑
-        </p>
-      )}
-      <Link
-        href="/event/prison-break/info"
-        className="mt-4 inline-flex h-9 items-center gap-1.5 rounded-md border border-cyan/40 bg-cyan/10 px-3 text-xs uppercase tracking-widest text-cyan transition-colors hover:bg-cyan/15"
-      >
-        <Info className="h-3 w-3" />
-        что это вообще
-      </Link>
+      <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
+        <Link
+          href="/event/prison-break/info"
+          className="inline-flex h-10 items-center gap-1.5 rounded-md border border-cyan/40 bg-cyan/10 px-4 text-xs uppercase tracking-widest text-cyan transition-colors hover:bg-cyan/15"
+        >
+          <Info className="h-4 w-4" />
+          что это вообще
+        </Link>
+        {isStaff && (
+          <button
+            type="button"
+            onClick={onCreateDraft}
+            disabled={busy}
+            className="inline-flex h-10 items-center gap-1.5 rounded-md border border-flame/50 bg-flame/15 px-5 text-sm font-bold uppercase tracking-widest text-flame transition-colors hover:bg-flame/25 disabled:opacity-50"
+          >
+            <Play className="h-4 w-4" />
+            создать первый сезон
+          </button>
+        )}
+      </div>
     </div>
   );
 }
@@ -444,9 +465,11 @@ function NotSignedUpScreen({ event }: { event: EventPublic }) {
 function PlayerView({
   event,
   player,
+  onRefresh,
 }: {
   event: EventPublic;
   player: PlayerMe;
+  onRefresh: () => void;
 }) {
   const phase = PHASE_LABELS[event.current_phase] ?? PHASE_LABELS.setup;
   const durationDays = (event.config["duration_days"] as number) ?? 21;
@@ -518,42 +541,35 @@ function PlayerView({
           </div>
         </motion.div>
 
-        {/* Actions stubs */}
-        <motion.div
-          initial={{ opacity: 0, y: 8 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.3, delay: 0.1 }}
-          className="rounded-lg border border-border bg-card p-4"
-        >
-          <div className="mb-3 flex items-center gap-2 text-[10px] uppercase tracking-widest text-smoke">
-            <Zap className="h-3 w-3" />
-            Действия (в разработке)
-          </div>
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-            {[
-              { icon: "⛏", label: "Копать тоннель", ap: 2, slug: "dig" },
-              { icon: "👮", label: "Патрулировать", ap: 1, slug: "patrol" },
-              { icon: "🤝", label: "Визит к игроку", ap: 1, slug: "visit" },
-              { icon: "🔪", label: "Арена", ap: 2, slug: "arena" },
-              { icon: "📜", label: "Поделиться intel", ap: 1, slug: "forward_intel" },
-              { icon: "🛠", label: "Мастерская", ap: 1, slug: "craft" },
-            ].map((a) => (
-              <button
-                key={a.slug}
-                type="button"
-                disabled
-                className="inline-flex h-12 items-center gap-2 rounded-md border border-border bg-void px-3 text-xs text-smoke opacity-60 cursor-not-allowed"
-              >
-                <span className="text-lg">{a.icon}</span>
-                <span className="flex-1 text-left">{a.label}</span>
-                <span className="font-mono text-cyan">-{a.ap}AP</span>
-              </button>
-            ))}
-          </div>
-          <p className="mt-3 text-[10px] text-smoke italic">
-            Скоро будут активны. EPIC 2 — Core gameplay loop в разработке.
-          </p>
-        </motion.div>
+        {/* Actions — wired to backend (EPIC 2) */}
+        <ActionsPanel player={player} onRefresh={onRefresh} />
+
+        {/* Quick link to cell */}
+        {player.cell_id && (
+          <motion.div
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.3, delay: 0.15 }}
+          >
+            <Link
+              href={`/event/prison-break/cell/${player.cell_id}`}
+              className="flex items-center justify-between rounded-lg border border-cyan/30 bg-cyan/5 p-4 transition-colors hover:border-cyan/60 hover:bg-cyan/10"
+            >
+              <div className="flex items-center gap-3">
+                <Lock className="h-6 w-6 text-cyan" />
+                <div>
+                  <div className="text-sm font-semibold text-bone">
+                    Камера {player.block}-{player.cell_id}
+                  </div>
+                  <div className="text-[10px] uppercase tracking-widest text-smoke">
+                    чат + прогресс тоннеля
+                  </div>
+                </div>
+              </div>
+              <span className="text-cyan">→</span>
+            </Link>
+          </motion.div>
+        )}
       </div>
 
       {/* RIGHT: side info */}
@@ -664,4 +680,119 @@ function roleLabel(role: string): string {
     spy: "🕵 Шпион",
     boss: "💀 Начальник",
   } as Record<string, string>)[role] ?? role;
+}
+
+// ---------------------------------------------------------------------------
+// Actions panel — fires real action endpoint, updates AP optimistically
+// ---------------------------------------------------------------------------
+
+type ActionDef = {
+  slug: "dig" | "visit" | "patrol" | "snitch" | "rest";
+  icon: string;
+  label: string;
+  ap: number;
+  requiresTarget?: boolean;
+  roles?: string[];
+};
+
+const ACTION_CATALOG: ActionDef[] = [
+  { slug: "dig", icon: "⛏", label: "Копать тоннель", ap: 2, roles: ["prisoner", "authority", "spy", "boss"] },
+  { slug: "patrol", icon: "👮", label: "Патрулировать", ap: 1, roles: ["guard"] },
+  { slug: "visit", icon: "🤝", label: "Визит к игроку", ap: 1, requiresTarget: true },
+  { slug: "snitch", icon: "🚨", label: "Снитчить", ap: 2, requiresTarget: true, roles: ["prisoner", "authority", "spy", "boss"] },
+  { slug: "rest", icon: "🛏", label: "Отдых", ap: 0 },
+];
+
+function ActionsPanel({
+  player,
+  onRefresh,
+}: {
+  player: PlayerMe;
+  onRefresh: () => void;
+}) {
+  const [submitting, setSubmitting] = useState<string | null>(null);
+
+  const runAction = async (slug: ActionDef["slug"], targetId?: number) => {
+    if (submitting) return;
+    setSubmitting(slug);
+    try {
+      const r = await api<{
+        ok: boolean;
+        ap_remaining: number;
+        message: string;
+        payload: Record<string, unknown>;
+      }>("/api/event/prison-break/action", {
+        method: "POST",
+        body: JSON.stringify({
+          action_type: slug,
+          target_id: targetId ?? null,
+          idempotency_key: crypto.randomUUID(),
+        }),
+      });
+      if (r.ok) toast.success(r.message);
+      else toast.error(r.message);
+      onRefresh();
+    } catch (e) {
+      if (e instanceof ApiError) toast.error(e.detail);
+      else toast.error("Ошибка действия");
+    } finally {
+      setSubmitting(null);
+    }
+  };
+
+  const available = ACTION_CATALOG.filter((a) => {
+    if (a.roles && player.role && !a.roles.includes(player.role)) return false;
+    return true;
+  });
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.3, delay: 0.1 }}
+      className="rounded-lg border border-border bg-card p-4"
+    >
+      <div className="mb-3 flex items-center justify-between gap-2">
+        <span className="flex items-center gap-2 text-[10px] uppercase tracking-widest text-smoke">
+          <Zap className="h-3 w-3" />
+          Действия
+        </span>
+        <span className="font-mono text-[10px] text-cyan">
+          {player.ap_current}/{player.ap_max} AP
+        </span>
+      </div>
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+        {available.map((a) => {
+          const disabled =
+            submitting !== null ||
+            a.ap > player.ap_current ||
+            a.requiresTarget; // TODO: target picker UI
+          return (
+            <button
+              key={a.slug}
+              type="button"
+              disabled={disabled}
+              onClick={() => void runAction(a.slug)}
+              className={cn(
+                "inline-flex h-12 items-center gap-2 rounded-md border px-3 text-xs transition-colors",
+                disabled
+                  ? "border-border bg-void text-smoke opacity-50 cursor-not-allowed"
+                  : "border-flame/40 bg-flame/10 text-flame hover:bg-flame/20",
+              )}
+              title={a.requiresTarget ? "Нужна цель — UI выбора скоро" : undefined}
+            >
+              <span className="text-lg">{a.icon}</span>
+              <span className="flex-1 text-left">{a.label}</span>
+              <span className="font-mono">
+                {a.ap > 0 ? `-${a.ap}AP` : "0AP"}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+      <p className="mt-3 text-[10px] text-smoke italic">
+        AP обнуляются ежедневно в 00:00 МСК. Цели для визит/снитч — UI выбора в следующей итерации.
+      </p>
+    </motion.div>
+  );
 }

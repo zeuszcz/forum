@@ -71,6 +71,8 @@ app.include_router(quests.router)
 app.include_router(cases.router)
 app.include_router(cs_rcon.router)
 app.include_router(prison_break.router)
+app.include_router(prison_break.actions_router)
+app.include_router(prison_break.ws_router)
 
 
 @app.get("/", include_in_schema=False)
