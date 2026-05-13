@@ -281,7 +281,6 @@ export default function AlliancesPage() {
           {alliances.map((a) => {
             const meta = STATUS_META[a.status];
             const pactInfo = PACT_TYPES.find((p) => p.slug === a.pact_type);
-            const others = (a.parties ?? []).filter((pid) => pid !== me?.id);
             const everyone = a.parties ?? [];
             const signedSet = new Set(a.signatures);
             return (

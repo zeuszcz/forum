@@ -343,7 +343,6 @@ export default function TrustPage() {
         ) : (
           <ul className="space-y-1.5 text-xs">
             {history.map((h, i) => {
-              const isActor = me && h.actor_id === me.id;
               const label = ACTION_LABELS[h.action_type] ?? h.action_type;
               return (
                 <motion.li

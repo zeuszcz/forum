@@ -10,7 +10,6 @@ import {
   Newspaper,
   Send,
   ShieldAlert,
-  Sparkles,
   Zap,
 } from "lucide-react";
 import Link from "next/link";
