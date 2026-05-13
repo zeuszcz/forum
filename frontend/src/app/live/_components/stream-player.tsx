@@ -68,12 +68,17 @@ export function StreamPlayer({
       //   wants snappy feedback on WASD/mouselook input.
       const hlsCfg = lowLatency
         ? {
+            // Pilot mode — tight but feasible against MediaMTX's
+            // 1-second segment / 200 ms part cadence. Going below
+            // ~1.5 s liveSyncDuration causes BUFFERING because the
+            // player asks for content the publisher hasn't cut yet.
+            // Target: ≈2 s end-to-end. Below that needs WebRTC.
             lowLatencyMode: true,
-            backBufferLength: 2,
-            maxBufferLength: 2,
-            maxMaxBufferLength: 4,
-            liveSyncDuration: 0.6,
-            liveMaxLatencyDuration: 3,
+            backBufferLength: 3,
+            maxBufferLength: 3,
+            maxMaxBufferLength: 6,
+            liveSyncDuration: 1.5,
+            liveMaxLatencyDuration: 5,
             manifestLoadingMaxRetry: 8,
             manifestLoadingRetryDelay: 800,
             levelLoadingMaxRetry: 6,
