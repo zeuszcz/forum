@@ -376,5 +376,99 @@ class InterrogationTurnResult(BaseModel):
     ap_remaining: int
 
 
+# --- EPIC 6: Arena ------------------------------------------------------------
+
+
+class ArenaSpecial(BaseModel):
+    slug: str
+    name: str
+    emoji: str
+    description: str
+    stamina_cost: int
+    damage: int
+    range: int
+    height: str
+    startup_ticks: int
+    active_ticks: int
+    recovery_ticks: int
+    cooldown_ticks: int
+    knockback_x: float
+    parry: bool = False
+    dash: bool = False
+
+
+class ArenaLoadoutRequest(BaseModel):
+    specials: list[str] = Field(min_length=3, max_length=3)
+
+
+class ArenaLoadoutOut(BaseModel):
+    specials: list[str] = Field(default_factory=list)
+    wins: int = 0
+    losses: int = 0
+    updated_at: str | None = None
+
+
+class ArenaChallengeRequest(BaseModel):
+    opponent_player_id: int = Field(ge=1)
+
+
+class ArenaMatchOut(BaseModel):
+    id: int
+    event_id: int
+    player_a_id: int
+    player_b_id: int
+    status: str
+    winner_id: int | None = None
+    started_at: datetime | None = None
+    ended_at: datetime | None = None
+    created_at: datetime
+    loadout_a: list[str] = Field(default_factory=list)
+    loadout_b: list[str] = Field(default_factory=list)
+    is_a: bool = False
+    is_b: bool = False
+    is_participant: bool = False
+
+
+class ArenaBetRequest(BaseModel):
+    on_player_id: int = Field(ge=1)
+    amount: int = Field(ge=1, le=10000)
+
+
+class ArenaBetOut(BaseModel):
+    id: int
+    match_id: int
+    bettor_id: int
+    on_player_id: int
+    amount: int
+    odds: float
+    placed_at: datetime
+    settled_at: datetime | None = None
+    payout: int | None = None
+
+
+class ArenaInputRequest(BaseModel):
+    type: str = Field(pattern=r"^(move|block|special)$")
+    dx: int | None = Field(default=None, ge=-1, le=1)
+    height: str | None = Field(default=None, pattern=r"^(low|mid|high)$")
+    slug: str | None = Field(default=None, max_length=40)
+
+
+class ArenaInputResult(BaseModel):
+    ok: bool
+
+
+class ArenaStateOut(BaseModel):
+    kind: str
+    match_id: int
+    tick: int
+    max_ticks: int
+    stage: dict[str, int]
+    fighters: dict[str, dict[str, Any]]
+    finished: bool
+    winner_side: str | None = None
+    winner_id: int | None = None
+    recent_events: list[dict[str, Any]] = Field(default_factory=list)
+
+
 # Resolve forward ref so EventStatus can reference PlayerMe.
 EventStatus.model_rebuild()

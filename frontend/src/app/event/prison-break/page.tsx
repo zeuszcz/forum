@@ -709,6 +709,27 @@ function PlayerView({
             <span className="text-rose-400">→</span>
           </Link>
         </motion.div>
+
+        {/* EPIC 6 — Арена */}
+        <motion.div
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.3, delay: 0.24 }}
+        >
+          <Link
+            href="/event/prison-break/arena"
+            className="flex items-center gap-3 rounded-lg border border-flame/30 bg-flame/5 p-3 transition-colors hover:border-flame/60 hover:bg-flame/10"
+          >
+            <Swords className="h-5 w-5 text-flame" />
+            <div className="flex-1">
+              <div className="text-xs font-semibold text-bone">Арена 1×1</div>
+              <div className="text-[9px] uppercase tracking-widest text-smoke">
+                12 спецприёмов · server-tick 15Hz · ставки 1.95×
+              </div>
+            </div>
+            <span className="text-flame">→</span>
+          </Link>
+        </motion.div>
       </div>
 
       {/* RIGHT: side info */}
@@ -762,7 +783,7 @@ function PlayerView({
               { icon: <Key className="h-3 w-3" />, name: "Взлом", ready: true },
               { icon: <Shield className="h-3 w-3" />, name: "Патруль", ready: true },
               { icon: <Gavel className="h-3 w-3" />, name: "Допрос", ready: true },
-              { icon: <Swords className="h-3 w-3" />, name: "Арена", ready: false },
+              { icon: <Swords className="h-3 w-3" />, name: "Арена", ready: true },
             ].map((m, i) => (
               <div
                 key={i}

@@ -3,6 +3,26 @@
 Append-only build / compile / query / lint events. `merge=union` in `.gitattributes`
 keeps merges painless across branches.
 
+## [2026-05-14] ingest | Prison Break EPIC 6 — arena 2D fighter + server-authoritative netcode
+
+- Migration `20260514_1800` adds a single `arena_loadout JSON` column on
+  `prison_break_player`. No new tables — `prison_break_arena_match` +
+  `prison_break_arena_bet` already existed from EPIC 1.
+- `arena_engine.py` runs an in-memory per-match tick loop at 15Hz with
+  12 specials, single-tick hit detection, knockback + damping, parry
+  windows, height-based blocking, dash startup.
+- HTTP for input intents (move/block/special); WebSocket
+  `/arena/{id}/ws` streams snapshots at ~7.5 Hz to subscribers
+  (participants + spectators). Per-match WS avoids fan-out cost on the
+  shared event broadcaster.
+- `_watch_for_finish` background task polls the engine, then finalises
+  the DB row (winner_id + replay frames + bet settlement + wins/losses
+  bump) when the engine reports `finished=True`.
+- Frontend Canvas2D renderer draws fighters as 40×80 px figures with
+  action-state indicators (amber startup border, red hitbox preview,
+  cyan block, purple parry, hit-flash overlay).
+- Concept: `concepts/prison-break-arena.md`. Index + log updated.
+
 ## [2026-05-14] ingest | Prison Break EPIC 5 — lock-pick, patrol planner, interrogation
 
 - Migration `20260514_1500_prison_break_minigames.py` adds 4 tables:

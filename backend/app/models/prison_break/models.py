@@ -93,6 +93,9 @@ class PrisonBreakPlayer(Base):
     joined_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
+    arena_loadout: Mapped[dict[str, Any]] = mapped_column(
+        JSON, nullable=False, default=dict,
+    )
 
 
 class PrisonBreakCell(Base):

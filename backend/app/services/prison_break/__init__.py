@@ -1,6 +1,8 @@
 from app.services.prison_break import (
     action_service,
     alliance_service,
+    arena_engine,
+    arena_service,
     craft_service,
     event_service,
     intel_service,
@@ -14,6 +16,8 @@ from app.services.prison_break import (
 __all__ = [
     "action_service",
     "alliance_service",
+    "arena_engine",
+    "arena_service",
     "craft_service",
     "event_service",
     "intel_service",
