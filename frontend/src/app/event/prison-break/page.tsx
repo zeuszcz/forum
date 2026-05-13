@@ -11,6 +11,7 @@ import {
   Power,
   Settings,
   ShieldOff,
+  ShoppingBag,
   Sparkles,
   Swords,
   UserPlus,
@@ -544,32 +545,57 @@ function PlayerView({
         {/* Actions — wired to backend (EPIC 2) */}
         <ActionsPanel player={player} onRefresh={onRefresh} />
 
-        {/* Quick link to cell */}
-        {player.cell_id && (
-          <motion.div
-            initial={{ opacity: 0, y: 8 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.3, delay: 0.15 }}
-          >
+        {/* Quick links: cell / workshop / market */}
+        <motion.div
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.3, delay: 0.15 }}
+          className="grid gap-2 sm:grid-cols-3"
+        >
+          {player.cell_id && (
             <Link
               href={`/event/prison-break/cell/${player.cell_id}`}
-              className="flex items-center justify-between rounded-lg border border-cyan/30 bg-cyan/5 p-4 transition-colors hover:border-cyan/60 hover:bg-cyan/10"
+              className="flex items-center gap-3 rounded-lg border border-cyan/30 bg-cyan/5 p-3 transition-colors hover:border-cyan/60 hover:bg-cyan/10"
             >
-              <div className="flex items-center gap-3">
-                <Lock className="h-6 w-6 text-cyan" />
-                <div>
-                  <div className="text-sm font-semibold text-bone">
-                    Камера {player.block}-{player.cell_id}
-                  </div>
-                  <div className="text-[10px] uppercase tracking-widest text-smoke">
-                    чат + прогресс тоннеля
-                  </div>
+              <Lock className="h-5 w-5 text-cyan" />
+              <div className="flex-1">
+                <div className="text-xs font-semibold text-bone">
+                  Камера {player.block}-{player.cell_id}
+                </div>
+                <div className="text-[9px] uppercase tracking-widest text-smoke">
+                  чат + тоннель
                 </div>
               </div>
               <span className="text-cyan">→</span>
             </Link>
-          </motion.div>
-        )}
+          )}
+          <Link
+            href="/event/prison-break/workshop"
+            className="flex items-center gap-3 rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 transition-colors hover:border-amber-500/60 hover:bg-amber-500/10"
+          >
+            <Hammer className="h-5 w-5 text-amber-400" />
+            <div className="flex-1">
+              <div className="text-xs font-semibold text-bone">Мастерская</div>
+              <div className="text-[9px] uppercase tracking-widest text-smoke">
+                крафтить предметы
+              </div>
+            </div>
+            <span className="text-amber-400">→</span>
+          </Link>
+          <Link
+            href="/event/prison-break/market"
+            className="flex items-center gap-3 rounded-lg border border-emerald-500/30 bg-emerald-500/5 p-3 transition-colors hover:border-emerald-500/60 hover:bg-emerald-500/10"
+          >
+            <ShoppingBag className="h-5 w-5 text-emerald-400" />
+            <div className="flex-1">
+              <div className="text-xs font-semibold text-bone">Чёрный рынок</div>
+              <div className="text-[9px] uppercase tracking-widest text-smoke">
+                торговля order-book
+              </div>
+            </div>
+            <span className="text-emerald-400">→</span>
+          </Link>
+        </motion.div>
       </div>
 
       {/* RIGHT: side info */}

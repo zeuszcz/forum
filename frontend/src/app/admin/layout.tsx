@@ -6,6 +6,7 @@ import {
   ScrollText,
   Settings,
   Shield,
+  ShieldOff,
   Terminal,
   Users,
 } from "lucide-react";
@@ -31,6 +32,7 @@ const NAV = [
   { href: "/admin/server-log", label: "Логи сервера", icon: Radio },
   { href: "/admin/cs-rcon-log", label: "RCON-аудит", icon: Terminal },
   { href: "/admin/audit", label: "Аудит", icon: ScrollText },
+  { href: "/event/prison-break", label: "Тюремный Бунт", icon: ShieldOff },
 ];
 
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {
