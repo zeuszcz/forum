@@ -45,9 +45,9 @@ MemoryMax=250M
 CPUQuota=85%
 
 Restart=on-failure
-RestartSec=5s
-StartLimitInterval=600s
-StartLimitBurst=20
+RestartSec=10s
+StartLimitInterval=300s
+StartLimitBurst=30
 
 [Install]
 WantedBy=multi-user.target

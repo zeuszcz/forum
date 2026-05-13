@@ -130,3 +130,15 @@ case $rc in
 esac
 
 exit 0
+
+# Phase S6.1 — encoder presence check (added after MTX restart cascaded
+# an encoder fail). If cs-encoder is in failed state and the spec is
+# online, kick the encoder. Cooldown shared with spec to avoid bursts.
+if systemctl is-failed --quiet cs-encoder.service; then
+    if ! cooldown_active; then
+        echo "[$(date -Iseconds)] encoder failed, kicking" >> "$LOG_FILE"
+        /bin/systemctl reset-failed cs-encoder.service
+        /bin/systemctl restart cs-encoder.service
+        mark_restart
+    fi
+fi
