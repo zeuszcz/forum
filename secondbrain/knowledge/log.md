@@ -3,6 +3,26 @@
 Append-only build / compile / query / lint events. `merge=union` in `.gitattributes`
 keeps merges painless across branches.
 
+## [2026-05-14] ingest | Prison Break EPIC 4 — intel + trust + alliance landed
+
+- Shipped the social layer of the 21-day event as one cohesive batch
+  (3 services + 1 HTTP router + 3 schemas + 3 frontend pages + dashboard
+  teasers). Reasoning + invariants captured in
+  `concepts/prison-break-social-layer.md`.
+- `daily_tick` now also calls `intel_service.daily_distribute` and
+  `alliance_service.expire_due` so all three concerns advance on the same
+  cron tick. Wrapped in try/except — AP refill is the load-bearing path.
+- `intel_service` has 30 hand-written templates, 5 categories, per-role
+  daily budgets (2-3 atoms), and a 12% planted-fabrication budget for
+  spies/bosses. The reveal_truth gate is staff-only; ordinary players
+  will see truth only at the EPIC-7 Final Night cinematic.
+- `trust_service.adjust` is the new canonical mutator (clamps 0..100,
+  normalises pair order). All callers that previously hand-coded the
+  `sorted([a,b])` dance can migrate as we touch them.
+- `alliance_service` stores signatures inside `terms.signatures` instead
+  of a side table — cheaper read, single-row write per sign, easy
+  Pydantic surface. Break penalty: -15 trust with every other party.
+
 ## [2026-05-11] bootstrap | SecondBrain wired into forum repo
 
 - Scaffolded `secondbrain/{scripts,hooks,templates,daily,raw,knowledge}` from the

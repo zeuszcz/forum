@@ -4,6 +4,8 @@ import { AnimatePresence, motion } from "framer-motion";
 import {
   Coins,
   Hammer,
+  Handshake,
+  Heart,
   Info,
   Lock,
   Newspaper,
@@ -596,6 +598,54 @@ function PlayerView({
             <span className="text-emerald-400">→</span>
           </Link>
         </motion.div>
+
+        {/* EPIC 4 social-layer links */}
+        <motion.div
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.3, delay: 0.18 }}
+          className="grid gap-2 sm:grid-cols-3"
+        >
+          <Link
+            href="/event/prison-break/intel"
+            className="flex items-center gap-3 rounded-lg border border-rose-500/30 bg-rose-500/5 p-3 transition-colors hover:border-rose-500/60 hover:bg-rose-500/10"
+          >
+            <Newspaper className="h-5 w-5 text-rose-400" />
+            <div className="flex-1">
+              <div className="text-xs font-semibold text-bone">Intel-лента</div>
+              <div className="text-[9px] uppercase tracking-widest text-smoke">
+                слухи · утечки · подсказки
+              </div>
+            </div>
+            <span className="text-rose-400">→</span>
+          </Link>
+          <Link
+            href="/event/prison-break/trust"
+            className="flex items-center gap-3 rounded-lg border border-fuchsia-500/30 bg-fuchsia-500/5 p-3 transition-colors hover:border-fuchsia-500/60 hover:bg-fuchsia-500/10"
+          >
+            <Heart className="h-5 w-5 text-fuchsia-400" />
+            <div className="flex-1">
+              <div className="text-xs font-semibold text-bone">Trust</div>
+              <div className="text-[9px] uppercase tracking-widest text-smoke">
+                связи · подарки · история
+              </div>
+            </div>
+            <span className="text-fuchsia-400">→</span>
+          </Link>
+          <Link
+            href="/event/prison-break/alliances"
+            className="flex items-center gap-3 rounded-lg border border-purple-500/30 bg-purple-500/5 p-3 transition-colors hover:border-purple-500/60 hover:bg-purple-500/10"
+          >
+            <Handshake className="h-5 w-5 text-purple-400" />
+            <div className="flex-1">
+              <div className="text-xs font-semibold text-bone">Альянсы</div>
+              <div className="text-[9px] uppercase tracking-widest text-smoke">
+                пакты · подписи · разрывы
+              </div>
+            </div>
+            <span className="text-purple-400">→</span>
+          </Link>
+        </motion.div>
       </div>
 
       {/* RIGHT: side info */}
@@ -627,14 +677,14 @@ function PlayerView({
           </dl>
         </div>
 
+        <IntelTeaser />
+
         <div className="rounded-lg border border-border bg-card p-4">
           <div className="mb-3 flex items-center gap-2 text-[10px] uppercase tracking-widest text-smoke">
-            <Newspaper className="h-3 w-3" />
-            Свежий intel
+            <Handshake className="h-3 w-3" />
+            Альянсы
           </div>
-          <div className="text-xs text-smoke italic">
-            Intel-feed появится после Day 1. EPIC 4 в разработке.
-          </div>
+          <AlliancesTeaser />
         </div>
 
         <div className="rounded-lg border border-border bg-card p-4">
@@ -706,6 +756,138 @@ function roleLabel(role: string): string {
     spy: "🕵 Шпион",
     boss: "💀 Начальник",
   } as Record<string, string>)[role] ?? role;
+}
+
+// ---------------------------------------------------------------------------
+// EPIC 4 sidebar teasers — pull last 3 intel + active alliances
+// ---------------------------------------------------------------------------
+
+type IntelTeaserItem = {
+  intel_id: number;
+  content: string;
+  category: string;
+  received_at: string;
+};
+
+function IntelTeaser() {
+  const [items, setItems] = useState<IntelTeaserItem[]>([]);
+  const [loaded, setLoaded] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    api<IntelTeaserItem[]>("/api/event/prison-break/intel?limit=3")
+      .then((data) => {
+        if (!cancelled) setItems(data);
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (!cancelled) setLoaded(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  return (
+    <div className="rounded-lg border border-border bg-card p-4">
+      <div className="mb-3 flex items-center gap-2 text-[10px] uppercase tracking-widest text-smoke">
+        <Newspaper className="h-3 w-3" />
+        Свежий intel
+        <Link
+          href="/event/prison-break/intel"
+          className="ml-auto text-[9px] text-cyan hover:underline"
+        >
+          все →
+        </Link>
+      </div>
+      {!loaded ? (
+        <div className="text-xs text-smoke italic">Загрузка…</div>
+      ) : items.length === 0 ? (
+        <div className="text-xs text-smoke italic">
+          Лента пуста. Свежие данные приходят раз в день.
+        </div>
+      ) : (
+        <ul className="space-y-1.5">
+          {items.map((it) => (
+            <li
+              key={it.intel_id}
+              className="rounded-md border border-border bg-void/40 px-2 py-1.5 text-[11px] text-bone"
+            >
+              <div className="text-[9px] uppercase tracking-widest text-cyan">
+                {it.category}
+              </div>
+              <div className="line-clamp-2">{it.content}</div>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+type AllianceTeaserItem = {
+  id: number;
+  pact_type: string;
+  status: string;
+  parties: number[];
+};
+
+function AlliancesTeaser() {
+  const [items, setItems] = useState<AllianceTeaserItem[]>([]);
+  const [loaded, setLoaded] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    api<AllianceTeaserItem[]>("/api/event/prison-break/alliances")
+      .then((data) => {
+        if (!cancelled) setItems(data.slice(0, 4));
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (!cancelled) setLoaded(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  if (!loaded) {
+    return <div className="text-xs text-smoke italic">Загрузка…</div>;
+  }
+  if (items.length === 0) {
+    return (
+      <div className="text-xs text-smoke italic">
+        Пакты не заключены.{" "}
+        <Link
+          href="/event/prison-break/alliances"
+          className="text-cyan hover:underline"
+        >
+          предложить
+        </Link>
+        .
+      </div>
+    );
+  }
+  return (
+    <ul className="space-y-1">
+      {items.map((a) => (
+        <li
+          key={a.id}
+          className="flex items-center justify-between gap-2 rounded-md border border-border bg-void/40 px-2 py-1.5 text-[11px]"
+        >
+          <span className="truncate text-bone">{a.pact_type}</span>
+          <span
+            className={cn(
+              "text-[9px] uppercase tracking-widest",
+              a.status === "active" && "text-emerald-400",
+              a.status === "proposed" && "text-amber-300",
+              a.status === "broken" && "text-rose-400",
+              a.status === "expired" && "text-smoke",
+              a.status === "cancelled" && "text-smoke",
+            )}
+          >
+            {a.status} · {a.parties.length} стор.
+          </span>
+        </li>
+      ))}
+    </ul>
+  );
 }
 
 // ---------------------------------------------------------------------------

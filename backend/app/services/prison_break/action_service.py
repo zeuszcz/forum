@@ -535,7 +535,13 @@ PHASE_BY_DAY = [
 
 
 async def daily_tick(db: AsyncSession, event: PrisonBreakEvent) -> int:
-    """Advance the event one day. Returns count of players refilled."""
+    """Advance the event one day. Returns count of players refilled.
+
+    Side effects (each best-effort, isolated):
+      * Refills AP for every active player.
+      * Generates the day's intel batch via intel_service.
+      * Auto-expires due alliance pacts.
+    """
     if event.status != "active":
         return 0
     event.current_day += 1
@@ -562,4 +568,14 @@ async def daily_tick(db: AsyncSession, event: PrisonBreakEvent) -> int:
         p.ap_current = min(carry_max, p.ap_current + base)
         p.ap_max = max(p.ap_max, p.ap_current)
         n += 1
+
+    # EPIC 4 — distribute today's intel + expire due pacts.
+    try:
+        from app.services.prison_break import alliance_service, intel_service
+        await intel_service.daily_distribute(db, event)
+        await alliance_service.expire_due(db, event.id)
+    except Exception:
+        # Don't let intel/alliance hiccups block the AP refill.
+        pass
+
     return n

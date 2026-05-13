@@ -75,6 +75,7 @@ app.include_router(prison_break.actions_router)
 app.include_router(prison_break.ws_router)
 app.include_router(prison_break.craft_router)
 app.include_router(prison_break.market_router)
+app.include_router(prison_break.social_router)
 
 
 @app.get("/", include_in_schema=False)
