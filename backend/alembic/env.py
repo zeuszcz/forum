@@ -12,7 +12,8 @@ from app.core.config import settings
 from app.models.base import Base
 
 # Import all models so Base.metadata is populated
-from app.models import user  # noqa: F401
+from app.models import user
+from app.models import prison_break  # noqa: F401
 
 config = context.config
 if config.config_file_name is not None:

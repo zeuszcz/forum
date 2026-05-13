@@ -9,6 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
 from app.core.logging import configure_logging, get_logger
 from app.routers import (
+    prison_break,
     admin,
     attachments,
     auth,
@@ -69,6 +70,7 @@ app.include_router(steam.router)
 app.include_router(quests.router)
 app.include_router(cases.router)
 app.include_router(cs_rcon.router)
+app.include_router(prison_break.router)
 
 
 @app.get("/", include_in_schema=False)
