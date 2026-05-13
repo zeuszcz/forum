@@ -1,19 +1,13 @@
 # MediaMTX config for the endless-war live spectator stream pipeline.
 #
 # We feed one source (`cs1`) over RTMP from a local ffmpeg encoder
-# capturing the headless HL/CS 1.6 spectator's Xvfb display. Browsers
-# read it as LL-HLS over nginx — recommended over WebRTC for v1 because
-# we don't need <1s latency and HLS is dead simple to embed on a forum.
+# capturing the headless HL/CS 1.6 spectator's Xvfb display.
+# Two egress protocols are served:
 #
-# Important invariants:
-#   record: false                — no .ts files persisted on disk; the
-#                                  in-memory buffer is enough for HLS.
-#   readBufferCount keeps memory in check (~30MB max per path).
-#   hlsLowLatency: yes           — uses CMAF chunks, ~3s wall latency.
-#   authMethods                  — we keep both publish and read open
-#                                  because everything is on a private
-#                                  127.0.0.1-only bridge inside the VPS;
-#                                  nginx is the public gate.
+#   * LL-HLS via nginx /stream/ (~2-4s latency, default for casual)
+#   * WebRTC via nginx /whep/    (~200-500ms latency, used in pilot mode)
+#
+# Both consume the same RTMP source — MediaMTX remuxes per protocol.
 
 logLevel: info
 logDestinations: [stdout]
@@ -49,8 +43,33 @@ hlsPartDuration: 200ms
 hlsSegmentMaxSize: 50M
 hlsDirectory: ""
 
-# WebRTC — off in v1, can flip on later if HLS latency feels too high.
-webrtc: no
+# ------------------------------------------------------------------
+# WebRTC — sub-second egress for pilot mode.
+#
+# Signaling goes through nginx (HTTPS) -> 127.0.0.1:8889 (WHEP). Media
+# flows on UDP 8189 directly between viewer and the VPS public IP
+# (browsers don't proxy WebRTC media through HTTP).
+#
+# UFW must allow 8189/udp from anywhere.
+# ------------------------------------------------------------------
+webrtc: yes
+webrtcAddress: 127.0.0.1:8889
+webrtcEncryption: no
+webrtcServerKey: ""
+webrtcServerCert: ""
+webrtcAllowOrigin: "*"
+webrtcTrustedProxies: []
+# Single UDP port that all WebRTC sessions multiplex onto — easier to
+# whitelist in UFW than a random ephemeral range. 0.0.0.0 binds on all
+# interfaces (IPv4) so the docker bridge can reach it AND public IP.
+webrtcICEUDPMuxAddress: 0.0.0.0:8189
+# Public hostnames/IPs to include in advertised ICE candidates so
+# browsers can actually route to us. UPDATE IF VPS IP CHANGES.
+webrtcAdditionalHosts:
+  - 170.168.72.200
+# STUN to help clients behind NATs do hole-punching.
+webrtcICEServers2:
+  - url: stun:stun.l.google.com:19302
 
 # SRT — off.
 srt: no
