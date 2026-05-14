@@ -9,12 +9,12 @@ import { GameShell } from "./GameShell";
 
 const W = 480;
 const H = 600;
-const CELL = 24;       // grid pixel size
-const COLS = W / CELL; // 20 columns
-const ROWS = H / CELL; // 25 rows
+const CELL = 24;
+const COLS = W / CELL;
+const ROWS = H / CELL;
 const MOVE_COOLDOWN_MS = 110;
 
-type Tile = " " | "#" | "h" | "P" | "C" | "X"; // empty / dirt / hazard / pickup-crowbar / cam / blocker
+type Tile = " " | "#" | "h" | "P" | "C" | "X";
 
 type Particle = {
   x: number;
@@ -23,21 +23,40 @@ type Particle = {
   vy: number;
   life: number;
   color: string;
+  size: number;
 };
+
+type FloatText = {
+  x: number;
+  y: number;
+  text: string;
+  color: string;
+  life: number;
+};
+
+type Shake = { mag: number; life: number };
 
 type GameState = {
   player: { col: number; row: number };
-  depth: number;             // in metres = rows dug
+  prevPlayerCol: number;
+  prevPlayerRow: number;
+  moveAnim: number;            // 0..1 transition from prev to current
+  digFlash: number;            // 0..1 flash overlay on player when digging
+  facing: 1 | -1;
+  depth: number;
   score: number;
-  scrolls: number;           // total rows scrolled
+  scrolls: number;
   alive: boolean;
-  speedupAccum: number;
-  scrollSpeed: number;       // rows/sec the world scrolls
-  hasCrowbar: number;        // crowbar charges
-  grid: Tile[][];            // [ROWS][COLS] viewport
+  scrollSpeed: number;
+  hasCrowbar: number;
+  grid: Tile[][];
   lastInputAt: number;
   particles: Particle[];
+  floatTexts: FloatText[];
+  shake: Shake;
   rng: () => number;
+  animTime: number;            // global animation clock (seconds)
+  ceilingGlow: number;         // visualises wall-of-death proximity
 };
 
 function emptyGrid(rng: () => number): Tile[][] {
@@ -53,7 +72,6 @@ function emptyGrid(rng: () => number): Tile[][] {
 }
 
 function generateRow(depth: number, rng: () => number): Tile[] {
-  // Difficulty curve based on depth
   const dirtP = 0.45 + Math.min(0.2, depth / 2000);
   const hazardP = Math.min(0.1, 0.005 + depth / 8000);
   const crowbarP = 0.012;
@@ -83,17 +101,57 @@ function generateRow(depth: number, rng: () => number): Tile[] {
   return row;
 }
 
-function spawnParticles(state: GameState, x: number, y: number, color: string) {
-  for (let i = 0; i < 6; i++) {
-    state.particles.push({
-      x,
-      y,
-      vx: (state.rng() - 0.5) * 120,
-      vy: -state.rng() * 100 - 20,
-      life: 1.0,
-      color,
+function spawnDirtBurst(s: GameState, cx: number, cy: number) {
+  for (let i = 0; i < 10; i++) {
+    s.particles.push({
+      x: cx + (s.rng() - 0.5) * 6,
+      y: cy + (s.rng() - 0.5) * 6,
+      vx: (s.rng() - 0.5) * 180,
+      vy: -s.rng() * 140 - 30,
+      life: 0.5 + s.rng() * 0.4,
+      color: s.rng() < 0.5 ? "#92400e" : "#6b3410",
+      size: 2 + Math.floor(s.rng() * 2),
     });
   }
+}
+
+function spawnSparkle(s: GameState, cx: number, cy: number, color: string) {
+  for (let i = 0; i < 8; i++) {
+    const a = s.rng() * Math.PI * 2;
+    const sp = 80 + s.rng() * 60;
+    s.particles.push({
+      x: cx,
+      y: cy,
+      vx: Math.cos(a) * sp,
+      vy: Math.sin(a) * sp,
+      life: 0.4 + s.rng() * 0.3,
+      color,
+      size: 2,
+    });
+  }
+}
+
+function spawnPuff(s: GameState, cx: number, cy: number, color: string) {
+  for (let i = 0; i < 12; i++) {
+    s.particles.push({
+      x: cx,
+      y: cy,
+      vx: (s.rng() - 0.5) * 220,
+      vy: (s.rng() - 0.5) * 220,
+      life: 0.5 + s.rng() * 0.5,
+      color,
+      size: 3,
+    });
+  }
+}
+
+function addFloat(s: GameState, x: number, y: number, text: string, color: string) {
+  s.floatTexts.push({ x, y, text, color, life: 0.9 });
+}
+
+function applyShake(s: GameState, mag: number) {
+  s.shake.mag = Math.max(s.shake.mag, mag);
+  s.shake.life = 0.4;
 }
 
 export function DiggerGame({ game }: { game: { slug: string; title: string; emoji: string; accent: string; description: string; controls: string; score_unit: string } }) {
@@ -102,31 +160,37 @@ export function DiggerGame({ game }: { game: { slug: string; title: string; emoj
   const stateRef = useRef<GameState | null>(null);
   const rafRef = useRef<number | null>(null);
   const milestonesRef = useRef<Array<{ t: number; depth: number }>>([]);
-  const [tick, setTick] = useState(0); // forces re-render of HUD
+  const [tick, setTick] = useState(0);
 
-  // Init on run start
   useEffect(() => {
     if (runState.phase !== "running") return;
     const rng = mulberry32(runState.seed);
     stateRef.current = {
       player: { col: Math.floor(COLS / 2), row: 4 },
+      prevPlayerCol: Math.floor(COLS / 2),
+      prevPlayerRow: 4,
+      moveAnim: 1,
+      digFlash: 0,
+      facing: 1,
       depth: 0,
       score: 0,
       scrolls: 0,
       alive: true,
-      speedupAccum: 0,
       scrollSpeed: 1.6,
       hasCrowbar: 0,
       grid: emptyGrid(rng),
       lastInputAt: 0,
       particles: [],
+      floatTexts: [],
+      shake: { mag: 0, life: 0 },
       rng,
+      animTime: 0,
+      ceilingGlow: 0,
     };
     milestonesRef.current = [];
     setTick((t) => t + 1);
   }, [runState.phase, runState.phase === "running" ? runState.seed : 0]);
 
-  // Game loop
   useEffect(() => {
     if (runState.phase !== "running") return;
     let last = performance.now();
@@ -138,62 +202,85 @@ export function DiggerGame({ game }: { game: { slug: string; title: string; emoj
       const canvas = canvasRef.current;
       if (!s || !canvas) return;
 
-      if (s.alive) {
-        // Speedup
-        s.speedupAccum += dt;
-        s.scrollSpeed = Math.min(6.0, 1.6 + s.depth * 0.005);
+      s.animTime += dt;
 
-        // Scroll world down
+      if (s.alive) {
+        s.scrollSpeed = Math.min(6.0, 1.6 + s.depth * 0.005);
         const rowsToScroll = s.scrollSpeed * dt;
         s.scrolls += rowsToScroll;
-
         while (s.scrolls >= 1) {
           s.scrolls -= 1;
-          // Shift down: remove top row, push new bottom row.
           s.grid.shift();
           s.grid.push(generateRow(s.depth + s.player.row, s.rng));
           s.player.row -= 1;
+          s.prevPlayerRow -= 1;
           if (s.player.row < 0) {
-            // The wall caught up — death.
             s.alive = false;
+            applyShake(s, 12);
+            spawnPuff(s, s.player.col * CELL + CELL / 2, 6, "#ef4444");
             break;
           }
         }
 
-        // Auto-collect & death check on player tile
+        // Proximity glow — pulses red as player nears the top.
+        const dangerRatio = 1 - Math.max(0, s.player.row) / 6;
+        s.ceilingGlow = Math.max(0, Math.min(1, dangerRatio));
+
         if (s.alive) {
           const cell = s.grid[s.player.row]?.[s.player.col];
           if (cell === "C") {
             s.alive = false;
-            spawnParticles(s, s.player.col * CELL + CELL / 2, s.player.row * CELL + CELL / 2, "#ef4444");
+            applyShake(s, 10);
+            spawnPuff(s, s.player.col * CELL + CELL / 2, s.player.row * CELL + CELL / 2, "#ef4444");
+            addFloat(s, s.player.col * CELL + CELL / 2, s.player.row * CELL, "ЗАСЁК", "#fca5a5");
           } else if (cell === "h") {
             s.alive = false;
-            spawnParticles(s, s.player.col * CELL + CELL / 2, s.player.row * CELL + CELL / 2, "#f59e0b");
+            applyShake(s, 8);
+            spawnPuff(s, s.player.col * CELL + CELL / 2, s.player.row * CELL + CELL / 2, "#f59e0b");
+            addFloat(s, s.player.col * CELL + CELL / 2, s.player.row * CELL, "ПАР", "#fde047");
           } else if (cell === "P") {
             s.hasCrowbar += 1;
             s.grid[s.player.row][s.player.col] = " ";
             s.score += 25;
-            spawnParticles(s, s.player.col * CELL + CELL / 2, s.player.row * CELL + CELL / 2, "#fde047");
+            spawnSparkle(s, s.player.col * CELL + CELL / 2, s.player.row * CELL + CELL / 2, "#fde047");
+            addFloat(s, s.player.col * CELL + CELL / 2, s.player.row * CELL, "+ЛОМ", "#fde047");
           }
         }
-
-        // Particles
-        for (const p of s.particles) {
-          p.x += p.vx * dt;
-          p.y += p.vy * dt;
-          p.vy += 240 * dt;
-          p.life -= dt * 1.6;
-        }
-        s.particles = s.particles.filter((p) => p.life > 0);
       }
+
+      // Animation easings
+      if (s.moveAnim < 1) {
+        s.moveAnim = Math.min(1, s.moveAnim + dt * 12);
+      }
+      if (s.digFlash > 0) {
+        s.digFlash = Math.max(0, s.digFlash - dt * 6);
+      }
+      if (s.shake.life > 0) {
+        s.shake.life -= dt;
+        if (s.shake.life <= 0) s.shake.mag = 0;
+      }
+
+      // Particles
+      for (const p of s.particles) {
+        p.x += p.vx * dt;
+        p.y += p.vy * dt;
+        p.vy += 380 * dt;
+        p.life -= dt * 1.4;
+      }
+      s.particles = s.particles.filter((p) => p.life > 0);
+
+      // Float texts
+      for (const f of s.floatTexts) {
+        f.y -= 40 * dt;
+        f.life -= dt;
+      }
+      s.floatTexts = s.floatTexts.filter((f) => f.life > 0);
 
       draw(canvas, s);
 
       if (s.alive) {
         rafRef.current = requestAnimationFrame(step);
       } else {
-        // End run when dead. Depth × 3 + breaks; tuned to fit the
-        // server-side sanity rate-cap (max_score_per_second=24).
         const finalScore = Math.floor(s.score + s.depth * 3);
         submitEnd(finalScore);
       }
@@ -211,17 +298,15 @@ export function DiggerGame({ game }: { game: { slug: string; title: string; emoj
       if (runState.phase !== "running") return;
       const s = stateRef.current;
       if (!s) return;
-      // Push final milestone
       milestonesRef.current.push({ t: Date.now(), depth: s.depth });
       end(score, {
         milestones: milestonesRef.current,
-        meta: { depth: s.depth, crowbars: s.hasCrowbar, version: "v1" },
+        meta: { depth: s.depth, crowbars: s.hasCrowbar, version: "v2" },
       });
     },
     [end, runState.phase],
   );
 
-  // Input
   useEffect(() => {
     if (runState.phase !== "running") return;
     const handleKey = (e: KeyboardEvent) => {
@@ -290,13 +375,17 @@ function moveLeft(s: GameState, now: number) {
   if (s.player.col > 0) {
     const target = s.grid[s.player.row]?.[s.player.col - 1];
     if (target !== "X" && target !== "C" && target !== "h") {
+      s.prevPlayerCol = s.player.col;
+      s.prevPlayerRow = s.player.row;
+      s.moveAnim = 0;
       if (target === "#") {
         s.grid[s.player.row][s.player.col - 1] = " ";
         s.score += 1;
-        spawnParticles(s, (s.player.col - 1) * CELL + CELL / 2, s.player.row * CELL + CELL / 2, "#92400e");
+        spawnDirtBurst(s, (s.player.col - 1) * CELL + CELL / 2, s.player.row * CELL + CELL / 2);
+        s.digFlash = 1;
       }
-      // Walking onto a pickup ("P") is allowed; auto-collect in main loop.
       s.player.col -= 1;
+      s.facing = -1;
       s.lastInputAt = now;
     }
   }
@@ -306,12 +395,17 @@ function moveRight(s: GameState, now: number) {
   if (s.player.col < COLS - 1) {
     const target = s.grid[s.player.row]?.[s.player.col + 1];
     if (target !== "X" && target !== "C" && target !== "h") {
+      s.prevPlayerCol = s.player.col;
+      s.prevPlayerRow = s.player.row;
+      s.moveAnim = 0;
       if (target === "#") {
         s.grid[s.player.row][s.player.col + 1] = " ";
         s.score += 1;
-        spawnParticles(s, (s.player.col + 1) * CELL + CELL / 2, s.player.row * CELL + CELL / 2, "#92400e");
+        spawnDirtBurst(s, (s.player.col + 1) * CELL + CELL / 2, s.player.row * CELL + CELL / 2);
+        s.digFlash = 1;
       }
       s.player.col += 1;
+      s.facing = 1;
       s.lastInputAt = now;
     }
   }
@@ -325,17 +419,24 @@ function digDown(s: GameState, now: number) {
       s.hasCrowbar -= 1;
       s.grid[s.player.row + 1][s.player.col] = " ";
       s.score += 10;
-      spawnParticles(s, s.player.col * CELL + CELL / 2, (s.player.row + 1) * CELL + CELL / 2, "#fde047");
+      spawnSparkle(s, s.player.col * CELL + CELL / 2, (s.player.row + 1) * CELL + CELL / 2, "#fde047");
+      applyShake(s, 4);
+      s.digFlash = 1;
+      addFloat(s, s.player.col * CELL + CELL / 2, s.player.row * CELL, "+10", "#fde047");
     } else {
       return;
     }
   } else if (target === "C" || target === "h") {
-    return; // refuse to walk into death — must avoid by moving sideways
+    return;
   } else if (target === "#") {
     s.grid[s.player.row + 1][s.player.col] = " ";
     s.score += 1;
-    spawnParticles(s, s.player.col * CELL + CELL / 2, (s.player.row + 1) * CELL + CELL / 2, "#92400e");
+    spawnDirtBurst(s, s.player.col * CELL + CELL / 2, (s.player.row + 1) * CELL + CELL / 2);
+    s.digFlash = 1;
   }
+  s.prevPlayerCol = s.player.col;
+  s.prevPlayerRow = s.player.row;
+  s.moveAnim = 0;
   s.player.row += 1;
   s.depth += 1;
   s.lastInputAt = now;
@@ -344,85 +445,227 @@ function digDown(s: GameState, now: number) {
 function draw(canvas: HTMLCanvasElement, s: GameState) {
   const ctx = canvas.getContext("2d");
   if (!ctx) return;
-  ctx.fillStyle = "#0a0508";
+
+  // Apply shake
+  let shakeX = 0;
+  let shakeY = 0;
+  if (s.shake.mag > 0 && s.shake.life > 0) {
+    shakeX = (Math.random() - 0.5) * s.shake.mag;
+    shakeY = (Math.random() - 0.5) * s.shake.mag;
+  }
+  ctx.save();
+  ctx.translate(shakeX, shakeY);
+
+  // Background — vertical gradient from dark sky to deep earth
+  const bg = ctx.createLinearGradient(0, 0, 0, H);
+  bg.addColorStop(0, "#1a0a14");
+  bg.addColorStop(0.15, "#0e0710");
+  bg.addColorStop(0.4, "#1a0e0a");
+  bg.addColorStop(1, "#0a0508");
+  ctx.fillStyle = bg;
   ctx.fillRect(0, 0, W, H);
 
-  // Grid
+  // Tile grid
   for (let r = 0; r < ROWS; r++) {
     for (let c = 0; c < COLS; c++) {
       const t = s.grid[r]?.[c] ?? " ";
       const x = c * CELL;
       const y = r * CELL;
-      if (t === "#") {
-        ctx.fillStyle = "#4a2c1a";
+      if (t === "#") drawDirt(ctx, x, y, c, r, s.animTime);
+      else if (t === "X") drawBlocker(ctx, x, y);
+      else if (t === "h") drawPipe(ctx, x, y, s.animTime);
+      else if (t === "C") drawCamera(ctx, x, y, s.animTime, c, r);
+      else if (t === "P") drawCrowbar(ctx, x, y, s.animTime);
+      else {
+        // Subtle hatched empty cell
+        ctx.fillStyle = "rgba(255, 255, 255, 0.02)";
         ctx.fillRect(x, y, CELL, CELL);
-        ctx.strokeStyle = "#2a1810";
-        ctx.lineWidth = 1;
-        ctx.strokeRect(x + 0.5, y + 0.5, CELL - 1, CELL - 1);
-      } else if (t === "X") {
-        // blocker — concrete
-        ctx.fillStyle = "#525252";
-        ctx.fillRect(x, y, CELL, CELL);
-        ctx.fillStyle = "#404040";
-        ctx.fillRect(x + 2, y + 2, CELL - 4, CELL - 4);
-      } else if (t === "h") {
-        // hazard — pipe (red)
-        ctx.fillStyle = "#7f1d1d";
-        ctx.fillRect(x + 4, y + 2, CELL - 8, CELL - 4);
-        ctx.fillStyle = "#dc2626";
-        ctx.fillRect(x + 6, y + 6, CELL - 12, CELL - 12);
-      } else if (t === "C") {
-        // camera — yellow eye
-        ctx.fillStyle = "#1a1014";
-        ctx.fillRect(x, y, CELL, CELL);
-        ctx.fillStyle = "#facc15";
-        ctx.beginPath();
-        ctx.arc(x + CELL / 2, y + CELL / 2, 5, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.fillStyle = "#000";
-        ctx.beginPath();
-        ctx.arc(x + CELL / 2, y + CELL / 2, 2, 0, Math.PI * 2);
-        ctx.fill();
-      } else if (t === "P") {
-        // pickup — crowbar
-        ctx.fillStyle = "#facc15";
-        ctx.fillRect(x + CELL / 2 - 2, y + 4, 4, CELL - 8);
-        ctx.fillStyle = "#a16207";
-        ctx.fillRect(x + CELL / 2 - 5, y + CELL - 9, 10, 4);
       }
     }
   }
 
-  // Player
-  const px = s.player.col * CELL;
-  const py = s.player.row * CELL;
-  ctx.fillStyle = "#22d3ee";
-  ctx.fillRect(px + 4, py + 4, CELL - 8, CELL - 8);
-  ctx.fillStyle = "#0a0508";
-  ctx.fillRect(px + 8, py + 8, CELL - 16, 4);
-  if (s.hasCrowbar > 0) {
-    ctx.fillStyle = "#facc15";
-    ctx.fillRect(px + CELL - 6, py + 2, 3, CELL - 4);
+  // Wall-of-death glow at top — pulses when player is close to ceiling
+  if (s.ceilingGlow > 0.05) {
+    const pulse = 0.5 + Math.sin(s.animTime * 6) * 0.3;
+    const grad = ctx.createLinearGradient(0, 0, 0, 80);
+    grad.addColorStop(0, `rgba(220, 38, 38, ${0.4 * s.ceilingGlow * pulse})`);
+    grad.addColorStop(1, "rgba(220, 38, 38, 0)");
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, W, 80);
   }
+
+  // Player
+  drawPlayer(ctx, s);
 
   // Particles
   for (const p of s.particles) {
     ctx.fillStyle = p.color;
     ctx.globalAlpha = Math.max(0, Math.min(1, p.life));
-    ctx.fillRect(p.x - 1, p.y - 1, 3, 3);
+    ctx.fillRect(p.x - p.size / 2, p.y - p.size / 2, p.size, p.size);
   }
   ctx.globalAlpha = 1;
 
-  // HUD top
-  ctx.fillStyle = "rgba(0,0,0,0.6)";
-  ctx.fillRect(0, 0, W, 24);
+  // Float texts
+  for (const f of s.floatTexts) {
+    ctx.globalAlpha = Math.max(0, Math.min(1, f.life));
+    ctx.fillStyle = f.color;
+    ctx.font = "bold 11px monospace";
+    ctx.textAlign = "center";
+    ctx.fillText(f.text, f.x, f.y);
+  }
+  ctx.globalAlpha = 1;
+  ctx.textAlign = "start";
+
+  // HUD bar
+  ctx.fillStyle = "rgba(0,0,0,0.7)";
+  ctx.fillRect(0, 0, W, 26);
   ctx.fillStyle = "#fde047";
-  ctx.font = "12px monospace";
-  ctx.fillText(`Глубина ${Math.floor(s.depth)} м`, 6, 16);
+  ctx.font = "bold 12px monospace";
+  ctx.fillText(`⛏ ${Math.floor(s.depth)}м`, 6, 17);
   ctx.fillStyle = "#22d3ee";
-  ctx.fillText(`Score ${Math.floor(s.score + s.depth * 3)}`, 130, 16);
+  ctx.fillText(`SCORE ${Math.floor(s.score + s.depth * 3)}`, 110, 17);
+  if (s.hasCrowbar > 0) {
+    const glow = 0.5 + Math.sin(s.animTime * 8) * 0.5;
+    ctx.fillStyle = `rgba(253, 224, 71, ${0.8 + 0.2 * glow})`;
+    ctx.fillText(`🪤 ×${s.hasCrowbar}`, W - 70, 17);
+  }
+  // Speed indicator
+  const speedFrac = Math.min(1, (s.scrollSpeed - 1.6) / 4.4);
+  ctx.fillStyle = "rgba(0,0,0,0.4)";
+  ctx.fillRect(W - 110, 22, 100, 2);
+  ctx.fillStyle = `hsl(${120 - speedFrac * 120}, 70%, 55%)`;
+  ctx.fillRect(W - 110, 22, 100 * speedFrac, 2);
+
+  ctx.restore();
+}
+
+// ---------------------------------------------------------------------------
+// Tile drawing helpers
+// ---------------------------------------------------------------------------
+
+function drawDirt(ctx: CanvasRenderingContext2D, x: number, y: number, col: number, row: number, _t: number) {
+  // Base
+  ctx.fillStyle = "#4a2c1a";
+  ctx.fillRect(x, y, CELL, CELL);
+  // Pseudo-random pebbles based on cell coords (stable per cell)
+  const seed = col * 31 + row * 17;
+  const noise = (n: number) => (Math.sin(seed + n) * 43758.5453) % 1;
+  for (let i = 0; i < 3; i++) {
+    const px = x + 2 + Math.abs(noise(i)) * (CELL - 4);
+    const py = y + 2 + Math.abs(noise(i + 11)) * (CELL - 4);
+    ctx.fillStyle = i === 0 ? "#92400e" : "#3a2010";
+    ctx.fillRect(px, py, 2, 2);
+  }
+  // Top highlight
+  ctx.fillStyle = "rgba(255, 200, 150, 0.06)";
+  ctx.fillRect(x, y, CELL, 2);
+  // Outline
+  ctx.strokeStyle = "#2a1810";
+  ctx.lineWidth = 1;
+  ctx.strokeRect(x + 0.5, y + 0.5, CELL - 1, CELL - 1);
+}
+
+function drawBlocker(ctx: CanvasRenderingContext2D, x: number, y: number) {
+  ctx.fillStyle = "#525252";
+  ctx.fillRect(x, y, CELL, CELL);
+  // Hatched concrete pattern
+  ctx.fillStyle = "#3f3f3f";
+  for (let i = 0; i < CELL; i += 6) {
+    ctx.fillRect(x + i, y, 2, CELL);
+  }
+  ctx.fillStyle = "#404040";
+  ctx.fillRect(x + 2, y + 2, CELL - 4, CELL - 4);
+  ctx.strokeStyle = "#262626";
+  ctx.lineWidth = 1;
+  ctx.strokeRect(x + 0.5, y + 0.5, CELL - 1, CELL - 1);
+}
+
+function drawPipe(ctx: CanvasRenderingContext2D, x: number, y: number, t: number) {
+  // Vertical pipe with pulsing steam glow
+  const pulse = 0.6 + Math.sin(t * 4 + x) * 0.4;
+  ctx.fillStyle = "#7f1d1d";
+  ctx.fillRect(x + 4, y + 2, CELL - 8, CELL - 4);
+  ctx.fillStyle = `rgba(220, 38, 38, ${pulse})`;
+  ctx.fillRect(x + 6, y + 6, CELL - 12, CELL - 12);
+  // Steam puff
+  ctx.fillStyle = `rgba(253, 224, 71, ${pulse * 0.3})`;
+  ctx.beginPath();
+  ctx.arc(x + CELL / 2, y + CELL / 2, 8 + pulse * 2, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+function drawCamera(ctx: CanvasRenderingContext2D, x: number, y: number, t: number, col: number, row: number) {
+  // Mounted box
+  ctx.fillStyle = "#1a1014";
+  ctx.fillRect(x, y, CELL, CELL);
+  ctx.fillStyle = "#0a0508";
+  ctx.fillRect(x + 4, y + CELL - 5, CELL - 8, 4);
+  // Eye — blinks
+  const blink = (Math.sin(t * 3 + col + row) + 1) / 2 > 0.85 ? 0.3 : 1;
+  ctx.fillStyle = `rgba(250, 204, 21, ${blink})`;
+  ctx.beginPath();
+  ctx.arc(x + CELL / 2, y + CELL / 2 - 2, 5, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = `rgba(0, 0, 0, ${blink})`;
+  ctx.beginPath();
+  ctx.arc(x + CELL / 2, y + CELL / 2 - 2, 2, 0, Math.PI * 2);
+  ctx.fill();
+  // Cone hint
+  ctx.fillStyle = `rgba(250, 204, 21, ${blink * 0.15})`;
+  ctx.beginPath();
+  ctx.moveTo(x + CELL / 2, y + CELL / 2);
+  ctx.lineTo(x + 2, y + CELL - 2);
+  ctx.lineTo(x + CELL - 2, y + CELL - 2);
+  ctx.closePath();
+  ctx.fill();
+}
+
+function drawCrowbar(ctx: CanvasRenderingContext2D, x: number, y: number, t: number) {
+  // Pulsing gleam halo
+  const pulse = 0.5 + Math.sin(t * 6) * 0.5;
+  ctx.fillStyle = `rgba(253, 224, 71, ${0.1 + pulse * 0.2})`;
+  ctx.beginPath();
+  ctx.arc(x + CELL / 2, y + CELL / 2, 12, 0, Math.PI * 2);
+  ctx.fill();
+  // Crowbar body
+  ctx.fillStyle = "#facc15";
+  ctx.fillRect(x + CELL / 2 - 2, y + 4, 4, CELL - 8);
+  ctx.fillStyle = "#a16207";
+  ctx.fillRect(x + CELL / 2 - 5, y + CELL - 9, 10, 4);
+  // Highlight
+  ctx.fillStyle = "rgba(255, 255, 255, 0.4)";
+  ctx.fillRect(x + CELL / 2 - 1, y + 4, 1, CELL - 8);
+}
+
+function drawPlayer(ctx: CanvasRenderingContext2D, s: GameState) {
+  // Animated col/row using easing
+  const e = 1 - Math.pow(1 - s.moveAnim, 3);
+  const interpCol = s.prevPlayerCol + (s.player.col - s.prevPlayerCol) * e;
+  const interpRow = s.prevPlayerRow + (s.player.row - s.prevPlayerRow) * e;
+  const px = interpCol * CELL;
+  const py = interpRow * CELL;
+
+  // Body
+  ctx.fillStyle = "#22d3ee";
+  ctx.fillRect(px + 5, py + 6, CELL - 10, CELL - 10);
+  // Body shadow
+  ctx.fillStyle = "#0e7490";
+  ctx.fillRect(px + 5, py + CELL - 8, CELL - 10, 4);
+  // Head
+  ctx.fillStyle = "#f5e8d4";
+  ctx.fillRect(px + 8, py + 4, CELL - 16, 6);
+  // Eye dot (facing)
+  ctx.fillStyle = "#0a0508";
+  const eyeX = s.facing > 0 ? px + CELL - 11 : px + 9;
+  ctx.fillRect(eyeX, py + 6, 2, 2);
+  // Crowbar trail in hand
   if (s.hasCrowbar > 0) {
     ctx.fillStyle = "#facc15";
-    ctx.fillText(`🪤×${s.hasCrowbar}`, 260, 16);
+    ctx.fillRect(px + (s.facing > 0 ? CELL - 4 : 2), py + 8, 2, CELL - 14);
+  }
+  // Dig flash
+  if (s.digFlash > 0) {
+    ctx.fillStyle = `rgba(253, 224, 71, ${s.digFlash * 0.5})`;
+    ctx.fillRect(px, py, CELL, CELL);
   }
 }
