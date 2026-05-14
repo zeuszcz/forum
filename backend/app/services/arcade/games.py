@@ -51,8 +51,8 @@ GAMES: dict[str, GameConfig] = {
         ),
         controls="A/D или ←/→ — двигаться · SPACE/клик — копать вниз",
         score_unit="depth (м)",
-        max_score_per_second=12.0,
-        min_duration_ms=3000,
+        max_score_per_second=24.0,
+        min_duration_ms=2000,
         score_ceiling=200_000,
     ),
     "spotlight": GameConfig(
@@ -69,8 +69,8 @@ GAMES: dict[str, GameConfig] = {
         ),
         controls="WASD или стрелки — движение по сетке",
         score_unit="checkpoints",
-        max_score_per_second=4.0,
-        min_duration_ms=2000,
+        max_score_per_second=6.0,
+        min_duration_ms=1500,
         score_ceiling=10_000,
     ),
     "brawler": GameConfig(
@@ -86,8 +86,8 @@ GAMES: dict[str, GameConfig] = {
         ),
         controls="A/D — движение · J — удар · K — уворот · L — парировать",
         score_unit="wave",
-        max_score_per_second=2.5,
-        min_duration_ms=5000,
+        max_score_per_second=4.0,
+        min_duration_ms=3000,
         score_ceiling=5_000,
     ),
     "runner": GameConfig(

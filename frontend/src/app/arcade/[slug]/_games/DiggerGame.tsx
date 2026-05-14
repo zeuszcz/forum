@@ -192,8 +192,9 @@ export function DiggerGame({ game }: { game: { slug: string; title: string; emoj
       if (s.alive) {
         rafRef.current = requestAnimationFrame(step);
       } else {
-        // End run when dead.
-        const finalScore = Math.floor(s.score + s.depth * 5);
+        // End run when dead. Depth × 3 + breaks; tuned to fit the
+        // server-side sanity rate-cap (max_score_per_second=24).
+        const finalScore = Math.floor(s.score + s.depth * 3);
         submitEnd(finalScore);
       }
     };
@@ -267,7 +268,7 @@ export function DiggerGame({ game }: { game: { slug: string; title: string; emoj
       scoreBadge={
         runState.phase === "running" && stateRef.current ? (
           <div className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-1.5 font-mono text-sm text-amber-300">
-            {Math.floor(stateRef.current.depth)} м · {Math.floor(stateRef.current.score + stateRef.current.depth * 5)}
+            {Math.floor(stateRef.current.depth)} м · {Math.floor(stateRef.current.score + stateRef.current.depth * 3)}
           </div>
         ) : null
       }
@@ -419,7 +420,7 @@ function draw(canvas: HTMLCanvasElement, s: GameState) {
   ctx.font = "12px monospace";
   ctx.fillText(`Глубина ${Math.floor(s.depth)} м`, 6, 16);
   ctx.fillStyle = "#22d3ee";
-  ctx.fillText(`Score ${Math.floor(s.score + s.depth * 5)}`, 130, 16);
+  ctx.fillText(`Score ${Math.floor(s.score + s.depth * 3)}`, 130, 16);
   if (s.hasCrowbar > 0) {
     ctx.fillStyle = "#facc15";
     ctx.fillText(`🪤×${s.hasCrowbar}`, 260, 16);
