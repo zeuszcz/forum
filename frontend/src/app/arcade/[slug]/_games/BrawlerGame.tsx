@@ -34,6 +34,20 @@ type Player = {
   comboCount: number;
   comboExpiresAt: number;
   rageUntil: number;
+  // Super meter — 0..100; level1 unlocked at 50, level2 at 100
+  superMeter: number;
+  superDisplay: number;
+  // Input buffer for combo recognition — list of {code, t}
+  inputBuffer: Array<{ key: "J" | "K" | "L"; t: number }>;
+  // Special-move animation states
+  uppercutUntil: number;
+  flurryUntil: number;
+  flurryHits: number;
+  tornadoUntil: number;       // Level 1 super
+  berserkerUntil: number;     // Level 2 super
+  // Limb-animation phase
+  armPhaseL: number;
+  armPhaseR: number;
 };
 
 type Enemy = {
@@ -107,8 +121,10 @@ type GameState = {
   animTime: number;
   hitstop: number;
   bgFlash: number;
-  slowMoUntil: number; // global slow-motion (e.g. boss death finisher)
-  comboFlash: number;  // 0..1 flashy combo screen edge
+  slowMoUntil: number;
+  comboFlash: number;
+  // Cinematic finisher: camera zooms toward (x, y) for the duration
+  cinematic: { active: boolean; until: number; targetX: number; targetY: number; zoom: number } | null;
 };
 
 function spawnWave(s: GameState, ts: number) {
@@ -301,13 +317,22 @@ function killEnemy(s: GameState, e: Enemy, now: number) {
   e.deathTimer = 0.5;
   s.killsThisWave += 1;
   s.killsTotal += 1;
+  // Award super-meter for kill
+  s.player.superMeter = Math.min(100, s.player.superMeter + (e.kind === "boss" ? 40 : e.kind === "veteran" ? 15 : 10));
   if (e.kind === "boss") {
-    // Boss finisher — global slow-mo for 800ms
-    s.slowMoUntil = now + 800;
-    s.hitstop = 0.2;
-    applyShake(s, 14);
-    s.bgFlash = 0.6;
+    // Boss finisher — cinematic camera zoom + slow-mo
+    s.slowMoUntil = now + 1200;
+    s.hitstop = 0.3;
+    applyShake(s, 16);
+    s.bgFlash = 0.7;
     s.comboFlash = 1.0;
+    s.cinematic = {
+      active: true,
+      until: now + 1500,
+      targetX: e.x,
+      targetY: FLOOR_Y - BOSS_H / 2,
+      zoom: 1.6,
+    };
     spawnRageFlare(s, e.x, FLOOR_Y - BOSS_H / 2);
     addFloat(s, e.x, FLOOR_Y - BOSS_H - 6, "БОСС ПАЛ!", "#fb923c", 22);
     // HP drop
@@ -347,6 +372,192 @@ function pressedActionCode(set: Set<string>, code: string): boolean {
     return true;
   }
   return false;
+}
+
+// Combo recognition — checks recent input buffer against known patterns.
+// Returns the recognised combo or null. Consumes buffer on hit.
+type Combo =
+  | "uppercut"  // J,J,K — power launch
+  | "sweep"     // K,J,J — low sweep
+  | "flurry"    // J,J,J,J — barrage hits
+  | "counter"   // L,J    — parry → counter
+  | null;
+
+function recogniseCombo(s: GameState, now: number): Combo {
+  const buf = s.player.inputBuffer;
+  // Expire entries older than 800ms
+  while (buf.length > 0 && now - buf[0].t > 800) buf.shift();
+  if (buf.length === 0) return null;
+  const seq = buf.map((b) => b.key).join("");
+  // Test longest patterns first
+  if (seq.endsWith("JJJJ")) {
+    s.player.inputBuffer = [];
+    return "flurry";
+  }
+  if (seq.endsWith("KJJ")) {
+    s.player.inputBuffer = [];
+    return "sweep";
+  }
+  if (seq.endsWith("JJK")) {
+    s.player.inputBuffer = [];
+    return "uppercut";
+  }
+  if (seq.endsWith("LJ")) {
+    s.player.inputBuffer = [];
+    return "counter";
+  }
+  return null;
+}
+
+function addInputToBuffer(s: GameState, key: "J" | "K" | "L", now: number) {
+  s.player.inputBuffer.push({ key, t: now });
+  if (s.player.inputBuffer.length > 8) s.player.inputBuffer.shift();
+}
+
+function bumpSuperMeter(s: GameState, amount: number) {
+  s.player.superMeter = Math.min(100, s.player.superMeter + amount);
+}
+
+// ---------------------------------------------------------------------------
+// Special moves
+// ---------------------------------------------------------------------------
+
+function performUppercut(s: GameState, now: number) {
+  // Big upward arc — long reach, knockback
+  s.player.uppercutUntil = now + 280;
+  s.player.attackCooldownUntil = now + 600;
+  s.player.punchUntil = now + 240;
+  let hit = false;
+  for (const e of s.enemies) {
+    if (!e.alive) continue;
+    const dx = e.x - s.player.x;
+    if (s.player.facing * dx > 0 && Math.abs(dx) < 65) {
+      const dmg = 32 + Math.floor((now < s.player.berserkerUntil ? 24 : 0) + s.player.comboCount * 2);
+      // Shielder absorbs into shield
+      if (e.kind === "shielder" && e.shieldUp) {
+        e.shieldHp -= dmg;
+        if (e.shieldHp <= 0) e.shieldUp = false;
+        e.hitFlashUntil = now + 150;
+        spawnSparks(s, e.x, FLOOR_Y - ENEMY_H / 2);
+        continue;
+      }
+      e.hp -= dmg;
+      e.hitFlashUntil = now + 200;
+      spawnBlood(s, e.x, FLOOR_Y - ENEMY_H / 2, true);
+      spawnSparks(s, e.x, FLOOR_Y - ENEMY_H);
+      hit = true;
+      bumpSuperMeter(s, 12);
+      if (e.hp <= 0) killEnemy(s, e, now);
+    }
+  }
+  if (hit) {
+    applyShake(s, 7);
+    s.hitstop = 0.12;
+    addFloat(s, s.player.x, FLOOR_Y - PLAYER_H - 8, "АПЕРКОТ!", "#fde047", 18);
+    s.player.comboCount += 2;
+    s.player.comboExpiresAt = now + 2200;
+  }
+}
+
+function performSweep(s: GameState, now: number) {
+  // Wide low arc — hits multiple
+  s.player.uppercutUntil = now + 200;
+  s.player.attackCooldownUntil = now + 560;
+  s.player.punchUntil = now + 220;
+  let hits = 0;
+  for (const e of s.enemies) {
+    if (!e.alive) continue;
+    const dx = e.x - s.player.x;
+    if (s.player.facing * dx > 0 && Math.abs(dx) < 70) {
+      const dmg = 22 + Math.floor((now < s.player.berserkerUntil ? 14 : 0) + s.player.comboCount);
+      if (e.kind === "shielder" && e.shieldUp) {
+        e.shieldHp -= dmg;
+        if (e.shieldHp <= 0) e.shieldUp = false;
+        e.hitFlashUntil = now + 150;
+        continue;
+      }
+      e.hp -= dmg;
+      e.hitFlashUntil = now + 150;
+      spawnBlood(s, e.x, FLOOR_Y - ENEMY_H / 2);
+      hits += 1;
+      bumpSuperMeter(s, 8);
+      if (e.hp <= 0) killEnemy(s, e, now);
+    }
+  }
+  if (hits > 0) {
+    applyShake(s, 5);
+    s.hitstop = 0.08;
+    addFloat(s, s.player.x, FLOOR_Y - PLAYER_H - 8, `СВИП ×${hits}`, "#fb923c", 16);
+    s.player.comboCount += hits;
+    s.player.comboExpiresAt = now + 2400;
+  }
+}
+
+function performFlurry(s: GameState, now: number) {
+  // Barrage — 5 rapid hits over 500ms
+  s.player.flurryUntil = now + 600;
+  s.player.flurryHits = 5;
+  s.player.attackCooldownUntil = now + 800;
+  s.player.punchUntil = now + 600;
+  addFloat(s, s.player.x, FLOOR_Y - PLAYER_H - 6, "ШКВАЛ!", "#ec4899", 18);
+}
+
+function performCounter(s: GameState, now: number) {
+  // Counter — requires parry first, deals huge damage to anyone in range
+  s.player.attackCooldownUntil = now + 700;
+  let landed = false;
+  for (const e of s.enemies) {
+    if (!e.alive) continue;
+    const dx = e.x - s.player.x;
+    if (s.player.facing * dx > 0 && Math.abs(dx) < 55) {
+      const dmg = 38 + (now < s.player.berserkerUntil ? 18 : 0);
+      e.hp -= dmg;
+      e.hitFlashUntil = now + 200;
+      e.shieldUp = false; // shatters shields
+      e.shieldHp = 0;
+      spawnBlood(s, e.x, FLOOR_Y - ENEMY_H / 2, true);
+      spawnSparks(s, e.x, FLOOR_Y - ENEMY_H / 2);
+      landed = true;
+      bumpSuperMeter(s, 15);
+      if (e.hp <= 0) killEnemy(s, e, now);
+    }
+  }
+  if (landed) {
+    applyShake(s, 8);
+    s.hitstop = 0.14;
+    addFloat(s, s.player.x, FLOOR_Y - PLAYER_H - 8, "КОНТРА!", "#a855f7", 20);
+    s.player.comboCount += 3;
+    s.player.comboExpiresAt = now + 2400;
+  }
+}
+
+function performTornado(s: GameState, now: number) {
+  // 360° super move — hits everyone within range
+  s.player.tornadoUntil = now + 900;
+  s.player.attackCooldownUntil = now + 1100;
+  applyShake(s, 10);
+  spawnRageFlare(s, s.player.x, FLOOR_Y - PLAYER_H / 2);
+  let killed = 0;
+  for (const e of s.enemies) {
+    if (!e.alive) continue;
+    const dx = e.x - s.player.x;
+    if (Math.abs(dx) < 90) {
+      const dmg = 60 + (now < s.player.berserkerUntil ? 20 : 0);
+      e.hp -= dmg;
+      e.hitFlashUntil = now + 200;
+      e.shieldUp = false;
+      e.shieldHp = 0;
+      spawnBlood(s, e.x, FLOOR_Y - ENEMY_H / 2, true);
+      spawnSparks(s, e.x, FLOOR_Y - ENEMY_H / 2);
+      if (e.hp <= 0) {
+        killEnemy(s, e, now);
+        killed += 1;
+      }
+    }
+  }
+  addFloat(s, s.player.x, FLOOR_Y - PLAYER_H - 10, `ТОРНАДО! ×${killed}`, "#22d3ee", 22);
+  s.hitstop = 0.16;
+  s.slowMoUntil = now + 400;
 }
 
 export function BrawlerGame({
@@ -389,6 +600,16 @@ export function BrawlerGame({
         comboCount: 0,
         comboExpiresAt: 0,
         rageUntil: 0,
+        superMeter: 0,
+        superDisplay: 0,
+        inputBuffer: [],
+        uppercutUntil: 0,
+        flurryUntil: 0,
+        flurryHits: 0,
+        tornadoUntil: 0,
+        berserkerUntil: 0,
+        armPhaseL: 0,
+        armPhaseR: Math.PI,
       },
       enemies: [],
       pickups: [],
@@ -411,6 +632,7 @@ export function BrawlerGame({
       bgFlash: 0,
       slowMoUntil: 0,
       comboFlash: 0,
+      cinematic: null,
     };
     spawnWave(st, performance.now());
     stateRef.current = st;
@@ -432,6 +654,56 @@ export function BrawlerGame({
       const inSlowMo = now < s.slowMoUntil;
       let dt = s.hitstop > 0 ? dt0 * 0.15 : dt0;
       if (inSlowMo) dt *= 0.35;
+
+      // Flurry barrage — fires hits at intervals
+      if (s.player.flurryHits > 0 && now < s.player.flurryUntil) {
+        const interval = 120;
+        const remaining = s.player.flurryUntil - now;
+        const idx = Math.floor((600 - remaining) / interval);
+        if (idx >= 5 - s.player.flurryHits) {
+          // Land next hit
+          s.player.flurryHits -= 1;
+          for (const e of s.enemies) {
+            if (!e.alive) continue;
+            const dxx = e.x - s.player.x;
+            if (s.player.facing * dxx > 0 && Math.abs(dxx) < 50) {
+              const dmg = 11 + (now < s.player.berserkerUntil ? 5 : 0);
+              if (e.kind === "shielder" && e.shieldUp) {
+                e.shieldHp -= dmg;
+                if (e.shieldHp <= 0) e.shieldUp = false;
+                e.hitFlashUntil = now + 100;
+                continue;
+              }
+              e.hp -= dmg;
+              e.hitFlashUntil = now + 100;
+              spawnBlood(s, e.x, FLOOR_Y - ENEMY_H / 2);
+              bumpSuperMeter(s, 5);
+              if (e.hp <= 0) killEnemy(s, e, now);
+              break;
+            }
+          }
+        }
+      }
+      // Tornado super — radial damage tick
+      if (now < s.player.tornadoUntil) {
+        // Reapply visual + tick damage handled via punch but here just spawn spinning particles
+        if (s.rng() < 0.6) {
+          const ang = s.rng() * Math.PI * 2;
+          s.particles.push({
+            x: s.player.x + Math.cos(ang) * 50,
+            y: FLOOR_Y - PLAYER_H / 2 + Math.sin(ang) * 40,
+            vx: Math.cos(ang) * 60,
+            vy: Math.sin(ang) * 60,
+            life: 0.4,
+            color: s.rng() < 0.5 ? "#22d3ee" : "#67e8f9",
+            size: 3,
+          });
+        }
+      }
+      // Cinematic camera fade-out
+      if (s.cinematic && now > s.cinematic.until) {
+        s.cinematic = null;
+      }
       if (s.hitstop > 0) s.hitstop = Math.max(0, s.hitstop - dt0);
       if (s.bgFlash > 0) s.bgFlash = Math.max(0, s.bgFlash - dt0 * 2);
       if (s.comboFlash > 0) s.comboFlash = Math.max(0, s.comboFlash - dt0 * 1.4);
@@ -515,11 +787,27 @@ export function BrawlerGame({
       }
       s.pickups = s.pickups.filter((p) => !p.collected);
 
+      // Smooth super-meter display lerp
+      if (Math.abs(s.player.superDisplay - s.player.superMeter) > 0.5) {
+        s.player.superDisplay += (s.player.superMeter - s.player.superDisplay) * Math.min(1, dt * 6);
+      } else {
+        s.player.superDisplay = s.player.superMeter;
+      }
+
       // Action keys (one-shot)
       const pressed = pressedRef.current;
       if (pressedActionCode(pressed, "KeyJ")) {
-        if (now > s.player.attackCooldownUntil) {
-          const isRaging = now < s.player.rageUntil;
+        addInputToBuffer(s, "J", now);
+        // Try combo recognition
+        const combo = recogniseCombo(s, now);
+        if (combo === "uppercut") {
+          performUppercut(s, now);
+        } else if (combo === "flurry") {
+          performFlurry(s, now);
+        } else if (combo === "counter") {
+          performCounter(s, now);
+        } else if (now > s.player.attackCooldownUntil) {
+          const isRaging = now < s.player.rageUntil || now < s.player.berserkerUntil;
           const isCombo = s.player.comboCount >= 3;
           s.player.punchUntil = now + 180;
           s.player.attackCooldownUntil = now + (isCombo ? 280 : 380);
@@ -565,6 +853,9 @@ export function BrawlerGame({
               if (!isCrit) applyShake(s, 3);
               if (e.hp <= 0) {
                 killEnemy(s, e, now);
+              } else {
+                // Hit (not kill) — super meter gain
+                bumpSuperMeter(s, isCrit ? 15 : 8);
               }
             }
           }
@@ -587,7 +878,12 @@ export function BrawlerGame({
         }
       }
       if (pressedActionCode(pressed, "KeyK")) {
-        if (now > s.player.dodgeUntil + 200) {
+        addInputToBuffer(s, "K", now);
+        // Try sweep combo
+        const combo = recogniseCombo(s, now);
+        if (combo === "sweep") {
+          performSweep(s, now);
+        } else if (now > s.player.dodgeUntil + 200) {
           s.player.dodgeUntil = now + 280;
           s.player.x = Math.max(20, Math.min(W - 20, s.player.x - s.player.facing * 28));
           // Brief afterimage particles
@@ -605,9 +901,27 @@ export function BrawlerGame({
         }
       }
       if (pressedActionCode(pressed, "KeyL")) {
+        addInputToBuffer(s, "L", now);
         if (now > s.player.parryUntil + 800) {
           s.player.parryUntil = now + 260;
         }
+      }
+      // SUPER MOVES — M for tornado kick (level 1, 50 meter), N for berserker (level 2, 100 meter)
+      if (pressedActionCode(pressed, "KeyM") && s.player.superMeter >= 50) {
+        s.player.superMeter -= 50;
+        performTornado(s, now);
+      }
+      if (pressedActionCode(pressed, "KeyN") && s.player.superMeter >= 100) {
+        s.player.superMeter = 0;
+        s.player.berserkerUntil = now + 8000;
+        s.bgFlash = 0.8;
+        s.hitstop = 0.18;
+        applyShake(s, 12);
+        spawnRageFlare(s, s.player.x, FLOOR_Y - PLAYER_H / 2);
+        spawnRageFlare(s, s.player.x, FLOOR_Y - PLAYER_H / 2);
+        addFloat(s, s.player.x, FLOOR_Y - PLAYER_H - 12, "БЕРСЕРКЕР!", "#ef4444", 22);
+        // Crowd cheers when berserker fires
+        for (const c of s.crowd) c.cheer = 1.0;
       }
 
       // Enemies
@@ -828,6 +1142,11 @@ export function BrawlerGame({
                 ×{stateRef.current.player.comboCount}
               </div>
             )}
+            {stateRef.current.player.superMeter >= 50 && (
+              <div className={"rounded-md border px-3 py-1.5 font-mono text-sm " + (stateRef.current.player.superMeter >= 100 ? "border-rose-500/60 bg-rose-500/20 text-rose-200 animate-pulse" : "border-cyan/50 bg-cyan/15 text-cyan")}>
+                {stateRef.current.player.superMeter >= 100 ? "БЕРСЕРК ⚡" : "ТОРНАДО ✦"}
+              </div>
+            )}
           </div>
         ) : null
       }
@@ -855,7 +1174,17 @@ function draw(canvas: HTMLCanvasElement, s: GameState, now: number) {
     shakeY = (Math.random() - 0.5) * s.shake.mag;
   }
   ctx.save();
-  ctx.translate(shakeX, shakeY);
+  // Cinematic camera zoom
+  if (s.cinematic && s.cinematic.active) {
+    const remain = (s.cinematic.until - now) / 1500;
+    const t = Math.max(0, Math.min(1, remain));
+    const zoom = 1 + (s.cinematic.zoom - 1) * t;
+    ctx.translate(W / 2 + shakeX, H / 2 + shakeY);
+    ctx.scale(zoom, zoom);
+    ctx.translate(-s.cinematic.targetX, -s.cinematic.targetY);
+  } else {
+    ctx.translate(shakeX, shakeY);
+  }
 
   // BG
   const grad = ctx.createLinearGradient(0, 0, 0, H);
@@ -958,6 +1287,37 @@ function draw(canvas: HTMLCanvasElement, s: GameState, now: number) {
   const sortedEnemies = [...s.enemies].sort((a, b) => (b.alive ? 1 : 0) - (a.alive ? 1 : 0));
   for (const e of sortedEnemies) drawEnemy(ctx, e, now);
 
+  // Tornado visual ring around player
+  if (now < s.player.tornadoUntil) {
+    const remaining = (s.player.tornadoUntil - now) / 900;
+    ctx.save();
+    ctx.globalCompositeOperation = "lighter";
+    for (let i = 0; i < 3; i++) {
+      const r = 30 + i * 12 + Math.sin(now / 100 + i) * 5;
+      const grad = ctx.createRadialGradient(s.player.x, FLOOR_Y - PLAYER_H / 2, 4, s.player.x, FLOOR_Y - PLAYER_H / 2, r);
+      grad.addColorStop(0, `rgba(34, 211, 238, ${0.6 * remaining})`);
+      grad.addColorStop(1, "rgba(34, 211, 238, 0)");
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.arc(s.player.x, FLOOR_Y - PLAYER_H / 2, r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    // Swirling streaks
+    for (let i = 0; i < 5; i++) {
+      const ang = (now / 70 + i * Math.PI * 0.4) % (Math.PI * 2);
+      const rr = 50 + Math.sin(now / 80 + i) * 10;
+      const x1 = s.player.x + Math.cos(ang) * rr;
+      const y1 = FLOOR_Y - PLAYER_H / 2 + Math.sin(ang) * 30;
+      ctx.strokeStyle = `rgba(167, 243, 208, ${remaining * 0.7})`;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(s.player.x, FLOOR_Y - PLAYER_H / 2);
+      ctx.lineTo(x1, y1);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
   // Player
   drawPlayer(ctx, s.player, now);
 
@@ -1013,6 +1373,40 @@ function draw(canvas: HTMLCanvasElement, s: GameState, now: number) {
   ctx.fillStyle = "#fff";
   ctx.font = "bold 11px monospace";
   ctx.fillText(`HP ${Math.ceil(p.hpDisplay)}`, 12, 18);
+  // Super meter bar — below HP
+  const superFrac = Math.max(0, Math.min(1, p.superDisplay / 100));
+  ctx.fillStyle = "rgba(0, 0, 0, 0.7)";
+  ctx.fillRect(8, 24, 180, 4);
+  if (superFrac > 0) {
+    const sg = ctx.createLinearGradient(8, 0, 188, 0);
+    if (p.superMeter >= 100) {
+      // Berserker ready — pulsing red
+      const pulse = 0.7 + Math.sin(now / 80) * 0.3;
+      sg.addColorStop(0, `rgba(239, 68, 68, ${pulse})`);
+      sg.addColorStop(1, `rgba(251, 146, 60, ${pulse})`);
+    } else if (p.superMeter >= 50) {
+      sg.addColorStop(0, "#22d3ee");
+      sg.addColorStop(0.5, "#a855f7");
+      sg.addColorStop(1, "#ec4899");
+    } else {
+      sg.addColorStop(0, "#22d3ee");
+      sg.addColorStop(1, "#0ea5e9");
+    }
+    ctx.fillStyle = sg;
+    ctx.fillRect(8, 24, 180 * superFrac, 4);
+  }
+  // Super tick marks at 50, 100
+  ctx.fillStyle = "rgba(255, 255, 255, 0.5)";
+  ctx.fillRect(8 + 90, 23, 1, 6);
+  ctx.fillRect(8 + 180, 23, 1, 6);
+  // Super-meter readout
+  ctx.fillStyle = p.superMeter >= 100 ? "#ef4444" : p.superMeter >= 50 ? "#a855f7" : "#94a3b8";
+  ctx.font = "bold 8px monospace";
+  ctx.fillText(
+    p.superMeter >= 100 ? "БЕРСЕРК (N)" : p.superMeter >= 50 ? "ТОРНАДО (M)" : "СУПЕР",
+    192,
+    27,
+  );
   // Combo counter
   if (p.comboCount >= 2) {
     const pulse = 0.7 + Math.sin(s.animTime * 12) * 0.3;
