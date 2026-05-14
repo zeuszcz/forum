@@ -71,6 +71,25 @@ type Particle = { x: number; y: number; vx: number; vy: number; life: number; co
 
 type FloatText = { x: number; y: number; text: string; life: number; color: string };
 
+type Rock = {
+  col: number;
+  row: number;
+  bobPhase: number;
+};
+
+type ThrownRock = {
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  spin: number;
+  life: number;
+  landed: boolean;
+  landX: number;
+  landY: number;
+  landLife: number;
+};
+
 type GameState = {
   player: { col: number; row: number };
   prevPlayer: { col: number; row: number };
@@ -80,6 +99,9 @@ type GameState = {
   spotlights: Spotlight[];
   checkpoints: Checkpoint[];
   smokeBombs: SmokeBomb[];
+  rocks: Rock[];                     // pickup rocks on map
+  thrownRocks: ThrownRock[];         // in-flight + landed rocks
+  rockInventory: number;             // up to 3 rocks
   walls: Wall[];
   footSteps: FootStep[];
   dust: DustMote[];
@@ -96,6 +118,8 @@ type GameState = {
   smokeReady: boolean;
   stamina: number;
   isSprinting: boolean;
+  visibility: number;                // 0..100; raises when in beam edge / near light
+  visibilityDanger: boolean;          // currently in beam
 };
 
 function spawnCheckpoint(state: GameState) {
@@ -120,6 +144,35 @@ function spawnSmokeBomb(state: GameState) {
       if (state.walls.some((w) => w.col === c && w.row === r)) continue;
       state.smokeBombs.push({ col: c, row: r, bobPhase: 0 });
       return;
+    }
+  }
+}
+
+function spawnRock(state: GameState) {
+  for (let tries = 0; tries < 25; tries++) {
+    const c = Math.floor(state.rng() * COLS);
+    const r = Math.floor(state.rng() * ROWS);
+    if (Math.abs(c - state.player.col) + Math.abs(r - state.player.row) > 4) {
+      if (state.walls.some((w) => w.col === c && w.row === r)) continue;
+      if (state.rocks.some((rk) => rk.col === c && rk.row === r)) continue;
+      state.rocks.push({ col: c, row: r, bobPhase: 0 });
+      return;
+    }
+  }
+}
+
+// Diverts ALL trackers toward the rock landing point for a brief window.
+// Currently we use the simpler heuristic: when a rock lands, trackers will
+// chase the landed rock for 1.5s before resuming player tracking.
+function distractTrackers(state: GameState, landX: number, landY: number, now: number) {
+  for (const sl of state.spotlights) {
+    if (sl.kind === "tracker") {
+      // Switch its angle to point at the rock; this happens naturally next
+      // tick because the tracker AI computes angle from the player. We set
+      // a temporary "distraction target" by storing it in the spotlight.
+      (sl as Spotlight & { distractUntil?: number; distractX?: number; distractY?: number }).distractUntil = now + 1500;
+      (sl as Spotlight & { distractUntil?: number; distractX?: number; distractY?: number }).distractX = landX;
+      (sl as Spotlight & { distractUntil?: number; distractX?: number; distractY?: number }).distractY = landY;
     }
   }
 }
@@ -268,6 +321,9 @@ export function SpotlightGame({
       spotlights: [],
       checkpoints: [],
       smokeBombs: [],
+      rocks: [],
+      thrownRocks: [],
+      rockInventory: 0,
       walls: [],
       footSteps: [],
       dust,
@@ -284,13 +340,16 @@ export function SpotlightGame({
       smokeReady: false,
       stamina: STAMINA_MAX,
       isSprinting: false,
+      visibility: 0,
+      visibilityDanger: false,
     };
-    // Initial layout — 2 spotlights, 1 checkpoint, 2 walls
+    // Initial layout — 2 spotlights, 1 checkpoint, 2 walls, 1 rock
     spawnSpotlight(st);
     spawnSpotlight(st);
     spawnCheckpoint(st);
     spawnWall(st);
     spawnWall(st);
+    spawnRock(st);
     stateRef.current = st;
     setTick((t) => t + 1);
   }, [runState.phase, runState.phase === "running" ? runState.seed : 0]);
@@ -332,9 +391,16 @@ export function SpotlightGame({
             sl.blinkPhase -= sl.blinkOnFor + sl.blinkOffFor;
           }
         } else if (sl.kind === "tracker") {
-          // Slowly rotate to face the player
-          const targetX = s.player.col * CELL + CELL / 2;
-          const targetY = s.player.row * CELL + CELL / 2;
+          // Slowly rotate to face the player — or the distraction target if active
+          const sx = sl as Spotlight & { distractUntil?: number; distractX?: number; distractY?: number };
+          let targetX: number, targetY: number;
+          if (sx.distractUntil && now < sx.distractUntil && sx.distractX !== undefined && sx.distractY !== undefined) {
+            targetX = sx.distractX;
+            targetY = sx.distractY;
+          } else {
+            targetX = s.player.col * CELL + CELL / 2;
+            targetY = s.player.row * CELL + CELL / 2;
+          }
           const desired = Math.atan2(targetY - sl.cy, targetX - sl.cx);
           let delta = desired - sl.angle;
           while (delta > Math.PI) delta -= Math.PI * 2;
@@ -344,12 +410,14 @@ export function SpotlightGame({
       }
 
       const isInvisible = now < s.invisibleUntil;
-      // Beam hit detection
+      // Beam hit detection + visibility accumulation
       const px = s.player.col * CELL + CELL / 2;
       const py = s.player.row * CELL + CELL / 2;
+      s.visibilityDanger = false;
+      let nearestEdge = 1e9;
       if (!isInvisible) {
         for (const sl of s.spotlights) {
-          if (sl.kind === "blink" && sl.blinkPhase >= sl.blinkOnFor) continue; // off
+          if (sl.kind === "blink" && sl.blinkPhase >= sl.blinkOnFor) continue;
           const dx = px - sl.cx;
           const dy = py - sl.cy;
           const dist = Math.sqrt(dx * dx + dy * dy);
@@ -358,16 +426,99 @@ export function SpotlightGame({
           let delta = ang - sl.angle;
           while (delta > Math.PI) delta -= Math.PI * 2;
           while (delta < -Math.PI) delta += Math.PI * 2;
-          if (Math.abs(delta) > sl.beamWidth / 2) continue;
-          // Check walls
-          if (isBlockedByWall(s.walls, px, py, sl.cx, sl.cy)) continue;
-          // Caught!
-          s.alive = false;
-          s.hitFlash = 1;
-          spawnHitParticles(s, px, py);
-          break;
+          const halfBeam = sl.beamWidth / 2;
+          // Edge proximity — within 2x beam half-width
+          const edgeProx = Math.abs(delta) - halfBeam;
+          if (edgeProx < halfBeam) {
+            // Wall might block us
+            if (!isBlockedByWall(s.walls, px, py, sl.cx, sl.cy)) {
+              if (edgeProx < 0) {
+                // Inside beam
+                s.alive = false;
+                s.hitFlash = 1;
+                spawnHitParticles(s, px, py);
+                break;
+              }
+              // Near edge — track closest distance for visibility meter
+              if (edgeProx < nearestEdge) nearestEdge = edgeProx;
+            }
+          }
         }
       }
+      // Update visibility meter
+      if (!isInvisible && nearestEdge < 0.2) {
+        // Player is at the edge of a beam — visibility ramps up
+        const danger = Math.max(0, (0.2 - nearestEdge) / 0.2);
+        s.visibility = Math.min(100, s.visibility + danger * dt * 60);
+        s.visibilityDanger = true;
+      } else {
+        // Cool down
+        s.visibility = Math.max(0, s.visibility - dt * 35);
+      }
+      // Rocks: pickup
+      for (const rk of s.rocks) {
+        rk.bobPhase += dt * 4;
+        if (rk.col === s.player.col && rk.row === s.player.row && s.rockInventory < 3) {
+          s.rockInventory += 1;
+          rk.col = -999;
+          spawnCollectParticles(s, s.player.col * CELL + CELL / 2, s.player.row * CELL + CELL / 2);
+          s.ringPulses.push({
+            x: s.player.col * CELL + CELL / 2,
+            y: s.player.row * CELL + CELL / 2,
+            r: 4,
+            life: 1.0,
+            color: "#94a3b8",
+          });
+          s.floats.push({
+            x: s.player.col * CELL + CELL / 2,
+            y: s.player.row * CELL,
+            text: "+КАМЕНЬ",
+            color: "#cbd5e1",
+            life: 1.0,
+          });
+        }
+      }
+      s.rocks = s.rocks.filter((rk) => rk.col >= 0);
+
+      // Thrown rocks physics
+      for (const tr of s.thrownRocks) {
+        if (!tr.landed) {
+          tr.x += tr.vx * dt;
+          tr.y += tr.vy * dt;
+          tr.vy += 320 * dt;
+          tr.spin += dt * 10;
+          if (tr.y >= H - 12) {
+            tr.landed = true;
+            tr.landX = tr.x;
+            tr.landY = H - 12;
+            tr.landLife = 0.4;
+            // Spawn distract effect
+            s.ringPulses.push({
+              x: tr.landX,
+              y: tr.landY,
+              r: 4,
+              life: 1.0,
+              color: "#94a3b8",
+            });
+            for (let i = 0; i < 8; i++) {
+              const a = s.rng() * Math.PI * 2;
+              s.particles.push({
+                x: tr.landX,
+                y: tr.landY,
+                vx: Math.cos(a) * 100,
+                vy: -Math.abs(Math.sin(a) * 60),
+                life: 0.6,
+                color: "rgba(180, 180, 180, 1)",
+              });
+            }
+            distractTrackers(s, tr.landX, tr.landY, now);
+          }
+        } else {
+          tr.landLife -= dt;
+        }
+      }
+      s.thrownRocks = s.thrownRocks.filter((tr) => !tr.landed || tr.landLife > 0);
+
       // Checkpoint collected
       if (s.checkpoints.length > 0) {
         const c = s.checkpoints[0];
@@ -392,6 +543,7 @@ export function SpotlightGame({
           if (s.score % 3 === 0) spawnSpotlight(s);
           if (s.score % 4 === 0 && s.smokeBombs.length < 2) spawnSmokeBomb(s);
           if (s.score % 5 === 0) spawnWall(s);
+          if (s.score % 2 === 0 && s.rocks.length < 3) spawnRock(s);
           spawnCheckpoint(s);
         }
       }
@@ -472,6 +624,29 @@ export function SpotlightGame({
       const now = performance.now();
       const code = e.code;
       const k = e.key;
+      // Rock throw on Q
+      if (code === "KeyQ" && s.rockInventory > 0) {
+        s.rockInventory -= 1;
+        const startX = s.player.col * CELL + CELL / 2;
+        const startY = s.player.row * CELL + CELL / 2;
+        // Throw based on which side player is leaning (facing not tracked; throw forward = right by default, or random)
+        const throwDirX = s.rng() < 0.5 ? -1 : 1;
+        s.thrownRocks.push({
+          x: startX,
+          y: startY,
+          vx: 240 * throwDirX,
+          vy: -240,
+          spin: 0,
+          life: 2.0,
+          landed: false,
+          landX: 0,
+          landY: 0,
+          landLife: 0,
+        });
+        spawnCollectParticles(s, startX, startY);
+        e.preventDefault();
+        return;
+      }
       // Smoke bomb on Space
       if ((code === "Space" || k === " ") && s.smokeReady) {
         s.smokeReady = false;
@@ -557,6 +732,11 @@ export function SpotlightGame({
             <div className="rounded-md border border-cyan/40 bg-cyan/10 px-3 py-1.5 font-mono text-sm text-cyan">
               🚩 {stateRef.current.score} · 💡 {stateRef.current.spotlights.length}
             </div>
+            {stateRef.current.rockInventory > 0 && (
+              <div className="rounded-md border border-stone-500/40 bg-stone-500/10 px-2 py-1.5 font-mono text-xs text-stone-300">
+                🪨×{stateRef.current.rockInventory} Q
+              </div>
+            )}
             {stateRef.current.smokeReady && (
               <div className="rounded-md border border-purple-500/40 bg-purple-500/10 px-2 py-1.5 font-mono text-xs text-purple-300">
                 💨 SPACE
@@ -736,6 +916,52 @@ function draw(canvas: HTMLCanvasElement, s: GameState) {
     ctx.stroke();
   }
 
+  // Rocks (pickups) on map
+  for (const rk of s.rocks) {
+    const bob = Math.sin(rk.bobPhase) * 2;
+    const cx = rk.col * CELL + CELL / 2;
+    const cy = rk.row * CELL + CELL / 2 + bob;
+    // Halo
+    ctx.fillStyle = "rgba(203, 213, 225, 0.15)";
+    ctx.beginPath();
+    ctx.arc(cx, cy, 8, 0, Math.PI * 2);
+    ctx.fill();
+    // Rock — irregular gray rounded
+    ctx.fillStyle = "#71717a";
+    ctx.beginPath();
+    ctx.arc(cx, cy, 5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#a1a1aa";
+    ctx.beginPath();
+    ctx.arc(cx - 1, cy - 1, 3, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // Thrown rocks in air + landed sparks
+  for (const tr of s.thrownRocks) {
+    if (!tr.landed) {
+      ctx.save();
+      ctx.translate(tr.x, tr.y);
+      ctx.rotate(tr.spin);
+      ctx.fillStyle = "#a1a1aa";
+      ctx.fillRect(-3, -3, 6, 6);
+      ctx.fillStyle = "#71717a";
+      ctx.fillRect(-2, -2, 3, 3);
+      ctx.restore();
+      // Motion trail
+      ctx.fillStyle = "rgba(203, 213, 225, 0.3)";
+      ctx.fillRect(tr.x - tr.vx * 0.01, tr.y - tr.vy * 0.01, 2, 2);
+    } else if (tr.landLife > 0) {
+      // Sound-wave rings on landing
+      const r = 12 + (1 - tr.landLife / 0.4) * 18;
+      ctx.strokeStyle = `rgba(254, 240, 138, ${tr.landLife * 1.2})`;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(tr.landX, tr.landY, r, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+  }
+
   // Smoke bombs on map
   for (const sb of s.smokeBombs) {
     sb.bobPhase += 0.05;
@@ -838,9 +1064,21 @@ function draw(canvas: HTMLCanvasElement, s: GameState) {
   const stamFrac = s.stamina / STAMINA_MAX;
   ctx.fillStyle = stamFrac > 0.5 ? "#22c55e" : stamFrac > 0.2 ? "#fbbf24" : "#dc2626";
   ctx.fillRect(6, 19, 100 * stamFrac, 6);
+  // Visibility meter — color shifts red as danger rises
+  ctx.fillStyle = "#1a0a08";
+  ctx.fillRect(110, 19, 100, 6);
+  const visFrac = s.visibility / 100;
+  const visColor = visFrac > 0.7 ? "#dc2626" : visFrac > 0.4 ? "#fbbf24" : "#22d3ee";
+  ctx.fillStyle = visColor;
+  ctx.fillRect(110, 19, 100 * visFrac, 6);
+  // Visibility label flickers when in danger
+  ctx.fillStyle = s.visibilityDanger ? "#dc2626" : "#94a3b8";
+  ctx.font = "bold 8px monospace";
+  ctx.fillText("ВИДНОСТЬ", 110, 17);
+
   ctx.fillStyle = "#94a3b8";
   ctx.font = "9px monospace";
-  ctx.fillText(`SHIFT = спринт · SPACE = дым`, 120, 25);
+  ctx.fillText(`SHIFT спринт · SPACE дым · Q бросок`, 218, 25);
   if (nowMs < s.invisibleUntil) {
     const remain = ((s.invisibleUntil - nowMs) / 1000).toFixed(1);
     ctx.fillStyle = "#a855f7";
