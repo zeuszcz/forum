@@ -571,16 +571,22 @@ function draw(canvas: HTMLCanvasElement, s: GameState) {
   //   < 500m  = early evening (warm-ish)
   //   < 1500m = late night (deep purple)
   //   > 1500m = storm (near-black with green hints)
+  // 3-stop palette interpolation (single-pass to keep hex format).
   const dist = s.distance;
   const phase = Math.min(1, dist / 1500);
   const stormPhase = Math.max(0, Math.min(1, (dist - 1500) / 600));
-  const top = blendColor("#1a0d1a", "#050505", phase);
-  const mid = blendColor("#2a1218", "#0a0510", phase);
-  const bot = blendColor("#3a1820", "#1a0a14", phase);
+  // Day → night colors for each stop
+  const dayTop = "#1a0d1a";   const nightTop = "#050505";   const stormTop = "#0a0d05";
+  const dayMid = "#2a1218";   const nightMid = "#0a0510";   const stormMid = "#0a1408";
+  const dayBot = "#3a1820";   const nightBot = "#1a0a14";   const stormBot = "#0a1808";
+  // Two-stage blend: day→night by phase, then night→storm by stormPhase
+  const topColor = blendColor(blendColorHex(dayTop, nightTop, phase), stormTop, stormPhase);
+  const midColor = blendColor(blendColorHex(dayMid, nightMid, phase), stormMid, stormPhase);
+  const botColor = blendColor(blendColorHex(dayBot, nightBot, phase), stormBot, stormPhase);
   const sky = ctx.createLinearGradient(0, 0, 0, GROUND_Y);
-  sky.addColorStop(0, blendColor(top, "#0a0d05", stormPhase));
-  sky.addColorStop(0.7, blendColor(mid, "#0a1408", stormPhase));
-  sky.addColorStop(1, blendColor(bot, "#0a1808", stormPhase));
+  sky.addColorStop(0, topColor);
+  sky.addColorStop(0.7, midColor);
+  sky.addColorStop(1, botColor);
   ctx.fillStyle = sky;
   ctx.fillRect(0, 0, W, GROUND_Y);
 
@@ -880,18 +886,42 @@ function draw(canvas: HTMLCanvasElement, s: GameState) {
   ctx.restore();
 }
 
+/** Returns blended color as `rgb(R, G, B)` string consumable by Canvas. */
 function blendColor(c1: string, c2: string, t: number): string {
-  // c1 and c2 are #RRGGBB hex
-  const r1 = parseInt(c1.slice(1, 3), 16);
-  const g1 = parseInt(c1.slice(3, 5), 16);
-  const b1 = parseInt(c1.slice(5, 7), 16);
-  const r2 = parseInt(c2.slice(1, 3), 16);
-  const g2 = parseInt(c2.slice(3, 5), 16);
-  const b2 = parseInt(c2.slice(5, 7), 16);
+  const [r1, g1, b1] = parseColor(c1);
+  const [r2, g2, b2] = parseColor(c2);
   const r = Math.round(r1 + (r2 - r1) * t);
   const g = Math.round(g1 + (g2 - g1) * t);
   const b = Math.round(b1 + (b2 - b1) * t);
   return `rgb(${r}, ${g}, ${b})`;
+}
+
+/** Returns blended color as `#RRGGBB` hex, for chained blends. */
+function blendColorHex(c1: string, c2: string, t: number): string {
+  const [r1, g1, b1] = parseColor(c1);
+  const [r2, g2, b2] = parseColor(c2);
+  const r = Math.round(r1 + (r2 - r1) * t);
+  const g = Math.round(g1 + (g2 - g1) * t);
+  const b = Math.round(b1 + (b2 - b1) * t);
+  const hex = (v: number) => v.toString(16).padStart(2, "0");
+  return `#${hex(r)}${hex(g)}${hex(b)}`;
+}
+
+function parseColor(c: string): [number, number, number] {
+  if (c.startsWith("#") && c.length === 7) {
+    return [
+      parseInt(c.slice(1, 3), 16),
+      parseInt(c.slice(3, 5), 16),
+      parseInt(c.slice(5, 7), 16),
+    ];
+  }
+  // Try rgb(r, g, b) form
+  const m = c.match(/rgb\s*\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\)/);
+  if (m) {
+    return [Number(m[1]), Number(m[2]), Number(m[3])];
+  }
+  // Fallback — black
+  return [0, 0, 0];
 }
 
 function drawPickup(ctx: CanvasRenderingContext2D, p: Pickup) {
