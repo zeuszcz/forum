@@ -8,12 +8,12 @@ import { mulberry32, useArcadeRun } from "../../_components/useArcadeRun";
 import { GameShell } from "./GameShell";
 
 const W = 720;
-const H = 280;
-const GROUND_Y = 240;
-const PLAYER_X = 80;
-const PLAYER_W = 28;
-const PLAYER_H = 56;
-const PLAYER_DUCK_H = 28;
+const H = 320;
+const GROUND_Y = 280;
+const PLAYER_X = 90;
+const PLAYER_W = 30;
+const PLAYER_H = 64;
+const PLAYER_DUCK_H = 32;
 
 type Obstacle = {
   x: number;
@@ -27,9 +27,24 @@ type Obstacle = {
 type Pickup = {
   x: number;
   y: number;
-  kind: "coin" | "shield" | "boost";
+  kind: "coin" | "shield" | "boost" | "double_jump";
   collected: boolean;
   bobPhase: number;
+};
+
+type Cloud = {
+  x: number;
+  y: number;
+  w: number;
+  speed: number;
+};
+
+type RainDrop = {
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  len: number;
 };
 
 type DustParticle = {
@@ -63,10 +78,14 @@ type GameState = {
     ducking: boolean;
     alive: boolean;
     legPhase: number;
+    armPhase: number;
     deathTime: number;
     hasShield: boolean;
     shieldFlash: number;
     boostUntil: number;
+    doubleJumpsLeft: number;
+    usedDoubleThisAir: boolean;
+    pitch: number;             // visual pitch (lean forward when fast)
   };
   worldSpeed: number;
   distance: number;
@@ -85,6 +104,15 @@ type GameState = {
   lightnings: Lightning[];
   nextLightningAt: number;
   bgFlash: number;
+  // Atmosphere
+  clouds: Cloud[];
+  raindrops: RainDrop[];
+  // Near-miss combo
+  closeCallStreak: number;
+  closeCallExpireAt: number;
+  closeCallFlash: number;
+  // Pending obstacles to detect close-call (tracked on x-cross)
+  alreadyPassed: Set<number>;
 };
 
 const GRAVITY = 1800;
@@ -192,6 +220,15 @@ export function RunnerGame({
   useEffect(() => {
     if (runState.phase !== "running") return;
     const rng = mulberry32(runState.seed);
+    const clouds: Cloud[] = [];
+    for (let i = 0; i < 5; i++) {
+      clouds.push({
+        x: rng() * W,
+        y: 40 + rng() * 60,
+        w: 60 + rng() * 50,
+        speed: 8 + rng() * 6,
+      });
+    }
     const st: GameState = {
       player: {
         y: GROUND_Y - PLAYER_H,
@@ -200,10 +237,14 @@ export function RunnerGame({
         ducking: false,
         alive: true,
         legPhase: 0,
+        armPhase: Math.PI,
         deathTime: 0,
         hasShield: false,
         shieldFlash: 0,
         boostUntil: 0,
+        doubleJumpsLeft: 0,
+        usedDoubleThisAir: false,
+        pitch: 0,
       },
       worldSpeed: 260,
       distance: 0,
@@ -222,6 +263,12 @@ export function RunnerGame({
       lightnings: [],
       nextLightningAt: 0,
       bgFlash: 0,
+      clouds,
+      raindrops: [],
+      closeCallStreak: 0,
+      closeCallExpireAt: 0,
+      closeCallFlash: 0,
+      alreadyPassed: new Set(),
     };
     stateRef.current = st;
     setTick((t) => t + 1);
@@ -293,6 +340,38 @@ export function RunnerGame({
         f.life -= dt;
       }
       s.floats = s.floats.filter((f) => f.life > 0);
+      // Cloud drift
+      for (const cl of s.clouds) {
+        cl.x -= (cl.speed + s.worldSpeed * 0.05) * dt;
+        if (cl.x + cl.w < -10) {
+          cl.x = W + 10;
+          cl.y = 40 + s.rng() * 60;
+          cl.w = 60 + s.rng() * 50;
+        }
+      }
+      // Rain starts at distance > 1000
+      if (s.distance > 1000) {
+        const stormI = Math.min(1, (s.distance - 1000) / 500);
+        // Spawn drops
+        const target = Math.floor(stormI * 80);
+        while (s.raindrops.length < target) {
+          s.raindrops.push({
+            x: s.rng() * (W + 100) - 50,
+            y: -10 - s.rng() * H,
+            vx: -60 - s.rng() * 40,
+            vy: 600 + s.rng() * 200,
+            len: 10 + s.rng() * 10,
+          });
+        }
+        for (const d of s.raindrops) {
+          d.x += d.vx * dt - s.worldSpeed * dt * 0.4;
+          d.y += d.vy * dt;
+          if (d.y > GROUND_Y + 5) {
+            d.y = -10;
+            d.x = s.rng() * (W + 100);
+          }
+        }
+      }
       // Lightning storm at extreme distance
       if (s.distance > 1500) {
         if (now > s.nextLightningAt) {
@@ -321,10 +400,41 @@ export function RunnerGame({
         const keys = keysRef.current;
         const wantJump = keys.has(" ") || keys.has("Space") || keys.has("ArrowUp") || keys.has("KeyW");
         const wantDuck = keys.has("ArrowDown") || keys.has("KeyS");
-        if (wantJump && s.player.onGround && !s.player.ducking) {
-          s.player.vy = JUMP_VELOCITY;
-          s.player.onGround = false;
-          spawnDust(s, PLAYER_X, GROUND_Y, "jump");
+        // Edge-detect jump (consume key while held = only first press triggers)
+        if (wantJump && !s.player.ducking) {
+          if (s.player.onGround) {
+            s.player.vy = JUMP_VELOCITY;
+            s.player.onGround = false;
+            s.player.usedDoubleThisAir = false;
+            spawnDust(s, PLAYER_X, GROUND_Y, "jump");
+            keys.delete(" ");
+            keys.delete("Space");
+            keys.delete("ArrowUp");
+            keys.delete("KeyW");
+          } else if (s.player.doubleJumpsLeft > 0 && !s.player.usedDoubleThisAir) {
+            // Air double-jump
+            s.player.vy = JUMP_VELOCITY * 0.9;
+            s.player.doubleJumpsLeft -= 1;
+            s.player.usedDoubleThisAir = true;
+            // Burst effect
+            for (let i = 0; i < 12; i++) {
+              const a = Math.PI + (s.rng() - 0.5) * 1.2;
+              s.dust.push({
+                x: PLAYER_X + PLAYER_W / 2,
+                y: s.player.y + PLAYER_H,
+                vx: Math.cos(a) * 110,
+                vy: -Math.abs(Math.sin(a) * 80),
+                life: 0.5,
+                size: 3,
+              });
+            }
+            s.shake.mag = Math.max(s.shake.mag, 3);
+            s.shake.life = 0.18;
+            keys.delete(" ");
+            keys.delete("Space");
+            keys.delete("ArrowUp");
+            keys.delete("KeyW");
+          }
         }
         const wasDucking = s.player.ducking;
         s.player.ducking = wantDuck && s.player.onGround;
@@ -339,12 +449,19 @@ export function RunnerGame({
             s.player.y = GROUND_Y - PLAYER_H;
             s.player.vy = 0;
             s.player.onGround = true;
+            s.player.usedDoubleThisAir = false;
             spawnDust(s, PLAYER_X, GROUND_Y, "land");
           }
         } else {
           s.player.y = GROUND_Y - (s.player.ducking ? PLAYER_DUCK_H : PLAYER_H);
-          if (!s.player.ducking) s.player.legPhase += dt * 18;
+          if (!s.player.ducking) {
+            s.player.legPhase += dt * 18;
+            s.player.armPhase += dt * 18;
+          }
         }
+        // Pitch — lean forward at high speed
+        const targetPitch = Math.min(0.18, (s.worldSpeed - 260) / 1500);
+        s.player.pitch += (targetPitch - s.player.pitch) * Math.min(1, dt * 4);
 
         s.spawnTimerMs -= dt * 1000;
         if (s.spawnTimerMs <= 0) {
@@ -352,10 +469,36 @@ export function RunnerGame({
           s.spawnTimerMs = 700 + s.rng() * 800 - Math.min(400, s.distance * 0.6);
         }
         for (const o of s.obstacles) {
+          const prevX = o.x;
           o.x -= s.worldSpeed * dt;
           o.phase += dt;
+          // Close-call detection: obstacle right edge just crossed player left
+          if (prevX + o.w > PLAYER_X && o.x + o.w <= PLAYER_X) {
+            // Check if it was a near miss (we didn't take damage)
+            const oid = Math.round(prevX * 17 + o.w);
+            if (!s.alreadyPassed.has(oid)) {
+              s.alreadyPassed.add(oid);
+              s.closeCallStreak += 1;
+              s.closeCallExpireAt = now + 3500;
+              s.closeCallFlash = 1.0;
+              const bonus = Math.min(50, s.closeCallStreak * 5);
+              s.distance += bonus;
+              s.floats.push({
+                x: PLAYER_X + 30,
+                y: s.player.y - 10,
+                text: `СТРИК ×${s.closeCallStreak} +${bonus}`,
+                color: "#fde047",
+                life: 0.9,
+              });
+            }
+          }
         }
         s.obstacles = s.obstacles.filter((o) => o.x > -80);
+        // Close-call streak decay
+        if (s.closeCallStreak > 0 && now > s.closeCallExpireAt) {
+          s.closeCallStreak = 0;
+        }
+        if (s.closeCallFlash > 0) s.closeCallFlash = Math.max(0, s.closeCallFlash - dt * 1.4);
 
         // Pickup spawning
         s.pickupSpawnTimerMs -= dt * 1000;
@@ -363,16 +506,18 @@ export function RunnerGame({
           const r = s.rng();
           let kind: Pickup["kind"];
           let y: number;
-          if (r < 0.7) {
+          if (r < 0.6) {
             kind = "coin";
-            // Floats — middle-air or low
             y = s.rng() < 0.6 ? GROUND_Y - 80 - s.rng() * 50 : GROUND_Y - 14;
-          } else if (r < 0.88) {
+          } else if (r < 0.78) {
             kind = "shield";
             y = GROUND_Y - 60;
-          } else {
+          } else if (r < 0.9) {
             kind = "boost";
             y = GROUND_Y - 90;
+          } else {
+            kind = "double_jump";
+            y = GROUND_Y - 110;
           }
           s.pickups.push({ x: W + 30, y, kind, collected: false, bobPhase: 0 });
           s.pickupSpawnTimerMs = 1500 + s.rng() * 2000;
@@ -426,11 +571,26 @@ export function RunnerGame({
             } else if (p.kind === "shield") {
               s.player.hasShield = true;
               s.floats.push({ x: p.x, y: p.y, text: "🛡 ЩИТ", color: "#22d3ee", life: 1.0 });
-            } else {
+            } else if (p.kind === "boost") {
               s.player.boostUntil = now + 3000;
               s.floats.push({ x: p.x, y: p.y, text: "🔥 БУСТ", color: "#fb923c", life: 1.0 });
               s.shake.mag = 3;
               s.shake.life = 0.2;
+            } else {
+              // Double jump — adds 3 charges
+              s.player.doubleJumpsLeft = Math.min(5, s.player.doubleJumpsLeft + 3);
+              s.floats.push({ x: p.x, y: p.y, text: "✦ ДВ.ПРЫЖОК", color: "#a855f7", life: 1.0 });
+              for (let i = 0; i < 16; i++) {
+                const a = s.rng() * Math.PI * 2;
+                s.dust.push({
+                  x: p.x,
+                  y: p.y,
+                  vx: Math.cos(a) * 90,
+                  vy: Math.sin(a) * 90 - 30,
+                  life: 0.6,
+                  size: 2,
+                });
+              }
             }
           }
         }
@@ -538,6 +698,16 @@ export function RunnerGame({
                 🛡
               </div>
             )}
+            {stateRef.current.player.doubleJumpsLeft > 0 && (
+              <div className="rounded-md border border-purple-500/40 bg-purple-500/10 px-2 py-1.5 font-mono text-xs text-purple-300">
+                ✦×{stateRef.current.player.doubleJumpsLeft}
+              </div>
+            )}
+            {stateRef.current.closeCallStreak >= 2 && (
+              <div className="rounded-md border border-yellow-500/40 bg-yellow-500/10 px-2 py-1.5 font-mono text-xs text-yellow-300 animate-pulse">
+                СТРИК ×{stateRef.current.closeCallStreak}
+              </div>
+            )}
           </div>
         ) : null
       }
@@ -590,16 +760,55 @@ function draw(canvas: HTMLCanvasElement, s: GameState) {
   ctx.fillStyle = sky;
   ctx.fillRect(0, 0, W, GROUND_Y);
 
+  // Moon
+  if (phase > 0.2) {
+    const moonAlpha = Math.min(1, (phase - 0.2) / 0.4) * (1 - stormPhase);
+    const moonX = W - 80;
+    const moonY = 50;
+    ctx.save();
+    ctx.globalCompositeOperation = "lighter";
+    const moonGlow = ctx.createRadialGradient(moonX, moonY, 4, moonX, moonY, 40);
+    moonGlow.addColorStop(0, `rgba(254, 240, 138, ${moonAlpha * 0.6})`);
+    moonGlow.addColorStop(1, "rgba(254, 240, 138, 0)");
+    ctx.fillStyle = moonGlow;
+    ctx.beginPath();
+    ctx.arc(moonX, moonY, 40, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+    ctx.globalAlpha = moonAlpha;
+    ctx.fillStyle = "#fef3c7";
+    ctx.beginPath();
+    ctx.arc(moonX, moonY, 13, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#fde047";
+    ctx.beginPath();
+    ctx.arc(moonX - 2, moonY - 3, 10, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.globalAlpha = 1;
+  }
+
   // Stars fade in mid-night
   if (phase > 0.3) {
     const starAlpha = Math.min(1, (phase - 0.3) / 0.5) * (1 - stormPhase);
-    for (let i = 0; i < 30; i++) {
+    for (let i = 0; i < 40; i++) {
       const x = (i * 73 + (s.animTime * 8) % W) % W;
       const y = (i * 41) % (GROUND_Y * 0.4);
       const tw = (Math.sin(s.animTime * 3 + i) + 1) / 2;
       ctx.fillStyle = `rgba(255, 255, 255, ${starAlpha * (0.3 + tw * 0.5)})`;
       ctx.fillRect(x, y, 1, 1);
     }
+  }
+
+  // Clouds — drift across mid-sky
+  for (const cl of s.clouds) {
+    const cloudAlpha = 0.18 * (1 - stormPhase * 0.5);
+    ctx.fillStyle = `rgba(255, 255, 255, ${cloudAlpha})`;
+    ctx.beginPath();
+    ctx.arc(cl.x, cl.y, cl.w / 3, 0, Math.PI * 2);
+    ctx.arc(cl.x + cl.w / 3, cl.y + 4, cl.w / 4, 0, Math.PI * 2);
+    ctx.arc(cl.x + cl.w / 2, cl.y, cl.w / 3.5, 0, Math.PI * 2);
+    ctx.arc(cl.x + cl.w * 0.7, cl.y + 6, cl.w / 5, 0, Math.PI * 2);
+    ctx.fill();
   }
 
   // BG flash from lightning
@@ -660,6 +869,18 @@ function draw(canvas: HTMLCanvasElement, s: GameState) {
     }
   }
   ctx.globalAlpha = 1;
+
+  // Rain
+  if (s.raindrops.length > 0) {
+    ctx.strokeStyle = "rgba(167, 243, 208, 0.45)";
+    ctx.lineWidth = 1;
+    for (const d of s.raindrops) {
+      ctx.beginPath();
+      ctx.moveTo(d.x, d.y);
+      ctx.lineTo(d.x + d.vx * 0.02, d.y + d.len);
+      ctx.stroke();
+    }
+  }
 
   // Speed lines — only at high speed
   for (const sl of s.speedLines) {
@@ -966,8 +1187,8 @@ function drawPickup(ctx: CanvasRenderingContext2D, p: Pickup) {
     ctx.strokeStyle = "#a5f3fc";
     ctx.lineWidth = 1;
     ctx.stroke();
-  } else {
-    // Boost = flame
+  } else if (p.kind === "boost") {
+    // Flame
     ctx.fillStyle = "rgba(251, 146, 60, 0.3)";
     ctx.beginPath();
     ctx.arc(cx, cy, 14, 0, Math.PI * 2);
@@ -984,6 +1205,40 @@ function drawPickup(ctx: CanvasRenderingContext2D, p: Pickup) {
     ctx.bezierCurveTo(cx - 4, cy - 1, cx - 3, cy + 4, cx, cy + 5);
     ctx.bezierCurveTo(cx + 3, cy + 4, cx + 4, cy - 1, cx, cy - 5);
     ctx.fill();
+  } else {
+    // Double-jump — purple star with up-arrows
+    ctx.save();
+    ctx.globalCompositeOperation = "lighter";
+    const halo = ctx.createRadialGradient(cx, cy, 0, cx, cy, 16);
+    halo.addColorStop(0, "rgba(168, 85, 247, 0.5)");
+    halo.addColorStop(1, "rgba(168, 85, 247, 0)");
+    ctx.fillStyle = halo;
+    ctx.fillRect(cx - 16, cy - 16, 32, 32);
+    ctx.restore();
+    // Star
+    ctx.fillStyle = "#a855f7";
+    ctx.beginPath();
+    ctx.moveTo(cx, cy - 9);
+    ctx.lineTo(cx + 3, cy - 3);
+    ctx.lineTo(cx + 9, cy - 2);
+    ctx.lineTo(cx + 4, cy + 3);
+    ctx.lineTo(cx + 5, cy + 9);
+    ctx.lineTo(cx, cy + 5);
+    ctx.lineTo(cx - 5, cy + 9);
+    ctx.lineTo(cx - 4, cy + 3);
+    ctx.lineTo(cx - 9, cy - 2);
+    ctx.lineTo(cx - 3, cy - 3);
+    ctx.closePath();
+    ctx.fill();
+    // Up arrow
+    ctx.fillStyle = "#fff";
+    ctx.fillRect(cx - 1, cy - 4, 2, 6);
+    ctx.beginPath();
+    ctx.moveTo(cx, cy - 6);
+    ctx.lineTo(cx - 3, cy - 3);
+    ctx.lineTo(cx + 3, cy - 3);
+    ctx.closePath();
+    ctx.fill();
   }
 }
 
@@ -991,13 +1246,14 @@ function drawPlayer(ctx: CanvasRenderingContext2D, s: GameState) {
   const phH = s.player.ducking ? PLAYER_DUCK_H : PLAYER_H;
   const px = PLAYER_X;
   const py = s.player.y;
+  const now = performance.now();
 
-  // Shadow (scales with height off ground)
-  const heightOff = (GROUND_Y - PLAYER_H - py) / PLAYER_H; // 0 on ground, 1 at top of jump
-  const shadowScale = Math.max(0.3, 1 - heightOff * 0.5);
-  ctx.fillStyle = `rgba(0, 0, 0, ${0.4 * shadowScale})`;
+  // Shadow scales with altitude
+  const heightOff = (GROUND_Y - PLAYER_H - py) / PLAYER_H;
+  const shadowScale = Math.max(0.3, 1 - heightOff * 0.55);
+  ctx.fillStyle = `rgba(0, 0, 0, ${0.45 * shadowScale})`;
   ctx.beginPath();
-  ctx.ellipse(px + PLAYER_W / 2, GROUND_Y + 2, PLAYER_W / 2 * shadowScale + 3, 3, 0, 0, Math.PI * 2);
+  ctx.ellipse(px + PLAYER_W / 2, GROUND_Y + 2, PLAYER_W / 2 * shadowScale + 4, 3, 0, 0, Math.PI * 2);
   ctx.fill();
 
   if (!s.player.alive) {
@@ -1010,69 +1266,132 @@ function drawPlayer(ctx: CanvasRenderingContext2D, s: GameState) {
     return;
   }
 
-  const now = performance.now();
   const isBoosting = now < s.player.boostUntil;
+  const cx = px + PLAYER_W / 2;
+  const cy = py + phH / 2;
 
   // Shield ring (pulsing)
   if (s.player.hasShield) {
     const pulse = 0.6 + Math.sin(now / 100) * 0.4;
+    ctx.save();
+    ctx.globalCompositeOperation = "lighter";
+    const grad = ctx.createRadialGradient(cx, cy, 4, cx, cy, PLAYER_W * 0.9);
+    grad.addColorStop(0, `rgba(103, 232, 249, ${pulse * 0.3})`);
+    grad.addColorStop(1, "rgba(103, 232, 249, 0)");
+    ctx.fillStyle = grad;
+    ctx.fillRect(px - 14, py - 14, PLAYER_W + 28, phH + 28);
+    ctx.restore();
     ctx.strokeStyle = `rgba(103, 232, 249, ${pulse})`;
     ctx.lineWidth = 2;
     ctx.beginPath();
-    ctx.ellipse(px + PLAYER_W / 2, py + phH / 2, PLAYER_W / 2 + 6, phH / 2 + 4, 0, 0, Math.PI * 2);
+    ctx.ellipse(cx, cy, PLAYER_W / 2 + 6, phH / 2 + 4, 0, 0, Math.PI * 2);
     ctx.stroke();
   }
-  // Shield-break flash
   if (s.player.shieldFlash > 0) {
+    ctx.save();
+    ctx.globalCompositeOperation = "lighter";
     ctx.fillStyle = `rgba(103, 232, 249, ${s.player.shieldFlash * 0.6})`;
-    ctx.fillRect(px - 4, py - 4, PLAYER_W + 8, phH + 8);
+    ctx.fillRect(px - 6, py - 6, PLAYER_W + 12, phH + 12);
+    ctx.restore();
   }
 
-  // Body — orange tint when boosting
-  ctx.fillStyle = isBoosting ? "#fb923c" : "#10b981";
-  ctx.fillRect(px, py, PLAYER_W, phH);
-  // Boots band
-  ctx.fillStyle = "#065f46";
-  ctx.fillRect(px, py + phH - 12, PLAYER_W, 12);
+  // Pitch transform — lean forward at high speed
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.rotate(s.player.pitch);
+  ctx.translate(-cx, -cy);
+
+  // Body (torso) — rounded
+  const bodyGrad = ctx.createLinearGradient(0, py, 0, py + phH);
+  bodyGrad.addColorStop(0, isBoosting ? "#fb923c" : "#34d399");
+  bodyGrad.addColorStop(1, isBoosting ? "#9a3412" : "#065f46");
+  ctx.fillStyle = bodyGrad;
+  roundedRect(ctx, px + 4, py + 10, PLAYER_W - 8, phH - 14, 6);
+  ctx.fill();
+  // Belt
+  ctx.fillStyle = isBoosting ? "#7c2d12" : "#022c22";
+  ctx.fillRect(px + 4, py + phH - 14, PLAYER_W - 8, 5);
+
   // Head
   if (!s.player.ducking) {
     ctx.fillStyle = "#f5e8d4";
-    ctx.fillRect(px + 4, py + 4, PLAYER_W - 8, 14);
-    // Eye (forward facing)
+    roundedRect(ctx, px + 6, py + 2, PLAYER_W - 12, 12, 4);
+    ctx.fill();
+    // Eye
     ctx.fillStyle = "#0a0508";
-    ctx.fillRect(px + PLAYER_W - 9, py + 10, 2, 2);
-    // Bandana streak
-    ctx.fillStyle = "#dc2626";
-    ctx.fillRect(px + 4, py + 6, PLAYER_W - 8, 2);
+    ctx.fillRect(px + PLAYER_W - 11, py + 8, 2, 2);
+    // Bandana
+    ctx.fillStyle = isBoosting ? "#fde047" : "#dc2626";
+    ctx.fillRect(px + 6, py + 6, PLAYER_W - 12, 2);
+    // Bandana tail flutter
+    const flutter = Math.sin(s.player.legPhase * 1.2) * 2;
+    ctx.fillStyle = isBoosting ? "#fde047" : "#dc2626";
+    ctx.fillRect(px + 4, py + 7 + flutter, 3, 1);
   } else {
-    // Ducking head
     ctx.fillStyle = "#f5e8d4";
-    ctx.fillRect(px + 4, py + 2, PLAYER_W - 8, 10);
+    roundedRect(ctx, px + 4, py + 2, PLAYER_W - 8, 8, 3);
+    ctx.fill();
   }
-  // Legs — animated when on ground + running
-  if (s.player.onGround && !s.player.ducking) {
-    const legA = Math.sin(s.player.legPhase) * 6;
-    const legB = Math.sin(s.player.legPhase + Math.PI) * 6;
-    ctx.fillStyle = "#065f46";
-    ctx.fillRect(px + 4, py + phH - 8 + legA, 6, 8);
-    ctx.fillRect(px + PLAYER_W - 10, py + phH - 8 + legB, 6, 8);
-  } else if (!s.player.onGround) {
-    // Jumping pose — legs tucked
-    ctx.fillStyle = "#065f46";
-    ctx.fillRect(px + 6, py + phH - 4, PLAYER_W - 12, 6);
-  } else if (s.player.ducking) {
-    // Sliding — leg stretch forward
-    ctx.fillStyle = "#065f46";
-    ctx.fillRect(px + PLAYER_W - 4, py + phH - 6, 8, 4);
+
+  // Limbs — proper rotated rounded rects
+  drawLimb(ctx, px + 8, py + phH - 14, 4, 14, Math.sin(s.player.legPhase) * 25, isBoosting ? "#9a3412" : "#022c22");
+  drawLimb(ctx, px + PLAYER_W - 12, py + phH - 14, 4, 14, Math.sin(s.player.legPhase + Math.PI) * 25, isBoosting ? "#9a3412" : "#022c22");
+  // Arms
+  drawLimb(ctx, px + 4, py + 14, 3, 12, Math.sin(s.player.armPhase + Math.PI) * 30, isBoosting ? "#fb923c" : "#34d399");
+  drawLimb(ctx, px + PLAYER_W - 6, py + 14, 3, 12, Math.sin(s.player.armPhase) * 30, isBoosting ? "#fb923c" : "#34d399");
+
+  ctx.restore();
+
+  // Double-jump charge indicators (small orbs above head)
+  if (s.player.doubleJumpsLeft > 0) {
+    for (let i = 0; i < s.player.doubleJumpsLeft; i++) {
+      const ox = px + PLAYER_W / 2 - 6 + i * 6;
+      const oy = py - 6 + Math.sin(now / 200 + i) * 1.5;
+      ctx.save();
+      ctx.globalCompositeOperation = "lighter";
+      const g = ctx.createRadialGradient(ox, oy, 0, ox, oy, 4);
+      g.addColorStop(0, "rgba(168, 85, 247, 0.9)");
+      g.addColorStop(1, "rgba(168, 85, 247, 0)");
+      ctx.fillStyle = g;
+      ctx.fillRect(ox - 4, oy - 4, 8, 8);
+      ctx.restore();
+      ctx.fillStyle = "#a855f7";
+      ctx.beginPath();
+      ctx.arc(ox, oy, 2, 0, Math.PI * 2);
+      ctx.fill();
+    }
   }
-  // Arms — running swing
-  if (s.player.onGround && !s.player.ducking) {
-    const armA = Math.sin(s.player.legPhase + Math.PI) * 4;
-    ctx.fillStyle = "#10b981";
-    ctx.fillRect(px + PLAYER_W - 2, py + 18 + armA, 4, 12);
-  } else if (!s.player.onGround) {
-    // Arms forward when jumping
-    ctx.fillStyle = "#10b981";
-    ctx.fillRect(px + PLAYER_W - 2, py + 14, 6, 10);
-  }
+}
+
+function drawLimb(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  rotDeg: number,
+  color: string,
+) {
+  ctx.save();
+  ctx.translate(x + w / 2, y);
+  ctx.rotate((rotDeg * Math.PI) / 180);
+  ctx.fillStyle = color;
+  // Drawn from top-pivot, hanging downward
+  roundedRect(ctx, -w / 2, 0, w, h, w / 2);
+  ctx.fill();
+  ctx.restore();
+}
+
+function roundedRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.lineTo(x + w - r, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+  ctx.lineTo(x + w, y + h - r);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+  ctx.lineTo(x + r, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+  ctx.lineTo(x, y + r);
+  ctx.quadraticCurveTo(x, y, x + r, y);
+  ctx.closePath();
 }
