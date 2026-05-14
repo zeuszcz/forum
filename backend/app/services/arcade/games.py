@@ -103,8 +103,10 @@ GAMES: dict[str, GameConfig] = {
         ),
         controls="SPACE/↑ — прыжок · ↓/S — подкат",
         score_unit="distance (м)",
-        max_score_per_second=20.0,
-        min_duration_ms=2500,
+        # World speed peaks at 700 px/s / 8 = ~87 m/s. Pad to 120 so
+        # late-game sustained max-speed runs aren't false-positives.
+        max_score_per_second=120.0,
+        min_duration_ms=1500,
         score_ceiling=500_000,
     ),
 }
