@@ -14,7 +14,9 @@ const COLS = W / CELL;
 const ROWS = H / CELL;
 const MOVE_COOLDOWN_MS = 110;
 
-type Tile = " " | "#" | "h" | "P" | "C" | "X";
+type Tile = " " | "#" | "h" | "P" | "C" | "X" | "G" | "M" | "T";
+// " " empty / "#" dirt / "h" hazard pipe / "P" crowbar / "C" camera / "X" concrete
+// "G" gold nugget / "M" helmet (1 free hazard) / "T" treasure chest (depth milestone)
 
 type Particle = {
   x: number;
@@ -40,23 +42,27 @@ type GameState = {
   player: { col: number; row: number };
   prevPlayerCol: number;
   prevPlayerRow: number;
-  moveAnim: number;            // 0..1 transition from prev to current
-  digFlash: number;            // 0..1 flash overlay on player when digging
+  moveAnim: number;
+  digFlash: number;
   facing: 1 | -1;
   depth: number;
   score: number;
+  goldCount: number;
   scrolls: number;
   alive: boolean;
   scrollSpeed: number;
   hasCrowbar: number;
+  hasHelmet: boolean;
+  helmetFlash: number;         // brief gold flash when helmet saves you
   grid: Tile[][];
   lastInputAt: number;
   particles: Particle[];
   floatTexts: FloatText[];
   shake: Shake;
   rng: () => number;
-  animTime: number;            // global animation clock (seconds)
-  ceilingGlow: number;         // visualises wall-of-death proximity
+  animTime: number;
+  ceilingGlow: number;
+  nextTreasureDepth: number;   // schedule of milestone treasures
 };
 
 function emptyGrid(rng: () => number): Tile[][] {
@@ -71,12 +77,14 @@ function emptyGrid(rng: () => number): Tile[][] {
   return grid;
 }
 
-function generateRow(depth: number, rng: () => number): Tile[] {
+function generateRow(depth: number, rng: () => number, withTreasure: boolean): Tile[] {
   const dirtP = 0.45 + Math.min(0.2, depth / 2000);
   const hazardP = Math.min(0.1, 0.005 + depth / 8000);
   const crowbarP = 0.012;
   const camP = Math.min(0.04, 0.001 + depth / 12000);
   const blockerP = Math.min(0.06, 0.005 + depth / 6000);
+  const goldP = 0.025;
+  const helmetP = 0.006;
   const row: Tile[] = [];
   let hasPassable = false;
   for (let c = 0; c < COLS; c++) {
@@ -87,9 +95,17 @@ function generateRow(depth: number, rng: () => number): Tile[] {
     else if (r < camP + hazardP + crowbarP) {
       t = "P";
       hasPassable = true;
-    } else if (r < camP + hazardP + crowbarP + blockerP) t = "X";
-    else if (r < camP + hazardP + crowbarP + blockerP + dirtP) t = "#";
-    else {
+    } else if (r < camP + hazardP + crowbarP + helmetP) {
+      t = "M";
+      hasPassable = true;
+    } else if (r < camP + hazardP + crowbarP + helmetP + goldP) {
+      t = "G";
+      hasPassable = true;
+    } else if (r < camP + hazardP + crowbarP + helmetP + goldP + blockerP) {
+      t = "X";
+    } else if (r < camP + hazardP + crowbarP + helmetP + goldP + blockerP + dirtP) {
+      t = "#";
+    } else {
       t = " ";
       hasPassable = true;
     }
@@ -97,6 +113,17 @@ function generateRow(depth: number, rng: () => number): Tile[] {
   }
   if (!hasPassable) {
     row[Math.floor(rng() * COLS)] = " ";
+  }
+  if (withTreasure) {
+    // Replace a dirt cell (or empty) with treasure chest near middle
+    const candidates: number[] = [];
+    for (let c = 4; c < COLS - 4; c++) {
+      if (row[c] === "#" || row[c] === " ") candidates.push(c);
+    }
+    const slot = candidates.length > 0
+      ? candidates[Math.floor(rng() * candidates.length)]
+      : Math.floor(COLS / 2);
+    row[slot] = "T";
   }
   return row;
 }
@@ -174,10 +201,13 @@ export function DiggerGame({ game }: { game: { slug: string; title: string; emoj
       facing: 1,
       depth: 0,
       score: 0,
+      goldCount: 0,
       scrolls: 0,
       alive: true,
       scrollSpeed: 1.6,
       hasCrowbar: 0,
+      hasHelmet: false,
+      helmetFlash: 0,
       grid: emptyGrid(rng),
       lastInputAt: 0,
       particles: [],
@@ -186,6 +216,7 @@ export function DiggerGame({ game }: { game: { slug: string; title: string; emoj
       rng,
       animTime: 0,
       ceilingGlow: 0,
+      nextTreasureDepth: 25,
     };
     milestonesRef.current = [];
     setTick((t) => t + 1);
@@ -211,7 +242,14 @@ export function DiggerGame({ game }: { game: { slug: string; title: string; emoj
         while (s.scrolls >= 1) {
           s.scrolls -= 1;
           s.grid.shift();
-          s.grid.push(generateRow(s.depth + s.player.row, s.rng));
+          // Spawn treasure rows at depth milestones (25, 50, 100, 200, ...)
+          const treasureDepth = s.depth + s.player.row;
+          const withTreasure = treasureDepth >= s.nextTreasureDepth;
+          s.grid.push(generateRow(treasureDepth, s.rng, withTreasure));
+          if (withTreasure) {
+            // Double the next milestone (25 → 50 → 100 → 200 → 400)
+            s.nextTreasureDepth *= 2;
+          }
           s.player.row -= 1;
           s.prevPlayerRow -= 1;
           if (s.player.row < 0) {
@@ -229,24 +267,60 @@ export function DiggerGame({ game }: { game: { slug: string; title: string; emoj
         if (s.alive) {
           const cell = s.grid[s.player.row]?.[s.player.col];
           if (cell === "C") {
+            // Camera always kills — helmet doesn't save you from a sighting.
             s.alive = false;
             applyShake(s, 10);
             spawnPuff(s, s.player.col * CELL + CELL / 2, s.player.row * CELL + CELL / 2, "#ef4444");
             addFloat(s, s.player.col * CELL + CELL / 2, s.player.row * CELL, "ЗАСЁК", "#fca5a5");
           } else if (cell === "h") {
-            s.alive = false;
-            applyShake(s, 8);
-            spawnPuff(s, s.player.col * CELL + CELL / 2, s.player.row * CELL + CELL / 2, "#f59e0b");
-            addFloat(s, s.player.col * CELL + CELL / 2, s.player.row * CELL, "ПАР", "#fde047");
+            // Pipe steam — helmet can absorb one
+            if (s.hasHelmet) {
+              s.hasHelmet = false;
+              s.helmetFlash = 1.0;
+              s.grid[s.player.row][s.player.col] = " ";
+              applyShake(s, 6);
+              spawnSparkle(s, s.player.col * CELL + CELL / 2, s.player.row * CELL + CELL / 2, "#fde047");
+              addFloat(s, s.player.col * CELL + CELL / 2, s.player.row * CELL, "ШЛЕМ!", "#fde047");
+            } else {
+              s.alive = false;
+              applyShake(s, 8);
+              spawnPuff(s, s.player.col * CELL + CELL / 2, s.player.row * CELL + CELL / 2, "#f59e0b");
+              addFloat(s, s.player.col * CELL + CELL / 2, s.player.row * CELL, "ПАР", "#fde047");
+            }
           } else if (cell === "P") {
             s.hasCrowbar += 1;
             s.grid[s.player.row][s.player.col] = " ";
             s.score += 25;
             spawnSparkle(s, s.player.col * CELL + CELL / 2, s.player.row * CELL + CELL / 2, "#fde047");
             addFloat(s, s.player.col * CELL + CELL / 2, s.player.row * CELL, "+ЛОМ", "#fde047");
+          } else if (cell === "G") {
+            s.goldCount += 1;
+            s.score += 50;
+            s.grid[s.player.row][s.player.col] = " ";
+            spawnSparkle(s, s.player.col * CELL + CELL / 2, s.player.row * CELL + CELL / 2, "#fde047");
+            spawnSparkle(s, s.player.col * CELL + CELL / 2, s.player.row * CELL + CELL / 2, "#fef3c7");
+            addFloat(s, s.player.col * CELL + CELL / 2, s.player.row * CELL, "+50 ЗОЛОТО", "#fbbf24");
+          } else if (cell === "M") {
+            s.hasHelmet = true;
+            s.grid[s.player.row][s.player.col] = " ";
+            spawnSparkle(s, s.player.col * CELL + CELL / 2, s.player.row * CELL + CELL / 2, "#22d3ee");
+            addFloat(s, s.player.col * CELL + CELL / 2, s.player.row * CELL, "+ШЛЕМ", "#67e8f9");
+          } else if (cell === "T") {
+            // Treasure chest — big score reward
+            const reward = 200 + Math.floor(s.depth / 10) * 20;
+            s.score += reward;
+            s.goldCount += 5;
+            s.grid[s.player.row][s.player.col] = " ";
+            applyShake(s, 6);
+            spawnPuff(s, s.player.col * CELL + CELL / 2, s.player.row * CELL + CELL / 2, "#fbbf24");
+            spawnSparkle(s, s.player.col * CELL + CELL / 2, s.player.row * CELL + CELL / 2, "#fde047");
+            spawnSparkle(s, s.player.col * CELL + CELL / 2, s.player.row * CELL + CELL / 2, "#ec4899");
+            addFloat(s, s.player.col * CELL + CELL / 2, s.player.row * CELL - 6, `СУНДУК +${reward}`, "#fbbf24");
           }
         }
       }
+
+      if (s.helmetFlash > 0) s.helmetFlash = Math.max(0, s.helmetFlash - dt * 1.5);
 
       // Animation easings
       if (s.moveAnim < 1) {
@@ -314,12 +388,14 @@ export function DiggerGame({ game }: { game: { slug: string; title: string; emoj
       if (!s || !s.alive) return;
       const now = performance.now();
       if (now - s.lastInputAt < MOVE_COOLDOWN_MS) return;
+      // Use e.code (layout-independent) for letters; e.key for arrows.
+      const code = e.code;
       const k = e.key;
-      if (k === "a" || k === "A" || k === "ArrowLeft") {
+      if (code === "KeyA" || k === "ArrowLeft") {
         moveLeft(s, now);
-      } else if (k === "d" || k === "D" || k === "ArrowRight") {
+      } else if (code === "KeyD" || k === "ArrowRight") {
         moveRight(s, now);
-      } else if (k === " " || k === "ArrowDown" || k === "s" || k === "S") {
+      } else if (code === "Space" || k === "ArrowDown" || code === "KeyS") {
         digDown(s, now);
         e.preventDefault();
       }
@@ -352,8 +428,20 @@ export function DiggerGame({ game }: { game: { slug: string; title: string; emoj
       onStart={start}
       scoreBadge={
         runState.phase === "running" && stateRef.current ? (
-          <div className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-1.5 font-mono text-sm text-amber-300">
-            {Math.floor(stateRef.current.depth)} м · {Math.floor(stateRef.current.score + stateRef.current.depth * 3)}
+          <div className="flex items-center gap-2">
+            <div className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-1.5 font-mono text-sm text-amber-300">
+              {Math.floor(stateRef.current.depth)}м · {Math.floor(stateRef.current.score + stateRef.current.depth * 3)}
+            </div>
+            {stateRef.current.goldCount > 0 && (
+              <div className="rounded-md border border-yellow-500/40 bg-yellow-500/10 px-2 py-1.5 font-mono text-xs text-yellow-300">
+                💰{stateRef.current.goldCount}
+              </div>
+            )}
+            {stateRef.current.hasHelmet && (
+              <div className="rounded-md border border-cyan/40 bg-cyan/10 px-2 py-1.5 font-mono text-xs text-cyan">
+                ⛑
+              </div>
+            )}
           </div>
         ) : null
       }
@@ -371,10 +459,17 @@ export function DiggerGame({ game }: { game: { slug: string; title: string; emoj
   );
 }
 
+function canEnter(t: Tile | undefined, hasHelmet: boolean): boolean {
+  if (t === undefined) return false;
+  if (t === "X" || t === "C") return false;
+  if (t === "h" && !hasHelmet) return false;
+  return true;
+}
+
 function moveLeft(s: GameState, now: number) {
   if (s.player.col > 0) {
     const target = s.grid[s.player.row]?.[s.player.col - 1];
-    if (target !== "X" && target !== "C" && target !== "h") {
+    if (canEnter(target, s.hasHelmet)) {
       s.prevPlayerCol = s.player.col;
       s.prevPlayerRow = s.player.row;
       s.moveAnim = 0;
@@ -394,7 +489,7 @@ function moveLeft(s: GameState, now: number) {
 function moveRight(s: GameState, now: number) {
   if (s.player.col < COLS - 1) {
     const target = s.grid[s.player.row]?.[s.player.col + 1];
-    if (target !== "X" && target !== "C" && target !== "h") {
+    if (canEnter(target, s.hasHelmet)) {
       s.prevPlayerCol = s.player.col;
       s.prevPlayerRow = s.player.row;
       s.moveAnim = 0;
@@ -426,8 +521,10 @@ function digDown(s: GameState, now: number) {
     } else {
       return;
     }
-  } else if (target === "C" || target === "h") {
-    return;
+  } else if (target === "C") {
+    return; // can't dig into a camera
+  } else if (target === "h" && !s.hasHelmet) {
+    return; // can't dig into pipe steam without helmet
   } else if (target === "#") {
     s.grid[s.player.row + 1][s.player.col] = " ";
     s.score += 1;
@@ -476,8 +573,10 @@ function draw(canvas: HTMLCanvasElement, s: GameState) {
       else if (t === "h") drawPipe(ctx, x, y, s.animTime);
       else if (t === "C") drawCamera(ctx, x, y, s.animTime, c, r);
       else if (t === "P") drawCrowbar(ctx, x, y, s.animTime);
+      else if (t === "G") drawGold(ctx, x, y, s.animTime);
+      else if (t === "M") drawHelmet(ctx, x, y, s.animTime);
+      else if (t === "T") drawTreasure(ctx, x, y, s.animTime);
       else {
-        // Subtle hatched empty cell
         ctx.fillStyle = "rgba(255, 255, 255, 0.02)";
         ctx.fillRect(x, y, CELL, CELL);
       }
@@ -620,6 +719,76 @@ function drawCamera(ctx: CanvasRenderingContext2D, x: number, y: number, t: numb
   ctx.fill();
 }
 
+function drawGold(ctx: CanvasRenderingContext2D, x: number, y: number, t: number) {
+  const pulse = 0.5 + Math.sin(t * 5) * 0.5;
+  ctx.fillStyle = `rgba(251, 191, 36, ${0.15 + pulse * 0.25})`;
+  ctx.beginPath();
+  ctx.arc(x + CELL / 2, y + CELL / 2, 11, 0, Math.PI * 2);
+  ctx.fill();
+  // Nugget — diamond shape
+  ctx.fillStyle = "#fbbf24";
+  ctx.beginPath();
+  ctx.moveTo(x + CELL / 2, y + 6);
+  ctx.lineTo(x + CELL - 6, y + CELL / 2);
+  ctx.lineTo(x + CELL / 2, y + CELL - 6);
+  ctx.lineTo(x + 6, y + CELL / 2);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = "#fde047";
+  ctx.beginPath();
+  ctx.moveTo(x + CELL / 2, y + 9);
+  ctx.lineTo(x + CELL - 9, y + CELL / 2);
+  ctx.lineTo(x + CELL / 2, y + CELL / 2 - 2);
+  ctx.closePath();
+  ctx.fill();
+}
+
+function drawHelmet(ctx: CanvasRenderingContext2D, x: number, y: number, t: number) {
+  const pulse = 0.6 + Math.sin(t * 4) * 0.4;
+  ctx.fillStyle = `rgba(103, 232, 249, ${0.15 + pulse * 0.2})`;
+  ctx.beginPath();
+  ctx.arc(x + CELL / 2, y + CELL / 2, 11, 0, Math.PI * 2);
+  ctx.fill();
+  // Helmet dome
+  ctx.fillStyle = "#22d3ee";
+  ctx.beginPath();
+  ctx.arc(x + CELL / 2, y + CELL / 2 + 2, 7, Math.PI, Math.PI * 2);
+  ctx.fill();
+  // Brim
+  ctx.fillStyle = "#0e7490";
+  ctx.fillRect(x + CELL / 2 - 9, y + CELL / 2 + 1, 18, 3);
+  // Crest
+  ctx.fillStyle = "#a5f3fc";
+  ctx.fillRect(x + CELL / 2 - 1, y + CELL / 2 - 5, 2, 2);
+}
+
+function drawTreasure(ctx: CanvasRenderingContext2D, x: number, y: number, t: number) {
+  const pulse = 0.6 + Math.sin(t * 3) * 0.4;
+  // Glow halo
+  ctx.fillStyle = `rgba(251, 191, 36, ${pulse * 0.4})`;
+  ctx.beginPath();
+  ctx.arc(x + CELL / 2, y + CELL / 2, 16, 0, Math.PI * 2);
+  ctx.fill();
+  // Chest body
+  ctx.fillStyle = "#7c2d12";
+  ctx.fillRect(x + 3, y + 8, CELL - 6, CELL - 11);
+  ctx.fillStyle = "#9a3412";
+  ctx.fillRect(x + 3, y + 8, CELL - 6, 7);
+  // Lid edge
+  ctx.fillStyle = "#451a03";
+  ctx.fillRect(x + 3, y + 13, CELL - 6, 2);
+  // Lock
+  ctx.fillStyle = "#fbbf24";
+  ctx.fillRect(x + CELL / 2 - 2, y + 12, 4, 6);
+  ctx.fillStyle = "#000";
+  ctx.fillRect(x + CELL / 2 - 1, y + 14, 2, 2);
+  // Sparkles
+  const sx = x + CELL / 2 + Math.cos(t * 2) * 8;
+  const sy = y + CELL / 2 - 6 + Math.sin(t * 2) * 4;
+  ctx.fillStyle = `rgba(254, 240, 138, ${pulse})`;
+  ctx.fillRect(sx - 1, sy - 1, 2, 2);
+}
+
 function drawCrowbar(ctx: CanvasRenderingContext2D, x: number, y: number, t: number) {
   // Pulsing gleam halo
   const pulse = 0.5 + Math.sin(t * 6) * 0.5;
@@ -638,27 +807,41 @@ function drawCrowbar(ctx: CanvasRenderingContext2D, x: number, y: number, t: num
 }
 
 function drawPlayer(ctx: CanvasRenderingContext2D, s: GameState) {
-  // Animated col/row using easing
   const e = 1 - Math.pow(1 - s.moveAnim, 3);
   const interpCol = s.prevPlayerCol + (s.player.col - s.prevPlayerCol) * e;
   const interpRow = s.prevPlayerRow + (s.player.row - s.prevPlayerRow) * e;
   const px = interpCol * CELL;
   const py = interpRow * CELL;
 
+  // Helmet save flash — ring of light around player
+  if (s.helmetFlash > 0) {
+    ctx.fillStyle = `rgba(253, 224, 71, ${s.helmetFlash * 0.5})`;
+    ctx.beginPath();
+    ctx.arc(px + CELL / 2, py + CELL / 2, 18 + (1 - s.helmetFlash) * 12, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
   // Body
   ctx.fillStyle = "#22d3ee";
   ctx.fillRect(px + 5, py + 6, CELL - 10, CELL - 10);
-  // Body shadow
   ctx.fillStyle = "#0e7490";
   ctx.fillRect(px + 5, py + CELL - 8, CELL - 10, 4);
   // Head
   ctx.fillStyle = "#f5e8d4";
   ctx.fillRect(px + 8, py + 4, CELL - 16, 6);
-  // Eye dot (facing)
   ctx.fillStyle = "#0a0508";
   const eyeX = s.facing > 0 ? px + CELL - 11 : px + 9;
   ctx.fillRect(eyeX, py + 6, 2, 2);
-  // Crowbar trail in hand
+  // Helmet on top of head
+  if (s.hasHelmet) {
+    ctx.fillStyle = "#22d3ee";
+    ctx.fillRect(px + 7, py + 2, CELL - 14, 3);
+    ctx.fillStyle = "#0e7490";
+    ctx.fillRect(px + 7, py + 5, CELL - 14, 1);
+    ctx.fillStyle = "#a5f3fc";
+    ctx.fillRect(px + CELL / 2 - 1, py, 2, 2);
+  }
+  // Crowbar in hand
   if (s.hasCrowbar > 0) {
     ctx.fillStyle = "#facc15";
     ctx.fillRect(px + (s.facing > 0 ? CELL - 4 : 2), py + 8, 2, CELL - 14);

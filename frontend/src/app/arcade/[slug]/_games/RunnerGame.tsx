@@ -22,6 +22,14 @@ type Obstacle = {
   kind: "barrier" | "pipe" | "guard";
 };
 
+type Pickup = {
+  x: number;
+  y: number;
+  kind: "coin" | "shield" | "boost";
+  collected: boolean;
+  bobPhase: number;
+};
+
 type DustParticle = {
   x: number;
   y: number;
@@ -37,6 +45,8 @@ type ParallaxLayer = {
   blobs: Array<{ x: number; y: number; w: number; h: number; color: string }>;
 };
 
+type FloatText = { x: number; y: number; text: string; color: string; life: number };
+
 type GameState = {
   player: {
     y: number;
@@ -46,10 +56,16 @@ type GameState = {
     alive: boolean;
     legPhase: number;
     deathTime: number;
+    hasShield: boolean;
+    shieldFlash: number;
+    boostUntil: number;
   };
   worldSpeed: number;
   distance: number;
   obstacles: Obstacle[];
+  pickups: Pickup[];
+  pickupSpawnTimerMs: number;
+  coinCount: number;
   spawnTimerMs: number;
   rng: () => number;
   dust: DustParticle[];
@@ -57,6 +73,7 @@ type GameState = {
   speedLines: Array<{ x: number; y: number; len: number; speed: number }>;
   shake: { mag: number; life: number };
   animTime: number;
+  floats: FloatText[];
 };
 
 const GRAVITY = 1800;
@@ -159,10 +176,16 @@ export function RunnerGame({
         alive: true,
         legPhase: 0,
         deathTime: 0,
+        hasShield: false,
+        shieldFlash: 0,
+        boostUntil: 0,
       },
       worldSpeed: 260,
       distance: 0,
       obstacles: [],
+      pickups: [],
+      pickupSpawnTimerMs: 2200,
+      coinCount: 0,
       spawnTimerMs: 1400,
       rng,
       dust: [],
@@ -170,6 +193,7 @@ export function RunnerGame({
       speedLines: [],
       shake: { mag: 0, life: 0 },
       animTime: 0,
+      floats: [],
     };
     stateRef.current = st;
     setTick((t) => t + 1);
@@ -201,9 +225,14 @@ export function RunnerGame({
         }
       }
 
-      // Speed + distance
-      s.worldSpeed = 260 + Math.min(440, s.distance * 0.6);
+      // Speed + distance — boost multiplier when active
+      const isBoosting = now < s.player.boostUntil;
+      const baseSpeed = 260 + Math.min(440, s.distance * 0.6);
+      s.worldSpeed = isBoosting ? baseSpeed * 1.5 : baseSpeed;
       s.distance += (s.worldSpeed * dt) / 8;
+      if (s.player.shieldFlash > 0) {
+        s.player.shieldFlash = Math.max(0, s.player.shieldFlash - dt * 1.4);
+      }
       // Parallax scroll
       for (const layer of s.parallax) {
         layer.offset = (layer.offset + s.worldSpeed * dt * layer.speed) % 2000;
@@ -229,11 +258,18 @@ export function RunnerGame({
         d.life -= dt * 1.3;
       }
       s.dust = s.dust.filter((d) => d.life > 0);
+      // Floats
+      for (const f of s.floats) {
+        f.y -= 45 * dt;
+        f.x -= s.worldSpeed * dt;
+        f.life -= dt;
+      }
+      s.floats = s.floats.filter((f) => f.life > 0);
 
       if (s.player.alive) {
         const keys = keysRef.current;
-        const wantJump = keys.has(" ") || keys.has("ArrowUp") || keys.has("w") || keys.has("W");
-        const wantDuck = keys.has("ArrowDown") || keys.has("s") || keys.has("S");
+        const wantJump = keys.has(" ") || keys.has("Space") || keys.has("ArrowUp") || keys.has("KeyW");
+        const wantDuck = keys.has("ArrowDown") || keys.has("KeyS");
         if (wantJump && s.player.onGround && !s.player.ducking) {
           s.player.vy = JUMP_VELOCITY;
           s.player.onGround = false;
@@ -267,11 +303,78 @@ export function RunnerGame({
         for (const o of s.obstacles) o.x -= s.worldSpeed * dt;
         s.obstacles = s.obstacles.filter((o) => o.x > -80);
 
+        // Pickup spawning
+        s.pickupSpawnTimerMs -= dt * 1000;
+        if (s.pickupSpawnTimerMs <= 0) {
+          const r = s.rng();
+          let kind: Pickup["kind"];
+          let y: number;
+          if (r < 0.7) {
+            kind = "coin";
+            // Floats — middle-air or low
+            y = s.rng() < 0.6 ? GROUND_Y - 80 - s.rng() * 50 : GROUND_Y - 14;
+          } else if (r < 0.88) {
+            kind = "shield";
+            y = GROUND_Y - 60;
+          } else {
+            kind = "boost";
+            y = GROUND_Y - 90;
+          }
+          s.pickups.push({ x: W + 30, y, kind, collected: false, bobPhase: 0 });
+          s.pickupSpawnTimerMs = 1500 + s.rng() * 2000;
+        }
+        for (const p of s.pickups) {
+          p.x -= s.worldSpeed * dt;
+          p.bobPhase += dt * 3;
+        }
+        s.pickups = s.pickups.filter((p) => p.x > -40 && !p.collected);
+
+        // Pickup collision (uses simple AABB vs player body)
         const phH = s.player.ducking ? PLAYER_DUCK_H : PLAYER_H;
         const px0 = PLAYER_X;
         const px1 = PLAYER_X + PLAYER_W;
         const py0 = s.player.y;
         const py1 = s.player.y + phH;
+        for (const p of s.pickups) {
+          if (p.collected) continue;
+          const bob = Math.sin(p.bobPhase) * 4;
+          const pky0 = p.y - 10 + bob;
+          const pky1 = p.y + 10 + bob;
+          if (px1 > p.x - 10 && px0 < p.x + 10 && py1 > pky0 && py0 < pky1) {
+            p.collected = true;
+            if (p.kind === "coin") {
+              s.coinCount += 1;
+              s.distance += 10;
+              s.floats.push({ x: p.x, y: p.y, text: "+10м", color: "#fbbf24", life: 0.8 });
+              for (let i = 0; i < 8; i++) {
+                const a = s.rng() * Math.PI * 2;
+                s.dust.push({
+                  x: p.x,
+                  y: p.y,
+                  vx: Math.cos(a) * 60,
+                  vy: Math.sin(a) * 60,
+                  life: 0.4,
+                  size: 2,
+                });
+              }
+            } else if (p.kind === "shield") {
+              s.player.hasShield = true;
+              s.floats.push({ x: p.x, y: p.y, text: "🛡 ЩИТ", color: "#22d3ee", life: 1.0 });
+            } else {
+              s.player.boostUntil = now + 3000;
+              s.floats.push({ x: p.x, y: p.y, text: "🔥 БУСТ", color: "#fb923c", life: 1.0 });
+              s.shake.mag = 3;
+              s.shake.life = 0.2;
+            }
+          }
+        }
+
+        // Obstacle collision (with shield invulnerability)
+        const phH2 = s.player.ducking ? PLAYER_DUCK_H : PLAYER_H;
+        const ox0p = PLAYER_X;
+        const ox1p = PLAYER_X + PLAYER_W;
+        const opy0 = s.player.y;
+        const opy1 = s.player.y + phH2;
         for (const o of s.obstacles) {
           let oy0: number, oy1: number;
           if (o.kind === "pipe") {
@@ -283,11 +386,20 @@ export function RunnerGame({
           }
           const ox0 = o.x;
           const ox1 = o.x + o.w;
-          if (px1 > ox0 && px0 < ox1 && py1 > oy0 && py0 < oy1) {
+          if (ox1p > ox0 && ox0p < ox1 && opy1 > oy0 && opy0 < oy1) {
+            if (s.player.hasShield) {
+              s.player.hasShield = false;
+              s.player.shieldFlash = 1.0;
+              o.x = -200; // remove the obstacle that hit us so we don't loop-hit
+              s.shake.mag = 6;
+              s.shake.life = 0.25;
+              spawnDust(s, PLAYER_X, GROUND_Y, "land");
+              s.floats.push({ x: PLAYER_X + 20, y: s.player.y - 8, text: "ЩИТ!", color: "#22d3ee", life: 0.8 });
+              break;
+            }
             s.player.alive = false;
             s.shake.mag = 10;
             s.shake.life = 0.4;
-            // Death dust burst
             spawnDust(s, PLAYER_X, s.player.y, "land");
             spawnDust(s, PLAYER_X, s.player.y, "jump");
             break;
@@ -310,10 +422,15 @@ export function RunnerGame({
 
   useEffect(() => {
     const onDown = (e: KeyboardEvent) => {
+      // Track both code (layout-independent) and key (arrows)
+      keysRef.current.add(e.code);
       keysRef.current.add(e.key);
-      if (["ArrowUp", "ArrowDown", " "].includes(e.key)) e.preventDefault();
+      if (["ArrowUp", "ArrowDown", " ", "Space"].includes(e.key)) e.preventDefault();
     };
-    const onUp = (e: KeyboardEvent) => keysRef.current.delete(e.key);
+    const onUp = (e: KeyboardEvent) => {
+      keysRef.current.delete(e.code);
+      keysRef.current.delete(e.key);
+    };
     window.addEventListener("keydown", onDown);
     window.addEventListener("keyup", onUp);
     return () => {
@@ -330,8 +447,20 @@ export function RunnerGame({
       onStart={start}
       scoreBadge={
         runState.phase === "running" && stateRef.current ? (
-          <div className="rounded-md border border-emerald-500/40 bg-emerald-500/10 px-3 py-1.5 font-mono text-sm text-emerald-200">
-            🏃 {Math.floor(stateRef.current.distance)} м
+          <div className="flex items-center gap-2">
+            <div className="rounded-md border border-emerald-500/40 bg-emerald-500/10 px-3 py-1.5 font-mono text-sm text-emerald-200">
+              🏃 {Math.floor(stateRef.current.distance)}м
+            </div>
+            {stateRef.current.coinCount > 0 && (
+              <div className="rounded-md border border-yellow-500/40 bg-yellow-500/10 px-2 py-1.5 font-mono text-xs text-yellow-300">
+                🪙{stateRef.current.coinCount}
+              </div>
+            )}
+            {stateRef.current.player.hasShield && (
+              <div className="rounded-md border border-cyan/40 bg-cyan/10 px-2 py-1.5 font-mono text-xs text-cyan">
+                🛡
+              </div>
+            )}
           </div>
         ) : null
       }
@@ -477,14 +606,40 @@ function draw(canvas: HTMLCanvasElement, s: GameState) {
     }
   }
 
+  // Pickups
+  for (const p of s.pickups) {
+    if (p.collected) continue;
+    drawPickup(ctx, p);
+  }
+
   // Dust particles
   for (const d of s.dust) {
     ctx.fillStyle = `rgba(180, 180, 180, ${Math.max(0, Math.min(1, d.life))})`;
     ctx.fillRect(d.x - d.size / 2, d.y - d.size / 2, d.size, d.size);
   }
 
+  // Boost trail behind player
+  const now2 = performance.now();
+  if (now2 < s.player.boostUntil) {
+    for (let i = 0; i < 4; i++) {
+      ctx.fillStyle = `rgba(251, 146, 60, ${0.35 - i * 0.08})`;
+      ctx.fillRect(PLAYER_X - i * 8 - 4, s.player.y + 10, 10, PLAYER_H - 22);
+    }
+  }
+
   // Player
   drawPlayer(ctx, s);
+
+  // Floats
+  for (const f of s.floats) {
+    ctx.globalAlpha = Math.max(0, Math.min(1, f.life));
+    ctx.fillStyle = f.color;
+    ctx.font = "bold 13px monospace";
+    ctx.textAlign = "center";
+    ctx.fillText(f.text, f.x, f.y);
+  }
+  ctx.globalAlpha = 1;
+  ctx.textAlign = "start";
 
   // HUD
   ctx.fillStyle = "rgba(0,0,0,0.7)";
@@ -502,11 +657,88 @@ function draw(canvas: HTMLCanvasElement, s: GameState) {
   ctx.fillStyle = speedColor;
   ctx.font = "11px monospace";
   ctx.fillText(`${Math.floor(s.worldSpeed)} px/s`, 190, 17);
-  ctx.fillStyle = "#94a3b8";
-  ctx.font = "10px monospace";
-  ctx.fillText(`SPACE = прыжок · ↓ = подкат`, 300, 17);
+  // Boost timer or controls hint
+  const now3 = performance.now();
+  if (now3 < s.player.boostUntil) {
+    const rem = ((s.player.boostUntil - now3) / 1000).toFixed(1);
+    ctx.fillStyle = "#fb923c";
+    ctx.font = "bold 12px monospace";
+    ctx.fillText(`🔥 БУСТ ${rem}s`, 300, 17);
+  } else {
+    ctx.fillStyle = "#94a3b8";
+    ctx.font = "10px monospace";
+    ctx.fillText(`SPACE = прыжок · ↓ = подкат`, 300, 17);
+  }
+  if (s.coinCount > 0) {
+    ctx.fillStyle = "#fbbf24";
+    ctx.font = "bold 11px monospace";
+    ctx.fillText(`🪙 ${s.coinCount}`, W - 60, 17);
+  }
 
   ctx.restore();
+}
+
+function drawPickup(ctx: CanvasRenderingContext2D, p: Pickup) {
+  const bob = Math.sin(p.bobPhase) * 4;
+  const cx = p.x;
+  const cy = p.y + bob;
+  if (p.kind === "coin") {
+    // Coin halo
+    ctx.fillStyle = "rgba(251, 191, 36, 0.25)";
+    ctx.beginPath();
+    ctx.arc(cx, cy, 10, 0, Math.PI * 2);
+    ctx.fill();
+    // Coin body
+    ctx.fillStyle = "#fbbf24";
+    ctx.beginPath();
+    ctx.arc(cx, cy, 6, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#fde047";
+    ctx.beginPath();
+    ctx.arc(cx - 1, cy - 1, 3, 0, Math.PI * 2);
+    ctx.fill();
+    // $ mark
+    ctx.fillStyle = "#a16207";
+    ctx.fillRect(cx - 1, cy - 3, 2, 6);
+    ctx.fillRect(cx - 3, cy - 1, 6, 1);
+    ctx.fillRect(cx - 3, cy + 1, 6, 1);
+  } else if (p.kind === "shield") {
+    ctx.fillStyle = "rgba(103, 232, 249, 0.3)";
+    ctx.beginPath();
+    ctx.arc(cx, cy, 14, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#22d3ee";
+    ctx.beginPath();
+    ctx.moveTo(cx, cy - 9);
+    ctx.lineTo(cx + 8, cy - 4);
+    ctx.lineTo(cx + 8, cy + 4);
+    ctx.lineTo(cx, cy + 9);
+    ctx.lineTo(cx - 8, cy + 4);
+    ctx.lineTo(cx - 8, cy - 4);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = "#a5f3fc";
+    ctx.lineWidth = 1;
+    ctx.stroke();
+  } else {
+    // Boost = flame
+    ctx.fillStyle = "rgba(251, 146, 60, 0.3)";
+    ctx.beginPath();
+    ctx.arc(cx, cy, 14, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#ef4444";
+    ctx.beginPath();
+    ctx.moveTo(cx, cy - 10);
+    ctx.bezierCurveTo(cx - 8, cy - 4, cx - 7, cy + 6, cx, cy + 8);
+    ctx.bezierCurveTo(cx + 7, cy + 6, cx + 8, cy - 4, cx, cy - 10);
+    ctx.fill();
+    ctx.fillStyle = "#fbbf24";
+    ctx.beginPath();
+    ctx.moveTo(cx, cy - 5);
+    ctx.bezierCurveTo(cx - 4, cy - 1, cx - 3, cy + 4, cx, cy + 5);
+    ctx.bezierCurveTo(cx + 3, cy + 4, cx + 4, cy - 1, cx, cy - 5);
+    ctx.fill();
+  }
 }
 
 function drawPlayer(ctx: CanvasRenderingContext2D, s: GameState) {
@@ -523,7 +755,6 @@ function drawPlayer(ctx: CanvasRenderingContext2D, s: GameState) {
   ctx.fill();
 
   if (!s.player.alive) {
-    // Death — slumped over
     ctx.save();
     ctx.translate(px + PLAYER_W / 2, py + phH / 2);
     ctx.rotate(s.player.deathTime * 2.5);
@@ -533,8 +764,26 @@ function drawPlayer(ctx: CanvasRenderingContext2D, s: GameState) {
     return;
   }
 
-  // Body
-  ctx.fillStyle = "#10b981";
+  const now = performance.now();
+  const isBoosting = now < s.player.boostUntil;
+
+  // Shield ring (pulsing)
+  if (s.player.hasShield) {
+    const pulse = 0.6 + Math.sin(now / 100) * 0.4;
+    ctx.strokeStyle = `rgba(103, 232, 249, ${pulse})`;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.ellipse(px + PLAYER_W / 2, py + phH / 2, PLAYER_W / 2 + 6, phH / 2 + 4, 0, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+  // Shield-break flash
+  if (s.player.shieldFlash > 0) {
+    ctx.fillStyle = `rgba(103, 232, 249, ${s.player.shieldFlash * 0.6})`;
+    ctx.fillRect(px - 4, py - 4, PLAYER_W + 8, phH + 8);
+  }
+
+  // Body — orange tint when boosting
+  ctx.fillStyle = isBoosting ? "#fb923c" : "#10b981";
   ctx.fillRect(px, py, PLAYER_W, phH);
   // Boots band
   ctx.fillStyle = "#065f46";

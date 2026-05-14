@@ -14,33 +14,50 @@ const PLAYER_W = 32;
 const PLAYER_H = 72;
 const ENEMY_W = 30;
 const ENEMY_H = 68;
+const BOSS_W = 44;
+const BOSS_H = 88;
+
+type EnemyKind = "grunt" | "veteran" | "boss";
 
 type Player = {
   x: number;
   facing: 1 | -1;
   hp: number;
   hpMax: number;
-  hpDisplay: number; // animates toward hp
+  hpDisplay: number;
   punchUntil: number;
   dodgeUntil: number;
   parryUntil: number;
   attackCooldownUntil: number;
   hitFlashUntil: number;
   walkPhase: number;
+  comboCount: number;
+  comboExpiresAt: number;
+  rageUntil: number;
 };
 
 type Enemy = {
   x: number;
   facing: 1 | -1;
+  kind: EnemyKind;
   hp: number;
   hpMax: number;
   speed: number;
   attackCooldown: number;
   attacking: number;
   alive: boolean;
-  deathTimer: number; // fades 0..400ms after death
+  deathTimer: number;
   hitFlashUntil: number;
   walkPhase: number;
+  reach: number;
+};
+
+type Pickup = {
+  x: number;
+  y: number;
+  kind: "hp" | "rage";
+  bobPhase: number;
+  collected: boolean;
 };
 
 type Particle = {
@@ -50,13 +67,15 @@ type Particle = {
   vy: number;
   life: number;
   color: string;
+  size: number;
 };
 
-type FloatText = { x: number; y: number; text: string; life: number; color: string };
+type FloatText = { x: number; y: number; text: string; life: number; color: string; size: number };
 
 type GameState = {
   player: Player;
   enemies: Enemy[];
+  pickups: Pickup[];
   wave: number;
   killsThisWave: number;
   killsTotal: number;
@@ -64,41 +83,115 @@ type GameState = {
   rng: () => number;
   waveStartAt: number;
   waveBannerLife: number;
+  waveBannerText: string;
+  waveBannerSub: string;
   particles: Particle[];
   floats: FloatText[];
   shake: { mag: number; life: number };
   animTime: number;
+  hitstop: number; // brief time-freeze on impactful hits
+  bgFlash: number; // red overlay on heavy damage
 };
 
 function spawnWave(s: GameState, ts: number) {
   s.wave += 1;
   s.killsThisWave = 0;
-  const count = Math.min(7, 2 + Math.floor(s.wave / 2));
-  for (let i = 0; i < count; i++) {
-    const fromLeft = s.rng() < 0.5;
-    s.enemies.push({
-      x: fromLeft ? -ENEMY_W - i * 50 : W + i * 50,
+  // Boss every 5 waves
+  const isBossWave = s.wave % 5 === 0;
+  let bannerText = `ВОЛНА ${s.wave}`;
+  let bannerSub: string;
+  if (isBossWave) {
+    bannerText = `БОСС · ВОЛНА ${s.wave}`;
+    bannerSub = "охранник в броне";
+    s.enemies.push(makeEnemy(s, "boss", false));
+    // Plus 2 grunts as escorts
+    s.enemies.push(makeEnemy(s, "grunt", true));
+    s.enemies.push(makeEnemy(s, "grunt", false));
+  } else {
+    const count = Math.min(7, 2 + Math.floor(s.wave / 2));
+    const veteranCount = Math.min(count - 1, Math.floor(s.wave / 3));
+    for (let i = 0; i < count; i++) {
+      const kind: EnemyKind = i < veteranCount ? "veteran" : "grunt";
+      s.enemies.push(makeEnemy(s, kind, s.rng() < 0.5));
+    }
+    bannerSub = `${count} противников`;
+  }
+  s.waveStartAt = ts;
+  s.waveBannerLife = 1.8;
+  s.waveBannerText = bannerText;
+  s.waveBannerSub = bannerSub;
+  // Heal on wave clear
+  s.player.hp = Math.min(s.player.hpMax, s.player.hp + (isBossWave ? 30 : 18));
+  // Spawn a pickup occasionally
+  if (s.wave > 1 && s.rng() < 0.5) {
+    s.pickups.push({
+      x: 80 + s.rng() * (W - 160),
+      y: FLOOR_Y - 16,
+      kind: s.rng() < 0.6 ? "hp" : "rage",
+      bobPhase: 0,
+      collected: false,
+    });
+  }
+}
+
+function makeEnemy(s: GameState, kind: EnemyKind, fromLeft: boolean): Enemy {
+  const wave = s.wave;
+  if (kind === "boss") {
+    return {
+      x: fromLeft ? -BOSS_W : W + BOSS_W,
       facing: fromLeft ? 1 : -1,
-      hp: 30 + s.wave * 4,
-      hpMax: 30 + s.wave * 4,
-      speed: 60 + s.wave * 4 + s.rng() * 20,
-      attackCooldown: 1000 + s.rng() * 500,
+      kind: "boss",
+      hp: 140 + wave * 8,
+      hpMax: 140 + wave * 8,
+      speed: 55 + wave * 1.5,
+      attackCooldown: 1400 + s.rng() * 400,
       attacking: 0,
       alive: true,
       deathTimer: 0,
       hitFlashUntil: 0,
       walkPhase: s.rng() * Math.PI * 2,
-    });
+      reach: 62,
+    };
   }
-  s.waveStartAt = ts;
-  s.waveBannerLife = 1.6;
-  s.player.hp = Math.min(s.player.hpMax, s.player.hp + 20);
+  if (kind === "veteran") {
+    return {
+      x: fromLeft ? -ENEMY_W : W + ENEMY_W,
+      facing: fromLeft ? 1 : -1,
+      kind: "veteran",
+      hp: 55 + wave * 5,
+      hpMax: 55 + wave * 5,
+      speed: 80 + wave * 4 + s.rng() * 20,
+      attackCooldown: 800 + s.rng() * 400,
+      attacking: 0,
+      alive: true,
+      deathTimer: 0,
+      hitFlashUntil: 0,
+      walkPhase: s.rng() * Math.PI * 2,
+      reach: 52,
+    };
+  }
+  return {
+    x: fromLeft ? -ENEMY_W : W + ENEMY_W,
+    facing: fromLeft ? 1 : -1,
+    kind: "grunt",
+    hp: 30 + wave * 3,
+    hpMax: 30 + wave * 3,
+    speed: 65 + wave * 3 + s.rng() * 20,
+    attackCooldown: 1000 + s.rng() * 500,
+    attacking: 0,
+    alive: true,
+    deathTimer: 0,
+    hitFlashUntil: 0,
+    walkPhase: s.rng() * Math.PI * 2,
+    reach: 46,
+  };
 }
 
-function spawnBlood(s: GameState, x: number, y: number) {
-  for (let i = 0; i < 10; i++) {
+function spawnBlood(s: GameState, x: number, y: number, big = false) {
+  const n = big ? 18 : 10;
+  for (let i = 0; i < n; i++) {
     const a = s.rng() * Math.PI * 2;
-    const sp = 100 + s.rng() * 120;
+    const sp = big ? 140 + s.rng() * 160 : 100 + s.rng() * 120;
     s.particles.push({
       x,
       y,
@@ -106,12 +199,13 @@ function spawnBlood(s: GameState, x: number, y: number) {
       vy: Math.sin(a) * sp - 60,
       life: 0.5 + s.rng() * 0.4,
       color: s.rng() < 0.7 ? "#dc2626" : "#7f1d1d",
+      size: big ? 4 : 3,
     });
   }
 }
 
 function spawnSparks(s: GameState, x: number, y: number) {
-  for (let i = 0; i < 8; i++) {
+  for (let i = 0; i < 10; i++) {
     const a = s.rng() * Math.PI * 2;
     s.particles.push({
       x,
@@ -119,18 +213,43 @@ function spawnSparks(s: GameState, x: number, y: number) {
       vx: Math.cos(a) * (120 + s.rng() * 80),
       vy: Math.sin(a) * (120 + s.rng() * 80),
       life: 0.3 + s.rng() * 0.3,
-      color: "#facc15",
+      color: s.rng() < 0.5 ? "#facc15" : "#fbbf24",
+      size: 2,
     });
   }
 }
 
-function addFloat(s: GameState, x: number, y: number, text: string, color: string) {
-  s.floats.push({ x, y, text, color, life: 1.0 });
+function spawnRageFlare(s: GameState, x: number, y: number) {
+  for (let i = 0; i < 24; i++) {
+    const a = s.rng() * Math.PI * 2;
+    s.particles.push({
+      x,
+      y,
+      vx: Math.cos(a) * (140 + s.rng() * 100),
+      vy: Math.sin(a) * (140 + s.rng() * 100) - 40,
+      life: 0.6 + s.rng() * 0.5,
+      color: s.rng() < 0.5 ? "#ef4444" : "#fbbf24",
+      size: 3,
+    });
+  }
+}
+
+function addFloat(s: GameState, x: number, y: number, text: string, color: string, size = 14) {
+  s.floats.push({ x, y, text, color, life: 1.0, size });
 }
 
 function applyShake(s: GameState, mag: number) {
   s.shake.mag = Math.max(s.shake.mag, mag);
   s.shake.life = 0.35;
+}
+
+// Robust key tracking by physical key code (layout-independent).
+function pressedActionCode(set: Set<string>, code: string): boolean {
+  if (set.has(code)) {
+    set.delete(code);
+    return true;
+  }
+  return false;
 }
 
 export function BrawlerGame({
@@ -150,7 +269,8 @@ export function BrawlerGame({
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const stateRef = useRef<GameState | null>(null);
   const rafRef = useRef<number | null>(null);
-  const keysRef = useRef<Set<string>>(new Set());
+  const heldRef = useRef<Set<string>>(new Set()); // continuously held keys (move)
+  const pressedRef = useRef<Set<string>>(new Set()); // one-shot keys consumed on use (attacks)
   const [tick, setTick] = useState(0);
 
   useEffect(() => {
@@ -169,8 +289,12 @@ export function BrawlerGame({
         attackCooldownUntil: 0,
         hitFlashUntil: 0,
         walkPhase: 0,
+        comboCount: 0,
+        comboExpiresAt: 0,
+        rageUntil: 0,
       },
       enemies: [],
+      pickups: [],
       wave: 0,
       killsThisWave: 0,
       killsTotal: 0,
@@ -178,10 +302,14 @@ export function BrawlerGame({
       rng,
       waveStartAt: performance.now(),
       waveBannerLife: 0,
+      waveBannerText: "",
+      waveBannerSub: "",
       particles: [],
       floats: [],
       shake: { mag: 0, life: 0 },
       animTime: 0,
+      hitstop: 0,
+      bgFlash: 0,
     };
     spawnWave(st, performance.now());
     stateRef.current = st;
@@ -192,23 +320,34 @@ export function BrawlerGame({
     if (runState.phase !== "running") return;
     let last = performance.now();
     const step = (now: number) => {
-      const dt = Math.min(0.1, (now - last) / 1000);
+      const dt0 = Math.min(0.1, (now - last) / 1000);
       last = now;
       const s = stateRef.current;
       const canvas = canvasRef.current;
       if (!s || !canvas) return;
-      s.animTime += dt;
+      s.animTime += dt0;
+
+      // Hitstop: brief slowdown on heavy hits for impact
+      const dt = s.hitstop > 0 ? dt0 * 0.15 : dt0;
+      if (s.hitstop > 0) s.hitstop = Math.max(0, s.hitstop - dt0);
+      if (s.bgFlash > 0) s.bgFlash = Math.max(0, s.bgFlash - dt0 * 2);
+
       if (s.waveBannerLife > 0) s.waveBannerLife -= dt;
       if (s.shake.life > 0) {
         s.shake.life -= dt;
         if (s.shake.life <= 0) s.shake.mag = 0;
       }
 
-      // HP display smooth lerp
+      // HP display lerp
       if (Math.abs(s.player.hpDisplay - s.player.hp) > 0.5) {
         s.player.hpDisplay += (s.player.hp - s.player.hpDisplay) * Math.min(1, dt * 6);
       } else {
         s.player.hpDisplay = s.player.hp;
+      }
+
+      // Combo decay
+      if (s.player.comboCount > 0 && now > s.player.comboExpiresAt) {
+        s.player.comboCount = 0;
       }
 
       if (!s.alive) {
@@ -218,61 +357,154 @@ export function BrawlerGame({
         });
         return;
       }
-      const keys = keysRef.current;
+
+      // Movement (continuous)
+      const held = heldRef.current;
       const speed = 220;
       let moving = false;
-      if (keys.has("a") || keys.has("ArrowLeft") || keys.has("A")) {
+      if (held.has("KeyA") || held.has("ArrowLeft")) {
         s.player.x = Math.max(20, s.player.x - speed * dt);
         s.player.facing = -1;
         moving = true;
       }
-      if (keys.has("d") || keys.has("ArrowRight") || keys.has("D")) {
+      if (held.has("KeyD") || held.has("ArrowRight")) {
         s.player.x = Math.min(W - 20, s.player.x + speed * dt);
         s.player.facing = 1;
         moving = true;
       }
-      if (moving) s.player.walkPhase += dt * 12;
-      // Punch (J)
-      if (keys.has("j") || keys.has("J")) {
+      if (moving) s.player.walkPhase += dt * 14;
+
+      // Pickups — collect on overlap
+      for (const p of s.pickups) {
+        if (p.collected) continue;
+        p.bobPhase += dt * 4;
+        if (Math.abs(p.x - s.player.x) < 22 && Math.abs((FLOOR_Y - PLAYER_H + PLAYER_H / 2) - p.y) < 50) {
+          p.collected = true;
+          if (p.kind === "hp") {
+            const heal = 35;
+            s.player.hp = Math.min(s.player.hpMax, s.player.hp + heal);
+            addFloat(s, s.player.x, FLOOR_Y - PLAYER_H, `+${heal} HP`, "#22c55e", 16);
+            for (let i = 0; i < 16; i++) {
+              const a = s.rng() * Math.PI * 2;
+              s.particles.push({
+                x: p.x,
+                y: p.y,
+                vx: Math.cos(a) * 90,
+                vy: Math.sin(a) * 90 - 40,
+                life: 0.7,
+                color: "#22c55e",
+                size: 3,
+              });
+            }
+          } else if (p.kind === "rage") {
+            s.player.rageUntil = now + 5000;
+            addFloat(s, s.player.x, FLOOR_Y - PLAYER_H, "ЯРОСТЬ ×2", "#ef4444", 18);
+            spawnRageFlare(s, s.player.x, FLOOR_Y - PLAYER_H / 2);
+            applyShake(s, 4);
+          }
+        }
+      }
+      s.pickups = s.pickups.filter((p) => !p.collected);
+
+      // Action keys (one-shot)
+      const pressed = pressedRef.current;
+      if (pressedActionCode(pressed, "KeyJ")) {
         if (now > s.player.attackCooldownUntil) {
+          const isRaging = now < s.player.rageUntil;
+          const isCombo = s.player.comboCount >= 3;
           s.player.punchUntil = now + 180;
-          s.player.attackCooldownUntil = now + 380;
+          s.player.attackCooldownUntil = now + (isCombo ? 280 : 380);
+          let landed = false;
+          let critOnBoss = false;
           for (const e of s.enemies) {
             if (!e.alive) continue;
             const dx = e.x - s.player.x;
-            if (s.player.facing * dx > 0 && Math.abs(dx) < 48) {
-              e.hp -= 18;
-              e.hitFlashUntil = now + 120;
-              spawnBlood(s, e.x, FLOOR_Y - ENEMY_H / 2);
-              applyShake(s, 3);
+            if (s.player.facing * dx > 0 && Math.abs(dx) < 50) {
+              landed = true;
+              let dmg = 18;
+              if (isRaging) dmg *= 2;
+              // Combo scaling
+              if (s.player.comboCount >= 5) dmg = Math.round(dmg * 1.4);
+              else if (s.player.comboCount >= 3) dmg = Math.round(dmg * 1.2);
+              // Crit chance — 12% base + combo bonus
+              const critRoll = s.rng();
+              const critChance = 0.12 + s.player.comboCount * 0.02;
+              const isCrit = critRoll < critChance;
+              if (isCrit) {
+                dmg = Math.round(dmg * 1.7);
+                addFloat(s, e.x, FLOOR_Y - ENEMY_H - 8, "КРИТ!", "#fde047", 18);
+                spawnSparks(s, e.x, FLOOR_Y - ENEMY_H / 2);
+                applyShake(s, 6);
+                s.hitstop = 0.08;
+                if (e.kind === "boss") critOnBoss = true;
+              }
+              e.hp -= dmg;
+              e.hitFlashUntil = now + 140;
+              spawnBlood(s, e.x, FLOOR_Y - ENEMY_H / 2, isCrit || e.kind === "boss");
+              if (!isCrit) applyShake(s, 3);
               if (e.hp <= 0) {
                 e.alive = false;
-                e.deathTimer = 0.4;
+                e.deathTimer = 0.5;
                 s.killsThisWave += 1;
                 s.killsTotal += 1;
-                addFloat(s, e.x, FLOOR_Y - ENEMY_H, "+1", "#fde047");
-                applyShake(s, 6);
+                const reward = e.kind === "boss" ? "+10 BOSS" : e.kind === "veteran" ? "+2" : "+1";
+                addFloat(s, e.x, FLOOR_Y - ENEMY_H, reward, "#fde047", e.kind === "boss" ? 18 : 14);
+                applyShake(s, e.kind === "boss" ? 12 : 6);
+                if (e.kind === "boss") {
+                  s.hitstop = 0.18;
+                  spawnRageFlare(s, e.x, FLOOR_Y - BOSS_H / 2);
+                  // Boss drops a HP pickup
+                  s.pickups.push({
+                    x: e.x,
+                    y: FLOOR_Y - 16,
+                    kind: "hp",
+                    bobPhase: 0,
+                    collected: false,
+                  });
+                }
               }
             }
           }
+          if (landed) {
+            s.player.comboCount += 1;
+            s.player.comboExpiresAt = now + 1800;
+            if (s.player.comboCount === 5) {
+              addFloat(s, s.player.x, FLOOR_Y - PLAYER_H - 10, "СЕРИЯ ×5!", "#fb923c", 16);
+              applyShake(s, 5);
+            } else if (s.player.comboCount === 10) {
+              addFloat(s, s.player.x, FLOOR_Y - PLAYER_H - 10, "СЕРИЯ ×10!!", "#ef4444", 20);
+              applyShake(s, 8);
+              spawnRageFlare(s, s.player.x, FLOOR_Y - PLAYER_H / 2);
+            }
+          } else {
+            // Whiff resets combo a bit
+            s.player.comboCount = Math.max(0, s.player.comboCount - 1);
+          }
+          if (critOnBoss) s.bgFlash = 0.5;
         }
-        keys.delete("j");
-        keys.delete("J");
       }
-      if (keys.has("k") || keys.has("K")) {
+      if (pressedActionCode(pressed, "KeyK")) {
         if (now > s.player.dodgeUntil + 200) {
           s.player.dodgeUntil = now + 280;
-          s.player.x = Math.max(20, Math.min(W - 20, s.player.x - s.player.facing * 22));
+          s.player.x = Math.max(20, Math.min(W - 20, s.player.x - s.player.facing * 28));
+          // Brief afterimage particles
+          for (let i = 0; i < 6; i++) {
+            s.particles.push({
+              x: s.player.x + s.rng() * 20 - 10,
+              y: FLOOR_Y - PLAYER_H + 10 + s.rng() * 50,
+              vx: -s.player.facing * 30,
+              vy: 0,
+              life: 0.3,
+              color: "#67e8f9",
+              size: 2,
+            });
+          }
         }
-        keys.delete("k");
-        keys.delete("K");
       }
-      if (keys.has("l") || keys.has("L")) {
+      if (pressedActionCode(pressed, "KeyL")) {
         if (now > s.player.parryUntil + 800) {
-          s.player.parryUntil = now + 220;
+          s.player.parryUntil = now + 260;
         }
-        keys.delete("l");
-        keys.delete("L");
       }
 
       // Enemies
@@ -287,55 +519,57 @@ export function BrawlerGame({
         e.facing = dx > 0 ? 1 : -1;
         if (e.attacking > 0) {
           e.attacking -= dt * 1000;
-          if (e.attacking <= 0 && dist < 50) {
+          if (e.attacking <= 0 && dist < e.reach + 6) {
             const dodging = now < s.player.dodgeUntil;
             const parrying = now < s.player.parryUntil;
+            const baseDmg = e.kind === "boss" ? 18 : e.kind === "veteran" ? 14 : 10;
             if (parrying) {
-              e.hp -= 12;
-              e.hitFlashUntil = now + 120;
+              const refl = e.kind === "boss" ? 22 : 14;
+              e.hp -= refl;
+              e.hitFlashUntil = now + 140;
               spawnSparks(s, e.x, FLOOR_Y - ENEMY_H / 2);
-              applyShake(s, 4);
+              applyShake(s, 5);
+              addFloat(s, e.x, FLOOR_Y - ENEMY_H - 4, "PARRY", "#a855f7", 14);
               if (e.hp <= 0) {
                 e.alive = false;
-                e.deathTimer = 0.4;
+                e.deathTimer = 0.5;
                 s.killsThisWave += 1;
                 s.killsTotal += 1;
               }
-              e.attackCooldown = 1500;
+              e.attackCooldown = 1700;
+              // Successful parry adds combo
+              s.player.comboCount += 1;
+              s.player.comboExpiresAt = now + 2200;
             } else if (!dodging) {
-              s.player.hp = Math.max(0, s.player.hp - 12);
-              s.player.hitFlashUntil = now + 200;
-              addFloat(s, s.player.x, FLOOR_Y - PLAYER_H, "-12", "#fda4af");
-              applyShake(s, 5);
+              s.player.hp = Math.max(0, s.player.hp - baseDmg);
+              s.player.hitFlashUntil = now + 220;
+              s.bgFlash = 0.35;
+              addFloat(s, s.player.x, FLOOR_Y - PLAYER_H, `-${baseDmg}`, "#fda4af", 14);
+              applyShake(s, e.kind === "boss" ? 8 : 5);
               spawnBlood(s, s.player.x, FLOOR_Y - PLAYER_H / 2);
+              s.player.comboCount = 0;
             }
           }
         } else {
-          if (dist > 44) {
+          if (dist > e.reach - 2) {
             e.x += Math.sign(dx) * e.speed * dt;
           } else {
             e.attackCooldown -= dt * 1000;
             if (e.attackCooldown <= 0) {
-              e.attacking = 280;
-              e.attackCooldown = 1200 + s.rng() * 600;
+              e.attacking = e.kind === "boss" ? 380 : 280;
+              e.attackCooldown = (e.kind === "boss" ? 1500 : 1200) + s.rng() * 600;
             }
           }
         }
       }
-      // Cleanup
       s.enemies = s.enemies.filter((e) => e.alive || e.attacking > 0 || e.deathTimer > 0);
 
-      // Wave completion
       if (s.enemies.every((e) => !e.alive)) {
-        if (now - s.waveStartAt > 1500) {
-          spawnWave(s, now);
-        }
+        if (now - s.waveStartAt > 1500) spawnWave(s, now);
       }
-      if (s.player.hp <= 0) {
-        s.alive = false;
-      }
+      if (s.player.hp <= 0) s.alive = false;
 
-      // Particles
+      // Particles + floats
       for (const p of s.particles) {
         p.x += p.vx * dt;
         p.y += p.vy * dt;
@@ -343,9 +577,8 @@ export function BrawlerGame({
         p.life -= dt * 1.4;
       }
       s.particles = s.particles.filter((p) => p.life > 0);
-      // Floats
       for (const f of s.floats) {
-        f.y -= 45 * dt;
+        f.y -= 48 * dt;
         f.life -= dt;
       }
       s.floats = s.floats.filter((f) => f.life > 0);
@@ -361,11 +594,20 @@ export function BrawlerGame({
 
   useEffect(() => {
     const onDown = (e: KeyboardEvent) => {
-      keysRef.current.add(e.key);
-      if (["ArrowLeft", "ArrowRight", " "].includes(e.key)) e.preventDefault();
+      if (e.repeat) return;
+      // Track held (continuous) keys
+      heldRef.current.add(e.code);
+      heldRef.current.add(e.key);
+      // Track one-shot pressed keys for actions
+      pressedRef.current.add(e.code);
+      if (["ArrowLeft", "ArrowRight", " ", "Space"].includes(e.key) ||
+          ["ArrowLeft", "ArrowRight", "Space"].includes(e.code)) {
+        e.preventDefault();
+      }
     };
     const onUp = (e: KeyboardEvent) => {
-      keysRef.current.delete(e.key);
+      heldRef.current.delete(e.code);
+      heldRef.current.delete(e.key);
     };
     window.addEventListener("keydown", onDown);
     window.addEventListener("keyup", onUp);
@@ -383,8 +625,15 @@ export function BrawlerGame({
       onStart={start}
       scoreBadge={
         runState.phase === "running" && stateRef.current ? (
-          <div className="rounded-md border border-rose-500/40 bg-rose-500/10 px-3 py-1.5 font-mono text-sm text-rose-200">
-            Волна {stateRef.current.wave} · {stateRef.current.killsTotal} frags
+          <div className="flex items-center gap-2">
+            <div className="rounded-md border border-rose-500/40 bg-rose-500/10 px-3 py-1.5 font-mono text-sm text-rose-200">
+              В{stateRef.current.wave} · {stateRef.current.killsTotal}🗡
+            </div>
+            {stateRef.current.player.comboCount >= 2 && (
+              <div className="rounded-md border border-orange-500/40 bg-orange-500/10 px-3 py-1.5 font-mono text-sm text-orange-300">
+                ×{stateRef.current.player.comboCount}
+              </div>
+            )}
           </div>
         ) : null
       }
@@ -405,7 +654,6 @@ function draw(canvas: HTMLCanvasElement, s: GameState, now: number) {
   const ctx = canvas.getContext("2d");
   if (!ctx) return;
 
-  // Camera shake
   let shakeX = 0;
   let shakeY = 0;
   if (s.shake.mag > 0 && s.shake.life > 0) {
@@ -415,7 +663,7 @@ function draw(canvas: HTMLCanvasElement, s: GameState, now: number) {
   ctx.save();
   ctx.translate(shakeX, shakeY);
 
-  // Background — gritty cafeteria
+  // BG
   const grad = ctx.createLinearGradient(0, 0, 0, H);
   grad.addColorStop(0, "#2a0f10");
   grad.addColorStop(0.5, "#1a0a08");
@@ -423,7 +671,13 @@ function draw(canvas: HTMLCanvasElement, s: GameState, now: number) {
   ctx.fillStyle = grad;
   ctx.fillRect(0, 0, W, H);
 
-  // Ceiling lamps (3 swinging)
+  // BG flash on heavy hits
+  if (s.bgFlash > 0) {
+    ctx.fillStyle = `rgba(220, 38, 38, ${s.bgFlash * 0.4})`;
+    ctx.fillRect(0, 0, W, H);
+  }
+
+  // Ceiling lamps
   for (let i = 0; i < 3; i++) {
     const lx = W * (0.2 + i * 0.3);
     const sway = Math.sin(s.animTime * 1.2 + i) * 6;
@@ -433,15 +687,15 @@ function draw(canvas: HTMLCanvasElement, s: GameState, now: number) {
     ctx.moveTo(lx + sway, 0);
     ctx.lineTo(lx, 40);
     ctx.stroke();
-    // Lamp
     ctx.fillStyle = "#1a1014";
     ctx.fillRect(lx - 8, 40, 16, 8);
-    ctx.fillStyle = "#facc15";
+    // Lamp pulse on rage
+    const ragePulse = now < s.player.rageUntil ? 0.5 + Math.sin(s.animTime * 12) * 0.5 : 1;
+    ctx.fillStyle = now < s.player.rageUntil ? `rgba(239, 68, 68, ${ragePulse})` : "#facc15";
     ctx.beginPath();
     ctx.arc(lx, 50, 6, 0, Math.PI * 2);
     ctx.fill();
-    // Light cone on floor
-    ctx.fillStyle = "rgba(250, 204, 21, 0.06)";
+    ctx.fillStyle = now < s.player.rageUntil ? `rgba(239, 68, 68, ${ragePulse * 0.08})` : "rgba(250, 204, 21, 0.06)";
     ctx.beginPath();
     ctx.moveTo(lx - 4, 50);
     ctx.lineTo(lx + 4, 50);
@@ -451,7 +705,7 @@ function draw(canvas: HTMLCanvasElement, s: GameState, now: number) {
     ctx.fill();
   }
 
-  // Back wall hatching (concrete blocks)
+  // Back wall
   ctx.strokeStyle = "rgba(255, 255, 255, 0.04)";
   ctx.lineWidth = 1;
   for (let y = 60; y < FLOOR_Y; y += 24) {
@@ -468,7 +722,6 @@ function draw(canvas: HTMLCanvasElement, s: GameState, now: number) {
     }
   }
 
-  // Tables / overturned chairs as decor
   ctx.fillStyle = "rgba(255, 80, 40, 0.04)";
   for (let i = 0; i < 4; i++) {
     ctx.fillRect(i * 160 + 20, FLOOR_Y - 18, 140, 14);
@@ -477,17 +730,19 @@ function draw(canvas: HTMLCanvasElement, s: GameState, now: number) {
   // Floor
   ctx.fillStyle = "#3a1820";
   ctx.fillRect(0, FLOOR_Y, W, H - FLOOR_Y);
-  // Floor grime stripes
   ctx.fillStyle = "rgba(255, 80, 80, 0.05)";
   for (let i = 0; i < 8; i++) {
     ctx.fillRect(i * 80, FLOOR_Y + 5 + (i % 2) * 3, 60, 2);
   }
 
-  // Enemies (back-to-front by alive then by x)
-  const sortedEnemies = [...s.enemies].sort((a, b) => (b.alive ? 1 : 0) - (a.alive ? 1 : 0));
-  for (const e of sortedEnemies) {
-    drawEnemy(ctx, e, now);
+  // Pickups
+  for (const p of s.pickups) {
+    drawPickup(ctx, p);
   }
+
+  // Enemies — sort: alive first
+  const sortedEnemies = [...s.enemies].sort((a, b) => (b.alive ? 1 : 0) - (a.alive ? 1 : 0));
+  for (const e of sortedEnemies) drawEnemy(ctx, e, now);
 
   // Player
   drawPlayer(ctx, s.player, now);
@@ -496,14 +751,14 @@ function draw(canvas: HTMLCanvasElement, s: GameState, now: number) {
   for (const p of s.particles) {
     ctx.fillStyle = p.color;
     ctx.globalAlpha = Math.max(0, Math.min(1, p.life));
-    ctx.fillRect(p.x - 2, p.y - 2, 3, 3);
+    ctx.fillRect(p.x - p.size / 2, p.y - p.size / 2, p.size, p.size);
   }
   ctx.globalAlpha = 1;
   // Floats
   for (const f of s.floats) {
     ctx.globalAlpha = Math.max(0, Math.min(1, f.life));
     ctx.fillStyle = f.color;
-    ctx.font = "bold 14px monospace";
+    ctx.font = `bold ${f.size}px monospace`;
     ctx.textAlign = "center";
     ctx.fillText(f.text, f.x, f.y);
   }
@@ -513,7 +768,7 @@ function draw(canvas: HTMLCanvasElement, s: GameState, now: number) {
   // HUD
   ctx.fillStyle = "rgba(0,0,0,0.7)";
   ctx.fillRect(0, 0, W, 30);
-  // HP bar (smooth-animated display value)
+  // HP bar
   const p = s.player;
   ctx.fillStyle = "#1a0a08";
   ctx.fillRect(8, 8, 180, 14);
@@ -524,36 +779,83 @@ function draw(canvas: HTMLCanvasElement, s: GameState, now: number) {
   hpGrad.addColorStop(1, "#22c55e");
   ctx.fillStyle = hpGrad;
   ctx.fillRect(8, 8, 180 * hpFrac, 14);
-  // HP digital
   ctx.fillStyle = "#fff";
   ctx.font = "bold 11px monospace";
   ctx.fillText(`HP ${Math.ceil(p.hpDisplay)}`, 12, 18);
+  // Combo counter
+  if (p.comboCount >= 2) {
+    const pulse = 0.7 + Math.sin(s.animTime * 12) * 0.3;
+    ctx.fillStyle = `rgba(251, 146, 60, ${pulse})`;
+    ctx.font = "bold 13px monospace";
+    ctx.fillText(`COMBO ×${p.comboCount}`, 196, 19);
+  }
   ctx.fillStyle = "#fda4af";
-  ctx.fillText(`ВОЛНА ${s.wave}`, 210, 18);
+  ctx.font = "bold 11px monospace";
+  ctx.fillText(`ВОЛНА ${s.wave}`, W - 200, 18);
   ctx.fillStyle = "#fde047";
-  ctx.fillText(`FRAGS ${s.killsTotal}`, 310, 18);
-  ctx.fillStyle = "#94a3b8";
-  ctx.font = "10px monospace";
-  ctx.fillText(`J=удар · K=уворот · L=парировать`, 410, 19);
+  ctx.fillText(`🗡 ${s.killsTotal}`, W - 130, 18);
+  // Rage timer
+  if (now < p.rageUntil) {
+    const remain = Math.max(0, (p.rageUntil - now) / 1000);
+    ctx.fillStyle = "#ef4444";
+    ctx.fillText(`🔥 ${remain.toFixed(1)}s`, W - 70, 18);
+  } else {
+    ctx.fillStyle = "#94a3b8";
+    ctx.font = "10px monospace";
+    ctx.fillText(`J·K·L`, W - 50, 19);
+  }
 
   // Wave banner
   if (s.waveBannerLife > 0) {
-    const alpha = Math.min(1, s.waveBannerLife * 2);
+    const alpha = Math.min(1, s.waveBannerLife * 1.4);
     ctx.globalAlpha = alpha;
-    ctx.fillStyle = "rgba(0, 0, 0, 0.7)";
-    ctx.fillRect(0, H / 2 - 28, W, 56);
-    ctx.fillStyle = "#dc2626";
-    ctx.font = "bold 28px monospace";
+    ctx.fillStyle = "rgba(0, 0, 0, 0.75)";
+    ctx.fillRect(0, H / 2 - 32, W, 64);
+    ctx.fillStyle = s.waveBannerText.includes("БОСС") ? "#fb923c" : "#dc2626";
+    ctx.font = "bold 26px monospace";
     ctx.textAlign = "center";
-    ctx.fillText(`ВОЛНА ${s.wave}`, W / 2, H / 2 + 4);
+    ctx.fillText(s.waveBannerText, W / 2, H / 2 + 2);
     ctx.fillStyle = "#fbbf24";
     ctx.font = "bold 12px monospace";
-    ctx.fillText(`${s.enemies.filter((e) => e.alive).length} противников`, W / 2, H / 2 + 22);
+    ctx.fillText(s.waveBannerSub, W / 2, H / 2 + 22);
     ctx.globalAlpha = 1;
     ctx.textAlign = "start";
   }
 
   ctx.restore();
+}
+
+function drawPickup(ctx: CanvasRenderingContext2D, p: Pickup) {
+  const bob = Math.sin(p.bobPhase) * 4;
+  const x = p.x;
+  const y = p.y + bob;
+  // Halo
+  ctx.fillStyle = p.kind === "hp"
+    ? "rgba(34, 197, 94, 0.2)"
+    : "rgba(239, 68, 68, 0.25)";
+  ctx.beginPath();
+  ctx.arc(x, y, 14, 0, Math.PI * 2);
+  ctx.fill();
+  // Icon
+  if (p.kind === "hp") {
+    ctx.fillStyle = "#22c55e";
+    ctx.fillRect(x - 6, y - 2, 12, 4);
+    ctx.fillRect(x - 2, y - 6, 4, 12);
+  } else {
+    // Rage = flame
+    ctx.fillStyle = "#ef4444";
+    ctx.beginPath();
+    ctx.moveTo(x, y - 8);
+    ctx.bezierCurveTo(x - 6, y - 4, x - 6, y + 4, x, y + 6);
+    ctx.bezierCurveTo(x + 6, y + 4, x + 6, y - 4, x, y - 8);
+    ctx.fill();
+    ctx.fillStyle = "#fbbf24";
+    ctx.beginPath();
+    ctx.moveTo(x, y - 4);
+    ctx.bezierCurveTo(x - 3, y - 2, x - 3, y + 3, x, y + 4);
+    ctx.bezierCurveTo(x + 3, y + 3, x + 3, y - 2, x, y - 4);
+    ctx.fill();
+  }
 }
 
 function drawPlayer(ctx: CanvasRenderingContext2D, p: Player, now: number) {
@@ -562,6 +864,7 @@ function drawPlayer(ctx: CanvasRenderingContext2D, p: Player, now: number) {
   const isParrying = now < p.parryUntil;
   const isDodging = now < p.dodgeUntil;
   const isHit = now < p.hitFlashUntil;
+  const isRaging = now < p.rageUntil;
   const wob = Math.sin(p.walkPhase) * 1.5;
   const yOff = isDodging ? 4 : wob;
 
@@ -571,26 +874,40 @@ function drawPlayer(ctx: CanvasRenderingContext2D, p: Player, now: number) {
   ctx.ellipse(p.x, FLOOR_Y + 2, PLAYER_W / 2 + 4, 3, 0, 0, Math.PI * 2);
   ctx.fill();
 
+  // Rage glow
+  if (isRaging) {
+    const pulse = 0.5 + Math.sin(now / 80) * 0.5;
+    ctx.fillStyle = `rgba(239, 68, 68, ${pulse * 0.4})`;
+    ctx.beginPath();
+    ctx.ellipse(p.x, py + PLAYER_H / 2 + yOff, PLAYER_W / 2 + 8, PLAYER_H / 2 + 6, 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
   // Body
-  ctx.fillStyle = isHit ? "#fee2e2" : isDodging ? "#67e8f9" : "#22d3ee";
+  const bodyColor = isHit ? "#fee2e2" : isDodging ? "#67e8f9" : isRaging ? "#fda4af" : "#22d3ee";
+  ctx.fillStyle = bodyColor;
   ctx.fillRect(p.x - PLAYER_W / 2, py + yOff, PLAYER_W, PLAYER_H);
-  // Boots band
-  ctx.fillStyle = "#0e7490";
+  ctx.fillStyle = isRaging ? "#dc2626" : "#0e7490";
   ctx.fillRect(p.x - PLAYER_W / 2, py + PLAYER_H - 14 + yOff, PLAYER_W, 14);
   // Head
   ctx.fillStyle = "#f5e8d4";
   ctx.fillRect(p.x - 10, py + 6 + yOff, 20, 18);
-  // Eye line — facing
   ctx.fillStyle = "#0a0508";
   if (p.facing > 0) ctx.fillRect(p.x + 3, py + 14 + yOff, 2, 2);
   else ctx.fillRect(p.x - 5, py + 14 + yOff, 2, 2);
-  // Arms — punch animation extends arm forward
-  ctx.fillStyle = "#22d3ee";
+  // Combo indicator above head
+  if (p.comboCount >= 3) {
+    ctx.fillStyle = "#fb923c";
+    ctx.font = "bold 9px monospace";
+    ctx.textAlign = "center";
+    ctx.fillText(`×${p.comboCount}`, p.x, py - 4 + yOff);
+    ctx.textAlign = "start";
+  }
+  // Arms
   if (isPunching) {
-    ctx.fillStyle = "#fde047";
+    ctx.fillStyle = isRaging ? "#fde047" : "#fde047";
     ctx.fillRect(p.x + (p.facing > 0 ? PLAYER_W / 2 : -PLAYER_W / 2 - 14), py + 28 + yOff, 14, 6);
-    // Punch streak
-    ctx.fillStyle = "rgba(253, 224, 71, 0.4)";
+    ctx.fillStyle = isRaging ? "rgba(239, 68, 68, 0.5)" : "rgba(253, 224, 71, 0.4)";
     for (let i = 1; i <= 3; i++) {
       ctx.fillRect(
         p.x + (p.facing > 0 ? PLAYER_W / 2 - i * 6 : -PLAYER_W / 2 + i * 6 - 14),
@@ -600,22 +917,19 @@ function drawPlayer(ctx: CanvasRenderingContext2D, p: Player, now: number) {
       );
     }
   } else {
-    // Idle arms
     const armSwing = Math.sin(p.walkPhase) * 3;
+    ctx.fillStyle = bodyColor;
     ctx.fillRect(p.x - PLAYER_W / 2 - 1, py + 24 + yOff + armSwing, 4, 18);
     ctx.fillRect(p.x + PLAYER_W / 2 - 3, py + 24 + yOff - armSwing, 4, 18);
   }
-  // Parry shield ring
   if (isParrying) {
     ctx.strokeStyle = "#a855f7";
     ctx.lineWidth = 3;
     ctx.strokeRect(p.x - PLAYER_W / 2 - 3, py - 3, PLAYER_W + 6, PLAYER_H + 6);
-    // Parry shimmer
-    const t = (now / 100) % (Math.PI * 2);
+    const t = (now / 80) % (Math.PI * 2);
     ctx.fillStyle = `rgba(168, 85, 247, ${0.3 + Math.sin(t) * 0.2})`;
     ctx.fillRect(p.x - PLAYER_W / 2 - 1, py - 1, PLAYER_W + 2, PLAYER_H + 2);
   }
-  // Dodge afterimage
   if (isDodging) {
     ctx.globalAlpha = 0.3;
     ctx.fillStyle = "#22d3ee";
@@ -625,26 +939,29 @@ function drawPlayer(ctx: CanvasRenderingContext2D, p: Player, now: number) {
 }
 
 function drawEnemy(ctx: CanvasRenderingContext2D, e: Enemy, now: number) {
-  const py = FLOOR_Y - ENEMY_H;
+  const isBoss = e.kind === "boss";
+  const isVeteran = e.kind === "veteran";
+  const w = isBoss ? BOSS_W : ENEMY_W;
+  const h = isBoss ? BOSS_H : ENEMY_H;
+  const py = FLOOR_Y - h;
   const isHit = now < e.hitFlashUntil;
   const isDead = !e.alive;
-  const fadeAlpha = isDead ? Math.max(0, e.deathTimer / 0.4) : 1;
+  const fadeAlpha = isDead ? Math.max(0, e.deathTimer / 0.5) : 1;
 
   ctx.globalAlpha = fadeAlpha;
 
   // Shadow
   ctx.fillStyle = "rgba(0,0,0,0.4)";
   ctx.beginPath();
-  ctx.ellipse(e.x, FLOOR_Y + 2, ENEMY_W / 2 + 4, 3, 0, 0, Math.PI * 2);
+  ctx.ellipse(e.x, FLOOR_Y + 2, w / 2 + 4, 3, 0, 0, Math.PI * 2);
   ctx.fill();
 
   if (isDead) {
-    // Falling/dead — tilt sprite
     ctx.save();
     ctx.translate(e.x, FLOOR_Y);
     ctx.rotate((1 - fadeAlpha) * Math.PI * 0.5);
-    ctx.fillStyle = "#7f1d1d";
-    ctx.fillRect(-ENEMY_W / 2, -ENEMY_H, ENEMY_W, ENEMY_H);
+    ctx.fillStyle = isBoss ? "#581c1c" : "#7f1d1d";
+    ctx.fillRect(-w / 2, -h, w, h);
     ctx.restore();
     ctx.globalAlpha = 1;
     return;
@@ -653,33 +970,66 @@ function drawEnemy(ctx: CanvasRenderingContext2D, e: Enemy, now: number) {
   const wob = Math.sin(e.walkPhase) * 1.5;
   const yOff = wob;
   // Body
-  ctx.fillStyle = isHit ? "#fee2e2" : "#7f1d1d";
-  ctx.fillRect(e.x - ENEMY_W / 2, py + yOff, ENEMY_W, ENEMY_H);
-  // Belt
-  ctx.fillStyle = "#dc2626";
-  ctx.fillRect(e.x - ENEMY_W / 2, py + ENEMY_H - 14 + yOff, ENEMY_W, 12);
+  const bodyColor = isHit
+    ? "#fee2e2"
+    : isBoss
+      ? "#4c0519"
+      : isVeteran
+        ? "#991b1b"
+        : "#7f1d1d";
+  ctx.fillStyle = bodyColor;
+  ctx.fillRect(e.x - w / 2, py + yOff, w, h);
+  // Armor / belt
+  ctx.fillStyle = isBoss ? "#a16207" : isVeteran ? "#dc2626" : "#dc2626";
+  ctx.fillRect(e.x - w / 2, py + h - 16 + yOff, w, 14);
+  if (isBoss) {
+    // Boss armor stripes
+    ctx.fillStyle = "#facc15";
+    ctx.fillRect(e.x - w / 2, py + h * 0.35 + yOff, w, 4);
+    ctx.fillRect(e.x - w / 2, py + h * 0.55 + yOff, w, 4);
+  }
   // Head
-  ctx.fillStyle = "#fde047";
-  ctx.fillRect(e.x - 9, py + 6 + yOff, 18, 14);
+  ctx.fillStyle = isBoss ? "#fcd34d" : "#fde047";
+  ctx.fillRect(e.x - (isBoss ? 12 : 9), py + 6 + yOff, isBoss ? 24 : 18, isBoss ? 18 : 14);
   // Visor
-  ctx.fillStyle = "#0a0508";
-  ctx.fillRect(e.x - 7, py + 12 + yOff, 14, 4);
+  ctx.fillStyle = isBoss ? "#7c2d12" : "#0a0508";
+  ctx.fillRect(e.x - (isBoss ? 10 : 7), py + 12 + yOff, isBoss ? 20 : 14, isBoss ? 5 : 4);
+  if (isBoss) {
+    // Glowing visor
+    ctx.fillStyle = "#ef4444";
+    ctx.fillRect(e.x - 8, py + 14 + yOff, 16, 1);
+  }
   // HP bar
+  const barW = isBoss ? 48 : 32;
   ctx.fillStyle = "#1a0a08";
-  ctx.fillRect(e.x - 16, py - 8, 32, 4);
+  ctx.fillRect(e.x - barW / 2, py - 10, barW, 5);
   const hpFrac = Math.max(0, e.hp / e.hpMax);
   ctx.fillStyle = hpFrac > 0.5 ? "#22c55e" : hpFrac > 0.25 ? "#fbbf24" : "#dc2626";
-  ctx.fillRect(e.x - 16, py - 8, 32 * hpFrac, 4);
-  // Wind-up indicator (yellow flash above)
+  ctx.fillRect(e.x - barW / 2, py - 10, barW * hpFrac, 5);
+  // Wind-up indicator
   if (e.attacking > 0) {
     const pulse = 0.5 + Math.sin(now / 30) * 0.5;
-    ctx.fillStyle = `rgba(253, 224, 71, ${pulse})`;
+    ctx.fillStyle = `rgba(${isBoss ? "239, 68, 68" : "253, 224, 71"}, ${pulse})`;
     ctx.beginPath();
-    ctx.moveTo(e.x, py - 16);
-    ctx.lineTo(e.x - 5, py - 10);
-    ctx.lineTo(e.x + 5, py - 10);
+    ctx.moveTo(e.x, py - 18);
+    ctx.lineTo(e.x - 6, py - 11);
+    ctx.lineTo(e.x + 6, py - 11);
     ctx.closePath();
     ctx.fill();
+  }
+  // Kind label badge for bosses
+  if (isBoss) {
+    ctx.fillStyle = "#fb923c";
+    ctx.font = "bold 9px monospace";
+    ctx.textAlign = "center";
+    ctx.fillText("БОСС", e.x, py - 18);
+    ctx.textAlign = "start";
+  } else if (isVeteran) {
+    ctx.fillStyle = "#f87171";
+    ctx.font = "bold 8px monospace";
+    ctx.textAlign = "center";
+    ctx.fillText("ВЕТ", e.x, py - 16);
+    ctx.textAlign = "start";
   }
   ctx.globalAlpha = 1;
 }

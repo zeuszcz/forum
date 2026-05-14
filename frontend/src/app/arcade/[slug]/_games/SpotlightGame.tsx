@@ -29,6 +29,12 @@ type Checkpoint = {
   collected: boolean;
 };
 
+type SmokeBomb = {
+  col: number;
+  row: number;
+  bobPhase: number;
+};
+
 type FootStep = {
   x: number;
   y: number;
@@ -50,6 +56,7 @@ type GameState = {
   alive: boolean;
   spotlights: Spotlight[];
   checkpoints: Checkpoint[];
+  smokeBombs: SmokeBomb[];
   footSteps: FootStep[];
   dust: DustMote[];
   lastInputAt: number;
@@ -58,6 +65,9 @@ type GameState = {
   hitFlash: number;
   particles: Array<{ x: number; y: number; vx: number; vy: number; life: number; color: string }>;
   bgPulse: number;
+  invisibleUntil: number;       // ms since perf.now origin when invisibility expires
+  smokeReady: boolean;           // current smoke charge ready to deploy (Space)
+  ringPulses: Array<{ x: number; y: number; r: number; life: number; color: string }>;
 };
 
 const MOVE_COOLDOWN_MS = 120;
@@ -72,6 +82,17 @@ function spawnCheckpoint(state: GameState) {
     }
   }
   state.checkpoints = [{ col: 0, row: 0, collected: false }];
+}
+
+function spawnSmokeBomb(state: GameState) {
+  for (let tries = 0; tries < 25; tries++) {
+    const c = Math.floor(state.rng() * COLS);
+    const r = Math.floor(state.rng() * ROWS);
+    if (Math.abs(c - state.player.col) + Math.abs(r - state.player.row) > 5) {
+      state.smokeBombs.push({ col: c, row: r, bobPhase: 0 });
+      return;
+    }
+  }
 }
 
 function spawnSpotlight(state: GameState) {
@@ -154,6 +175,7 @@ export function SpotlightGame({
       alive: true,
       spotlights: [],
       checkpoints: [],
+      smokeBombs: [],
       footSteps: [],
       dust,
       lastInputAt: 0,
@@ -162,6 +184,9 @@ export function SpotlightGame({
       hitFlash: 0,
       particles: [],
       bgPulse: 0,
+      invisibleUntil: 0,
+      smokeReady: false,
+      ringPulses: [],
     };
     spawnSpotlight(st);
     spawnSpotlight(st);
@@ -183,23 +208,26 @@ export function SpotlightGame({
         s.timeElapsed += dt;
         s.bgPulse += dt * 0.6;
         for (const sl of s.spotlights) sl.angle += sl.rotSpeed * dt;
-        // Beam hit detection
+        const isInvisible = now < s.invisibleUntil;
+        // Beam hit detection — skipped while invisible
         const px = s.player.col * CELL + CELL / 2;
         const py = s.player.row * CELL + CELL / 2;
-        for (const sl of s.spotlights) {
-          const dx = px - sl.cx;
-          const dy = py - sl.cy;
-          const dist = Math.sqrt(dx * dx + dy * dy);
-          if (dist > sl.radius) continue;
-          const ang = Math.atan2(dy, dx);
-          let delta = ang - sl.angle;
-          while (delta > Math.PI) delta -= Math.PI * 2;
-          while (delta < -Math.PI) delta += Math.PI * 2;
-          if (Math.abs(delta) <= sl.beamWidth / 2) {
-            s.alive = false;
-            s.hitFlash = 1;
-            spawnHitParticles(s, px, py);
-            break;
+        if (!isInvisible) {
+          for (const sl of s.spotlights) {
+            const dx = px - sl.cx;
+            const dy = py - sl.cy;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            if (dist > sl.radius) continue;
+            const ang = Math.atan2(dy, dx);
+            let delta = ang - sl.angle;
+            while (delta > Math.PI) delta -= Math.PI * 2;
+            while (delta < -Math.PI) delta += Math.PI * 2;
+            if (Math.abs(delta) <= sl.beamWidth / 2) {
+              s.alive = false;
+              s.hitFlash = 1;
+              spawnHitParticles(s, px, py);
+              break;
+            }
           }
         }
         // Checkpoint collected
@@ -209,11 +237,41 @@ export function SpotlightGame({
             c.collected = true;
             s.score += 1;
             spawnCollectParticles(s, c.col * CELL + CELL / 2, c.row * CELL + CELL / 2);
+            s.ringPulses.push({
+              x: c.col * CELL + CELL / 2,
+              y: c.row * CELL + CELL / 2,
+              r: 8,
+              life: 1.0,
+              color: "#10b981",
+            });
             if (s.score % 3 === 0) spawnSpotlight(s);
+            if (s.score % 4 === 0 && s.smokeBombs.length < 2) spawnSmokeBomb(s);
             spawnCheckpoint(s);
           }
         }
+        // Smoke bomb pickup
+        for (const sb of s.smokeBombs) {
+          if (sb.col === s.player.col && sb.row === s.player.row) {
+            s.smokeReady = true;
+            sb.col = -999;
+            spawnCollectParticles(s, s.player.col * CELL + CELL / 2, s.player.row * CELL + CELL / 2);
+            s.ringPulses.push({
+              x: s.player.col * CELL + CELL / 2,
+              y: s.player.row * CELL + CELL / 2,
+              r: 6,
+              life: 1.0,
+              color: "#a855f7",
+            });
+          }
+        }
+        s.smokeBombs = s.smokeBombs.filter((sb) => sb.col >= 0);
       }
+      // Ring pulses tick
+      for (const r of s.ringPulses) {
+        r.r += dt * 70;
+        r.life -= dt * 1.4;
+      }
+      s.ringPulses = s.ringPulses.filter((r) => r.life > 0);
       // Animation easings
       if (s.moveAnim < 1) s.moveAnim = Math.min(1, s.moveAnim + dt * 14);
       if (s.hitFlash > 0) s.hitFlash = Math.max(0, s.hitFlash - dt * 1.2);
@@ -259,28 +317,56 @@ export function SpotlightGame({
       const s = stateRef.current;
       if (!s || !s.alive) return;
       const now = performance.now();
-      if (now - s.lastInputAt < MOVE_COOLDOWN_MS) return;
+      // Use e.code for letters (layout-independent); e.key for arrows.
+      const code = e.code;
       const k = e.key;
+      // Smoke bomb deploy on Space — no cooldown gate
+      if ((code === "Space" || k === " ") && s.smokeReady) {
+        s.smokeReady = false;
+        s.invisibleUntil = now + 3000;
+        // Visual smoke puff
+        for (let i = 0; i < 24; i++) {
+          const ang = s.rng() * Math.PI * 2;
+          s.particles.push({
+            x: s.player.col * CELL + CELL / 2,
+            y: s.player.row * CELL + CELL / 2,
+            vx: Math.cos(ang) * (60 + s.rng() * 60),
+            vy: Math.sin(ang) * (60 + s.rng() * 60),
+            life: 0.8 + s.rng() * 0.4,
+            color: s.rng() < 0.5 ? "#94a3b8" : "#a855f7",
+          });
+        }
+        s.ringPulses.push({
+          x: s.player.col * CELL + CELL / 2,
+          y: s.player.row * CELL + CELL / 2,
+          r: 4,
+          life: 1.0,
+          color: "#a855f7",
+        });
+        e.preventDefault();
+        return;
+      }
+      if (now - s.lastInputAt < MOVE_COOLDOWN_MS) return;
       let moved = false;
-      if (k === "w" || k === "W" || k === "ArrowUp") {
+      if (code === "KeyW" || k === "ArrowUp") {
         if (s.player.row > 0) {
           s.prevPlayer = { ...s.player };
           s.player.row -= 1;
           moved = true;
         }
-      } else if (k === "s" || k === "S" || k === "ArrowDown") {
+      } else if (code === "KeyS" || k === "ArrowDown") {
         if (s.player.row < ROWS - 1) {
           s.prevPlayer = { ...s.player };
           s.player.row += 1;
           moved = true;
         }
-      } else if (k === "a" || k === "A" || k === "ArrowLeft") {
+      } else if (code === "KeyA" || k === "ArrowLeft") {
         if (s.player.col > 0) {
           s.prevPlayer = { ...s.player };
           s.player.col -= 1;
           moved = true;
         }
-      } else if (k === "d" || k === "D" || k === "ArrowRight") {
+      } else if (code === "KeyD" || k === "ArrowRight") {
         if (s.player.col < COLS - 1) {
           s.prevPlayer = { ...s.player };
           s.player.col += 1;
@@ -296,7 +382,7 @@ export function SpotlightGame({
           life: 0.8,
         });
       }
-      if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(k)) {
+      if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(k) || code === "Space") {
         e.preventDefault();
       }
     };
@@ -312,8 +398,15 @@ export function SpotlightGame({
       onStart={start}
       scoreBadge={
         runState.phase === "running" && stateRef.current ? (
-          <div className="rounded-md border border-cyan/40 bg-cyan/10 px-3 py-1.5 font-mono text-sm text-cyan">
-            🚩 {stateRef.current.score} · 💡 {stateRef.current.spotlights.length}
+          <div className="flex items-center gap-2">
+            <div className="rounded-md border border-cyan/40 bg-cyan/10 px-3 py-1.5 font-mono text-sm text-cyan">
+              🚩 {stateRef.current.score} · 💡 {stateRef.current.spotlights.length}
+            </div>
+            {stateRef.current.smokeReady && (
+              <div className="rounded-md border border-purple-500/40 bg-purple-500/10 px-2 py-1.5 font-mono text-xs text-purple-300">
+                💨 SPACE
+              </div>
+            )}
           </div>
         ) : null
       }
@@ -424,6 +517,45 @@ function draw(canvas: HTMLCanvasElement, s: GameState) {
     ctx.restore();
   }
 
+  // Smoke bombs on map
+  for (const sb of s.smokeBombs) {
+    sb.bobPhase += 0.05;
+    const cx = sb.col * CELL + CELL / 2;
+    const cy = sb.row * CELL + CELL / 2;
+    const bob = Math.sin(sb.bobPhase) * 2;
+    // Halo
+    ctx.fillStyle = "rgba(168, 85, 247, 0.25)";
+    ctx.beginPath();
+    ctx.arc(cx, cy + bob, 12, 0, Math.PI * 2);
+    ctx.fill();
+    // Body — round bomb
+    ctx.fillStyle = "#581c87";
+    ctx.beginPath();
+    ctx.arc(cx, cy + bob, 6, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#a855f7";
+    ctx.beginPath();
+    ctx.arc(cx - 2, cy + bob - 2, 2, 0, Math.PI * 2);
+    ctx.fill();
+    // Fuse + spark
+    ctx.fillStyle = "#fde047";
+    ctx.fillRect(cx + 1, cy + bob - 8, 1, 4);
+    const spark = (s.bgPulse * 8) % 1;
+    if (spark < 0.5) {
+      ctx.fillStyle = "#fef9c3";
+      ctx.fillRect(cx + 1, cy + bob - 9, 1, 1);
+    }
+  }
+
+  // Ring pulses
+  for (const r of s.ringPulses) {
+    ctx.strokeStyle = `rgba(${r.color === "#10b981" ? "16, 185, 129" : "168, 85, 247"}, ${r.life * 0.7})`;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(r.x, r.y, r.r, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+
   // Checkpoint — pulsing ring + arrow toward it
   for (const c of s.checkpoints) {
     if (c.collected) continue;
@@ -487,31 +619,56 @@ function drawPlayer(ctx: CanvasRenderingContext2D, s: GameState) {
   const interpRow = s.prevPlayer.row + (s.player.row - s.prevPlayer.row) * e;
   const px = interpCol * CELL + CELL / 2;
   const py = interpRow * CELL + CELL / 2;
+  const now = performance.now();
+  const isInvisible = now < s.invisibleUntil;
+  const invisRemaining = isInvisible ? (s.invisibleUntil - now) / 1000 : 0;
+  // Fade alpha low when invisible, plus pulsing edge
+  const playerAlpha = isInvisible ? 0.4 + Math.sin(now / 80) * 0.1 : 1.0;
 
   // Shadow
-  ctx.fillStyle = "rgba(0, 0, 0, 0.3)";
+  ctx.fillStyle = `rgba(0, 0, 0, ${isInvisible ? 0.15 : 0.3})`;
   ctx.beginPath();
   ctx.ellipse(px, py + 8, 7, 2, 0, 0, Math.PI * 2);
   ctx.fill();
 
+  // Smoke aura when invisible
+  if (isInvisible) {
+    ctx.fillStyle = "rgba(168, 85, 247, 0.18)";
+    for (let i = 0; i < 3; i++) {
+      const r = 12 + i * 6;
+      ctx.beginPath();
+      ctx.arc(px + Math.sin(now / 200 + i) * 3, py + Math.cos(now / 200 + i) * 3, r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  ctx.globalAlpha = playerAlpha;
   // Body
-  ctx.fillStyle = "#22d3ee";
+  ctx.fillStyle = isInvisible ? "#a855f7" : "#22d3ee";
   ctx.fillRect(px - 6, py - 8, 12, 16);
-  ctx.fillStyle = "#0e7490";
+  ctx.fillStyle = isInvisible ? "#581c87" : "#0e7490";
   ctx.fillRect(px - 6, py + 2, 12, 6);
   // Head
   ctx.fillStyle = "#f5e8d4";
   ctx.fillRect(px - 5, py - 11, 10, 6);
-  // Eyes
   ctx.fillStyle = "#0a0508";
   ctx.fillRect(px - 3, py - 9, 1, 1);
   ctx.fillRect(px + 2, py - 9, 1, 1);
-  // Glow ring when moving
-  if (s.moveAnim < 1) {
+  ctx.globalAlpha = 1;
+
+  if (s.moveAnim < 1 && !isInvisible) {
     ctx.strokeStyle = `rgba(103, 232, 249, ${1 - s.moveAnim})`;
     ctx.lineWidth = 1;
     ctx.beginPath();
     ctx.arc(px, py, 14 * (1 - s.moveAnim) + 4, 0, Math.PI * 2);
     ctx.stroke();
+  }
+
+  if (isInvisible) {
+    ctx.fillStyle = "#fef3c7";
+    ctx.font = "bold 9px monospace";
+    ctx.textAlign = "center";
+    ctx.fillText(`💨 ${invisRemaining.toFixed(1)}s`, px, py - 18);
+    ctx.textAlign = "start";
   }
 }
