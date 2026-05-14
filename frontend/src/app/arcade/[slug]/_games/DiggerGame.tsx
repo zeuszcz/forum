@@ -459,17 +459,19 @@ export function DiggerGame({ game }: { game: { slug: string; title: string; emoj
   );
 }
 
-function canEnter(t: Tile | undefined, hasHelmet: boolean): boolean {
+function canEnter(t: Tile | undefined): boolean {
+  // Hard blockers: concrete (X) — can only be cleared by crowbar (digDown).
   if (t === undefined) return false;
-  if (t === "X" || t === "C") return false;
-  if (t === "h" && !hasHelmet) return false;
+  if (t === "X") return false;
+  // Everything else is enterable; on-entry effects (death by camera/pipe,
+  // helmet absorb, pickups) are resolved in the main loop after the move.
   return true;
 }
 
 function moveLeft(s: GameState, now: number) {
   if (s.player.col > 0) {
     const target = s.grid[s.player.row]?.[s.player.col - 1];
-    if (canEnter(target, s.hasHelmet)) {
+    if (canEnter(target)) {
       s.prevPlayerCol = s.player.col;
       s.prevPlayerRow = s.player.row;
       s.moveAnim = 0;
@@ -489,7 +491,7 @@ function moveLeft(s: GameState, now: number) {
 function moveRight(s: GameState, now: number) {
   if (s.player.col < COLS - 1) {
     const target = s.grid[s.player.row]?.[s.player.col + 1];
-    if (canEnter(target, s.hasHelmet)) {
+    if (canEnter(target)) {
       s.prevPlayerCol = s.player.col;
       s.prevPlayerRow = s.player.row;
       s.moveAnim = 0;
@@ -521,10 +523,6 @@ function digDown(s: GameState, now: number) {
     } else {
       return;
     }
-  } else if (target === "C") {
-    return; // can't dig into a camera
-  } else if (target === "h" && !s.hasHelmet) {
-    return; // can't dig into pipe steam without helmet
   } else if (target === "#") {
     s.grid[s.player.row + 1][s.player.col] = " ";
     s.score += 1;

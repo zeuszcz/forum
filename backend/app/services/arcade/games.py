@@ -51,9 +51,12 @@ GAMES: dict[str, GameConfig] = {
         ),
         controls="A/D или ←/→ — двигаться · SPACE/клик — копать вниз",
         score_unit="depth (м)",
-        max_score_per_second=24.0,
+        # Cap raised to accommodate treasure chests (200+depth*20 score
+        # burst) + gold nuggets (+50) collected during a run. A treasure
+        # at depth 100 = 200 + 2000 = 2200 score in a single tile.
+        max_score_per_second=80.0,
         min_duration_ms=2000,
-        score_ceiling=200_000,
+        score_ceiling=500_000,
     ),
     "spotlight": GameConfig(
         slug="spotlight",
