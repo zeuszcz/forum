@@ -60,17 +60,24 @@ function generateRow(depth: number, rng: () => number): Tile[] {
   const camP = Math.min(0.04, 0.001 + depth / 12000);
   const blockerP = Math.min(0.06, 0.005 + depth / 6000);
   const row: Tile[] = [];
+  let hasPassable = false;
   for (let c = 0; c < COLS; c++) {
     const r = rng();
-    if (r < camP) row.push("C");
-    else if (r < camP + hazardP) row.push("h");
-    else if (r < camP + hazardP + crowbarP) row.push("P");
-    else if (r < camP + hazardP + crowbarP + blockerP) row.push("X");
-    else if (r < camP + hazardP + crowbarP + blockerP + dirtP) row.push("#");
-    else row.push(" ");
+    let t: Tile;
+    if (r < camP) t = "C";
+    else if (r < camP + hazardP) t = "h";
+    else if (r < camP + hazardP + crowbarP) {
+      t = "P";
+      hasPassable = true;
+    } else if (r < camP + hazardP + crowbarP + blockerP) t = "X";
+    else if (r < camP + hazardP + crowbarP + blockerP + dirtP) t = "#";
+    else {
+      t = " ";
+      hasPassable = true;
+    }
+    row.push(t);
   }
-  // Always leave at least one passable cell.
-  if (row.every((t) => t === "#" || t === "X" || t === "C" || t === "h")) {
+  if (!hasPassable) {
     row[Math.floor(rng() * COLS)] = " ";
   }
   return row;
@@ -287,9 +294,7 @@ function moveLeft(s: GameState, now: number) {
         s.score += 1;
         spawnParticles(s, (s.player.col - 1) * CELL + CELL / 2, s.player.row * CELL + CELL / 2, "#92400e");
       }
-      s.player.col -= 1;
-      s.lastInputAt = now;
-    } else if (target === "P") {
+      // Walking onto a pickup ("P") is allowed; auto-collect in main loop.
       s.player.col -= 1;
       s.lastInputAt = now;
     }
@@ -305,9 +310,6 @@ function moveRight(s: GameState, now: number) {
         s.score += 1;
         spawnParticles(s, (s.player.col + 1) * CELL + CELL / 2, s.player.row * CELL + CELL / 2, "#92400e");
       }
-      s.player.col += 1;
-      s.lastInputAt = now;
-    } else if (target === "P") {
       s.player.col += 1;
       s.lastInputAt = now;
     }
