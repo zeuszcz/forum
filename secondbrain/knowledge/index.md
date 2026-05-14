@@ -8,6 +8,7 @@
 | [prison-break-minigames](concepts/prison-break-minigames.md) | EPIC 5 architecture: lock-pick pin-tumbler, patrol grid planner, interrogation theatre — schema, pressure-driven resolution, per-game design invariants | prison_break, lockpick, patrol, interrogation, mini-games | 2026-05-14 |
 | [prison-break-arena](concepts/prison-break-arena.md) | EPIC 6 architecture: server-authoritative 1×1 fighter, 12 specials, 15Hz tick engine, per-match WS state stream, Canvas2D renderer, bet payout settlement | prison_break, arena, netcode, websocket, canvas | 2026-05-14 |
 | [prison-break-finale](concepts/prison-break-finale.md) | EPIC 7 architecture: 7 reveal cinematics, Final Night isometric Canvas, voting + outcome resolution, auto-fired-on-daily-tick scheduler, side-payouts | prison_break, reveals, finale, voting, broadcast | 2026-05-14 |
+| [arcade-mini-games](concepts/arcade-mini-games.md) | Arcade module: 4 endless 2D mini-games (digger / spotlight / brawler / runner) with global per-game leaderboard, 3-gate anti-cheat (rate / curve / ceiling), idempotent monthly freeze that pays karma + case_keys + temp title to top-10 | arcade, leaderboard, mini-games, anticheat, monthly-rollover | 2026-05-15 |
 
 ## How to read this
 

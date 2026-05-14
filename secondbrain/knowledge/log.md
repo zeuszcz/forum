@@ -3,6 +3,27 @@
 Append-only build / compile / query / lint events. `merge=union` in `.gitattributes`
 keeps merges painless across branches.
 
+## [2026-05-15] ingest | Arcade module — 4 endless mini-games + monthly leaderboard
+
+- New domain entirely separate from Prison Break event. Migration
+  `20260515_1000_arcade_init.py` adds 3 tables: `arcade_run`,
+  `arcade_monthly_winner`, `arcade_daily_bonus`.
+- Four games shipped: Тоннель-копатель (digger), Беги от прожектора
+  (spotlight), Бунт в столовой (brawler), Бунтарь-раннер (runner).
+  Catalog is in-process (`services/arcade/games.py`) — adding a 5th
+  game is one dataclass + one client component.
+- Client-authoritative simulation; server enforces three anti-cheat
+  gates at end_run: rate-limit (6/min), sanity curve
+  (score/duration <= max_score_per_second), score ceiling. Failed
+  runs → `status='flagged'` + audit reason, excluded from leaderboard.
+- Monthly freeze writes top-10 of every game into
+  `arcade_monthly_winner` and credits user.karma + user.case_keys per
+  rank tier. Top-1 also gets a temp `user.title = "Король <game>"`.
+  Idempotent via UNIQUE (year_month, game_slug, rank).
+- Daily bonus: 10..38 karma per claim, streak grows by 2 karma per
+  consecutive day, capped at 14 days bonus, reset on missed day.
+- Concept: `concepts/arcade-mini-games.md`. Index + log updated.
+
 ## [2026-05-14] ingest | Prison Break EPIC 7 — reveals + Final Night + voting (arc closed)
 
 - Migration `20260514_2100` adds `prison_break_final_vote` (unique on

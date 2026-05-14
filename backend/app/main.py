@@ -11,6 +11,7 @@ from app.core.logging import configure_logging, get_logger
 from app.routers import (
     prison_break,
     admin,
+    arcade,
     attachments,
     auth,
     cases,
@@ -79,6 +80,8 @@ app.include_router(prison_break.social_router)
 app.include_router(prison_break.minigames_router)
 app.include_router(prison_break.arena_router)
 app.include_router(prison_break.finale_router)
+app.include_router(arcade.router)
+app.include_router(arcade.admin_router)
 
 
 @app.get("/", include_in_schema=False)
