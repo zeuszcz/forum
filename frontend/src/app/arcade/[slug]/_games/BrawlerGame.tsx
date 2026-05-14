@@ -17,7 +17,7 @@ const ENEMY_H = 68;
 const BOSS_W = 44;
 const BOSS_H = 88;
 
-type EnemyKind = "grunt" | "veteran" | "boss";
+type EnemyKind = "grunt" | "veteran" | "zapper" | "shielder" | "boss";
 
 type Player = {
   x: number;
@@ -50,6 +50,18 @@ type Enemy = {
   hitFlashUntil: number;
   walkPhase: number;
   reach: number;
+  // For shielder: shield is up unless broken
+  shieldUp: boolean;
+  shieldHp: number;
+};
+
+type Projectile = {
+  x: number;
+  y: number;
+  vx: number;
+  fromId: number;
+  life: number;
+  arcPhase: number;
 };
 
 type Pickup = {
@@ -72,10 +84,14 @@ type Particle = {
 
 type FloatText = { x: number; y: number; text: string; life: number; color: string; size: number };
 
+type CrowdMember = { x: number; y: number; shade: number; bobPhase: number; cheer: number };
+
 type GameState = {
   player: Player;
   enemies: Enemy[];
   pickups: Pickup[];
+  projectiles: Projectile[];
+  crowd: CrowdMember[];
   wave: number;
   killsThisWave: number;
   killsTotal: number;
@@ -89,14 +105,15 @@ type GameState = {
   floats: FloatText[];
   shake: { mag: number; life: number };
   animTime: number;
-  hitstop: number; // brief time-freeze on impactful hits
-  bgFlash: number; // red overlay on heavy damage
+  hitstop: number;
+  bgFlash: number;
+  slowMoUntil: number; // global slow-motion (e.g. boss death finisher)
+  comboFlash: number;  // 0..1 flashy combo screen edge
 };
 
 function spawnWave(s: GameState, ts: number) {
   s.wave += 1;
   s.killsThisWave = 0;
-  // Boss every 5 waves
   const isBossWave = s.wave % 5 === 0;
   let bannerText = `ВОЛНА ${s.wave}`;
   let bannerSub: string;
@@ -104,85 +121,120 @@ function spawnWave(s: GameState, ts: number) {
     bannerText = `БОСС · ВОЛНА ${s.wave}`;
     bannerSub = "охранник в броне";
     s.enemies.push(makeEnemy(s, "boss", false));
-    // Plus 2 grunts as escorts
     s.enemies.push(makeEnemy(s, "grunt", true));
-    s.enemies.push(makeEnemy(s, "grunt", false));
+    s.enemies.push(makeEnemy(s, "shielder", false));
   } else {
     const count = Math.min(7, 2 + Math.floor(s.wave / 2));
-    const veteranCount = Math.min(count - 1, Math.floor(s.wave / 3));
-    for (let i = 0; i < count; i++) {
-      const kind: EnemyKind = i < veteranCount ? "veteran" : "grunt";
+    // Wave variety scales: zapper at wave 3+, shielder at wave 4+
+    let zappers = 0;
+    let shielders = 0;
+    let veterans = 0;
+    if (s.wave >= 3) zappers = Math.min(2, Math.floor(s.wave / 3));
+    if (s.wave >= 4) shielders = Math.min(2, Math.floor(s.wave / 4));
+    if (s.wave >= 3) veterans = Math.max(0, Math.min(count - zappers - shielders - 1, Math.floor(s.wave / 3)));
+    const grunts = count - zappers - shielders - veterans;
+    const placeholders: EnemyKind[] = [];
+    for (let i = 0; i < grunts; i++) placeholders.push("grunt");
+    for (let i = 0; i < veterans; i++) placeholders.push("veteran");
+    for (let i = 0; i < zappers; i++) placeholders.push("zapper");
+    for (let i = 0; i < shielders; i++) placeholders.push("shielder");
+    // Shuffle
+    for (let i = placeholders.length - 1; i > 0; i--) {
+      const j = Math.floor(s.rng() * (i + 1));
+      [placeholders[i], placeholders[j]] = [placeholders[j], placeholders[i]];
+    }
+    for (const kind of placeholders) {
       s.enemies.push(makeEnemy(s, kind, s.rng() < 0.5));
     }
-    bannerSub = `${count} противников`;
+    bannerSub = `${count} противников${zappers ? ` · ${zappers} ⚡` : ""}${shielders ? ` · ${shielders} 🛡` : ""}`;
   }
   s.waveStartAt = ts;
   s.waveBannerLife = 1.8;
   s.waveBannerText = bannerText;
   s.waveBannerSub = bannerSub;
-  // Heal on wave clear
   s.player.hp = Math.min(s.player.hpMax, s.player.hp + (isBossWave ? 30 : 18));
-  // Spawn a pickup occasionally
-  if (s.wave > 1 && s.rng() < 0.5) {
+  if (s.wave > 1 && s.rng() < 0.55) {
     s.pickups.push({
       x: 80 + s.rng() * (W - 160),
       y: FLOOR_Y - 16,
-      kind: s.rng() < 0.6 ? "hp" : "rage",
+      kind: s.rng() < 0.55 ? "hp" : "rage",
       bobPhase: 0,
       collected: false,
     });
   }
+  // Crowd cheers between waves
+  for (const c of s.crowd) c.cheer = 1.0;
 }
 
 function makeEnemy(s: GameState, kind: EnemyKind, fromLeft: boolean): Enemy {
   const wave = s.wave;
+  const baseW = kind === "boss" ? BOSS_W : ENEMY_W;
+  const baseX = fromLeft ? -baseW : W + baseW;
+  const baseFacing: 1 | -1 = fromLeft ? 1 : -1;
+  const common = {
+    x: baseX,
+    facing: baseFacing,
+    alive: true,
+    deathTimer: 0,
+    hitFlashUntil: 0,
+    walkPhase: s.rng() * Math.PI * 2,
+    attacking: 0,
+    shieldUp: false,
+    shieldHp: 0,
+  };
   if (kind === "boss") {
     return {
-      x: fromLeft ? -BOSS_W : W + BOSS_W,
-      facing: fromLeft ? 1 : -1,
+      ...common,
       kind: "boss",
       hp: 140 + wave * 8,
       hpMax: 140 + wave * 8,
       speed: 55 + wave * 1.5,
       attackCooldown: 1400 + s.rng() * 400,
-      attacking: 0,
-      alive: true,
-      deathTimer: 0,
-      hitFlashUntil: 0,
-      walkPhase: s.rng() * Math.PI * 2,
       reach: 62,
     };
   }
   if (kind === "veteran") {
     return {
-      x: fromLeft ? -ENEMY_W : W + ENEMY_W,
-      facing: fromLeft ? 1 : -1,
+      ...common,
       kind: "veteran",
       hp: 55 + wave * 5,
       hpMax: 55 + wave * 5,
       speed: 80 + wave * 4 + s.rng() * 20,
       attackCooldown: 800 + s.rng() * 400,
-      attacking: 0,
-      alive: true,
-      deathTimer: 0,
-      hitFlashUntil: 0,
-      walkPhase: s.rng() * Math.PI * 2,
       reach: 52,
     };
   }
+  if (kind === "zapper") {
+    return {
+      ...common,
+      kind: "zapper",
+      hp: 35 + wave * 3,
+      hpMax: 35 + wave * 3,
+      speed: 50 + wave * 2 + s.rng() * 15,
+      attackCooldown: 1500 + s.rng() * 600,
+      reach: 220,  // ranged
+    };
+  }
+  if (kind === "shielder") {
+    return {
+      ...common,
+      kind: "shielder",
+      hp: 50 + wave * 4,
+      hpMax: 50 + wave * 4,
+      speed: 50 + wave * 2 + s.rng() * 10,
+      attackCooldown: 1300 + s.rng() * 400,
+      reach: 48,
+      shieldUp: true,
+      shieldHp: 40 + wave * 3,
+    };
+  }
   return {
-    x: fromLeft ? -ENEMY_W : W + ENEMY_W,
-    facing: fromLeft ? 1 : -1,
+    ...common,
     kind: "grunt",
     hp: 30 + wave * 3,
     hpMax: 30 + wave * 3,
     speed: 65 + wave * 3 + s.rng() * 20,
     attackCooldown: 1000 + s.rng() * 500,
-    attacking: 0,
-    alive: true,
-    deathTimer: 0,
-    hitFlashUntil: 0,
-    walkPhase: s.rng() * Math.PI * 2,
     reach: 46,
   };
 }
@@ -243,6 +295,51 @@ function applyShake(s: GameState, mag: number) {
   s.shake.life = 0.35;
 }
 
+function killEnemy(s: GameState, e: Enemy, now: number) {
+  if (!e.alive) return;
+  e.alive = false;
+  e.deathTimer = 0.5;
+  s.killsThisWave += 1;
+  s.killsTotal += 1;
+  if (e.kind === "boss") {
+    // Boss finisher — global slow-mo for 800ms
+    s.slowMoUntil = now + 800;
+    s.hitstop = 0.2;
+    applyShake(s, 14);
+    s.bgFlash = 0.6;
+    s.comboFlash = 1.0;
+    spawnRageFlare(s, e.x, FLOOR_Y - BOSS_H / 2);
+    addFloat(s, e.x, FLOOR_Y - BOSS_H - 6, "БОСС ПАЛ!", "#fb923c", 22);
+    // HP drop
+    s.pickups.push({
+      x: e.x,
+      y: FLOOR_Y - 16,
+      kind: "hp",
+      bobPhase: 0,
+      collected: false,
+    });
+    // Crowd cheers
+    for (const c of s.crowd) c.cheer = 1.0;
+  } else {
+    addFloat(s, e.x, FLOOR_Y - ENEMY_H, e.kind === "veteran" ? "+2" : e.kind === "zapper" ? "+2" : e.kind === "shielder" ? "+3" : "+1", "#fde047", 14);
+    applyShake(s, 4);
+  }
+}
+
+function makeCrowd(rng: () => number): CrowdMember[] {
+  const crowd: CrowdMember[] = [];
+  for (let i = 0; i < 12; i++) {
+    crowd.push({
+      x: 20 + i * 50 + rng() * 12,
+      y: 56 + rng() * 14,
+      shade: 40 + Math.floor(rng() * 30),
+      bobPhase: rng() * Math.PI * 2,
+      cheer: 0,
+    });
+  }
+  return crowd;
+}
+
 // Robust key tracking by physical key code (layout-independent).
 function pressedActionCode(set: Set<string>, code: string): boolean {
   if (set.has(code)) {
@@ -295,6 +392,8 @@ export function BrawlerGame({
       },
       enemies: [],
       pickups: [],
+      projectiles: [],
+      crowd: makeCrowd(rng),
       wave: 0,
       killsThisWave: 0,
       killsTotal: 0,
@@ -310,6 +409,8 @@ export function BrawlerGame({
       animTime: 0,
       hitstop: 0,
       bgFlash: 0,
+      slowMoUntil: 0,
+      comboFlash: 0,
     };
     spawnWave(st, performance.now());
     stateRef.current = st;
@@ -327,10 +428,18 @@ export function BrawlerGame({
       if (!s || !canvas) return;
       s.animTime += dt0;
 
-      // Hitstop: brief slowdown on heavy hits for impact
-      const dt = s.hitstop > 0 ? dt0 * 0.15 : dt0;
+      // Hitstop + global slow-mo on boss-finisher
+      const inSlowMo = now < s.slowMoUntil;
+      let dt = s.hitstop > 0 ? dt0 * 0.15 : dt0;
+      if (inSlowMo) dt *= 0.35;
       if (s.hitstop > 0) s.hitstop = Math.max(0, s.hitstop - dt0);
       if (s.bgFlash > 0) s.bgFlash = Math.max(0, s.bgFlash - dt0 * 2);
+      if (s.comboFlash > 0) s.comboFlash = Math.max(0, s.comboFlash - dt0 * 1.4);
+      // Crowd bob + cheer decay (real-time, no slow-mo)
+      for (const c of s.crowd) {
+        c.bobPhase += dt0 * 5;
+        if (c.cheer > 0) c.cheer = Math.max(0, c.cheer - dt0 * 0.7);
+      }
 
       if (s.waveBannerLife > 0) s.waveBannerLife -= dt;
       if (s.shake.life > 0) {
@@ -423,10 +532,8 @@ export function BrawlerGame({
               landed = true;
               let dmg = 18;
               if (isRaging) dmg *= 2;
-              // Combo scaling
               if (s.player.comboCount >= 5) dmg = Math.round(dmg * 1.4);
               else if (s.player.comboCount >= 3) dmg = Math.round(dmg * 1.2);
-              // Crit chance — 12% base + combo bonus
               const critRoll = s.rng();
               const critChance = 0.12 + s.player.comboCount * 0.02;
               const isCrit = critRoll < critChance;
@@ -438,30 +545,26 @@ export function BrawlerGame({
                 s.hitstop = 0.08;
                 if (e.kind === "boss") critOnBoss = true;
               }
+              // Shielder absorbs punches until shield breaks
+              if (e.kind === "shielder" && e.shieldUp) {
+                e.shieldHp -= dmg;
+                e.hitFlashUntil = now + 100;
+                spawnSparks(s, e.x + e.facing * 14, FLOOR_Y - ENEMY_H / 2);
+                addFloat(s, e.x, FLOOR_Y - ENEMY_H - 4, "🛡", "#22d3ee", 16);
+                if (e.shieldHp <= 0) {
+                  e.shieldUp = false;
+                  applyShake(s, 5);
+                  spawnSparks(s, e.x, FLOOR_Y - ENEMY_H / 2);
+                  addFloat(s, e.x, FLOOR_Y - ENEMY_H - 8, "ЩИТ СЛОМАН", "#fbbf24", 14);
+                }
+                continue;
+              }
               e.hp -= dmg;
               e.hitFlashUntil = now + 140;
               spawnBlood(s, e.x, FLOOR_Y - ENEMY_H / 2, isCrit || e.kind === "boss");
               if (!isCrit) applyShake(s, 3);
               if (e.hp <= 0) {
-                e.alive = false;
-                e.deathTimer = 0.5;
-                s.killsThisWave += 1;
-                s.killsTotal += 1;
-                const reward = e.kind === "boss" ? "+10 BOSS" : e.kind === "veteran" ? "+2" : "+1";
-                addFloat(s, e.x, FLOOR_Y - ENEMY_H, reward, "#fde047", e.kind === "boss" ? 18 : 14);
-                applyShake(s, e.kind === "boss" ? 12 : 6);
-                if (e.kind === "boss") {
-                  s.hitstop = 0.18;
-                  spawnRageFlare(s, e.x, FLOOR_Y - BOSS_H / 2);
-                  // Boss drops a HP pickup
-                  s.pickups.push({
-                    x: e.x,
-                    y: FLOOR_Y - 16,
-                    kind: "hp",
-                    bobPhase: 0,
-                    collected: false,
-                  });
-                }
+                killEnemy(s, e, now);
               }
             }
           }
@@ -508,7 +611,8 @@ export function BrawlerGame({
       }
 
       // Enemies
-      for (const e of s.enemies) {
+      for (let ei = 0; ei < s.enemies.length; ei++) {
+        const e = s.enemies[ei];
         if (!e.alive) {
           e.deathTimer -= dt;
           continue;
@@ -519,49 +623,139 @@ export function BrawlerGame({
         e.facing = dx > 0 ? 1 : -1;
         if (e.attacking > 0) {
           e.attacking -= dt * 1000;
-          if (e.attacking <= 0 && dist < e.reach + 6) {
-            const dodging = now < s.player.dodgeUntil;
-            const parrying = now < s.player.parryUntil;
-            const baseDmg = e.kind === "boss" ? 18 : e.kind === "veteran" ? 14 : 10;
-            if (parrying) {
-              const refl = e.kind === "boss" ? 22 : 14;
-              e.hp -= refl;
-              e.hitFlashUntil = now + 140;
-              spawnSparks(s, e.x, FLOOR_Y - ENEMY_H / 2);
-              applyShake(s, 5);
-              addFloat(s, e.x, FLOOR_Y - ENEMY_H - 4, "PARRY", "#a855f7", 14);
-              if (e.hp <= 0) {
-                e.alive = false;
-                e.deathTimer = 0.5;
-                s.killsThisWave += 1;
-                s.killsTotal += 1;
+          if (e.attacking <= 0) {
+            // Zapper fires a projectile instead of melee
+            if (e.kind === "zapper") {
+              const vx = e.facing * 360;
+              s.projectiles.push({
+                x: e.x + e.facing * 18,
+                y: FLOOR_Y - ENEMY_H / 2 + 4,
+                vx,
+                fromId: ei,
+                life: 2.0,
+                arcPhase: 0,
+              });
+              addFloat(s, e.x, FLOOR_Y - ENEMY_H, "⚡", "#fde047", 14);
+              spawnSparks(s, e.x + e.facing * 14, FLOOR_Y - ENEMY_H / 2);
+              continue;
+            }
+            if (dist < e.reach + 6) {
+              const dodging = now < s.player.dodgeUntil;
+              const parrying = now < s.player.parryUntil;
+              const baseDmg =
+                e.kind === "boss" ? 18 :
+                e.kind === "veteran" ? 14 :
+                e.kind === "shielder" ? 11 :
+                10;
+              if (parrying) {
+                const refl = e.kind === "boss" ? 22 : 14;
+                e.hp -= refl;
+                e.hitFlashUntil = now + 140;
+                spawnSparks(s, e.x, FLOOR_Y - ENEMY_H / 2);
+                applyShake(s, 5);
+                addFloat(s, e.x, FLOOR_Y - ENEMY_H - 4, "PARRY", "#a855f7", 14);
+                if (e.hp <= 0) {
+                  killEnemy(s, e, now);
+                }
+                e.attackCooldown = 1700;
+                s.player.comboCount += 1;
+                s.player.comboExpiresAt = now + 2200;
+              } else if (!dodging) {
+                s.player.hp = Math.max(0, s.player.hp - baseDmg);
+                s.player.hitFlashUntil = now + 220;
+                s.bgFlash = 0.35;
+                addFloat(s, s.player.x, FLOOR_Y - PLAYER_H, `-${baseDmg}`, "#fda4af", 14);
+                applyShake(s, e.kind === "boss" ? 8 : 5);
+                spawnBlood(s, s.player.x, FLOOR_Y - PLAYER_H / 2);
+                s.player.comboCount = 0;
               }
-              e.attackCooldown = 1700;
-              // Successful parry adds combo
-              s.player.comboCount += 1;
-              s.player.comboExpiresAt = now + 2200;
-            } else if (!dodging) {
-              s.player.hp = Math.max(0, s.player.hp - baseDmg);
-              s.player.hitFlashUntil = now + 220;
-              s.bgFlash = 0.35;
-              addFloat(s, s.player.x, FLOOR_Y - PLAYER_H, `-${baseDmg}`, "#fda4af", 14);
-              applyShake(s, e.kind === "boss" ? 8 : 5);
-              spawnBlood(s, s.player.x, FLOOR_Y - PLAYER_H / 2);
-              s.player.comboCount = 0;
             }
           }
         } else {
-          if (dist > e.reach - 2) {
-            e.x += Math.sign(dx) * e.speed * dt;
-          } else {
+          // For zapper: keep distance, attack from range
+          if (e.kind === "zapper") {
+            const ideal = 180;
+            if (dist > ideal + 30) {
+              e.x += Math.sign(dx) * e.speed * dt;
+            } else if (dist < ideal - 30) {
+              e.x -= Math.sign(dx) * e.speed * dt;
+            }
             e.attackCooldown -= dt * 1000;
-            if (e.attackCooldown <= 0) {
-              e.attacking = e.kind === "boss" ? 380 : 280;
-              e.attackCooldown = (e.kind === "boss" ? 1500 : 1200) + s.rng() * 600;
+            if (e.attackCooldown <= 0 && dist <= e.reach) {
+              e.attacking = 400;
+              e.attackCooldown = 1800 + s.rng() * 800;
+            }
+          } else if (e.kind === "shielder") {
+            if (dist > e.reach - 2) {
+              e.x += Math.sign(dx) * e.speed * dt;
+            } else {
+              e.attackCooldown -= dt * 1000;
+              if (e.attackCooldown <= 0) {
+                e.attacking = 280;
+                e.attackCooldown = 1300 + s.rng() * 600;
+              }
+            }
+          } else {
+            if (dist > e.reach - 2) {
+              e.x += Math.sign(dx) * e.speed * dt;
+            } else {
+              e.attackCooldown -= dt * 1000;
+              if (e.attackCooldown <= 0) {
+                e.attacking = e.kind === "boss" ? 380 : 280;
+                e.attackCooldown = (e.kind === "boss" ? 1500 : 1200) + s.rng() * 600;
+              }
             }
           }
         }
       }
+
+      // Projectiles
+      for (const pr of s.projectiles) {
+        pr.x += pr.vx * dt;
+        pr.life -= dt;
+        pr.arcPhase += dt * 18;
+        // Hit player
+        const dx2 = pr.x - s.player.x;
+        if (Math.abs(dx2) < 18 && Math.abs(pr.y - (FLOOR_Y - PLAYER_H / 2)) < PLAYER_H / 2) {
+          if (now < s.player.parryUntil) {
+            // Reflect: zap goes back fast, doubled
+            pr.vx = -pr.vx * 1.5;
+            pr.fromId = -1;
+            spawnSparks(s, pr.x, pr.y);
+            addFloat(s, pr.x, pr.y - 12, "PARRY ⚡", "#a855f7", 14);
+            applyShake(s, 4);
+            s.player.comboCount += 1;
+            s.player.comboExpiresAt = now + 2200;
+          } else if (now < s.player.dodgeUntil) {
+            // Pass through
+          } else {
+            const dmg = 11;
+            s.player.hp = Math.max(0, s.player.hp - dmg);
+            s.player.hitFlashUntil = now + 220;
+            s.bgFlash = 0.35;
+            addFloat(s, s.player.x, FLOOR_Y - PLAYER_H, `-${dmg}`, "#fda4af", 14);
+            applyShake(s, 5);
+            spawnSparks(s, s.player.x, FLOOR_Y - PLAYER_H / 2);
+            s.player.comboCount = 0;
+            pr.life = 0;
+          }
+        }
+        // Reflected zap hits enemy
+        if (pr.fromId === -1) {
+          for (const e of s.enemies) {
+            if (!e.alive) continue;
+            if (Math.abs(pr.x - e.x) < 18 && Math.abs(pr.y - (FLOOR_Y - ENEMY_H / 2)) < ENEMY_H / 2) {
+              e.hp -= 22;
+              e.hitFlashUntil = now + 140;
+              spawnSparks(s, e.x, FLOOR_Y - ENEMY_H / 2);
+              pr.life = 0;
+              if (e.hp <= 0) killEnemy(s, e, now);
+              break;
+            }
+          }
+        }
+      }
+      s.projectiles = s.projectiles.filter((p) => p.life > 0 && p.x > -40 && p.x < W + 40);
       s.enemies = s.enemies.filter((e) => e.alive || e.attacking > 0 || e.deathTimer > 0);
 
       if (s.enemies.every((e) => !e.alive)) {
@@ -722,6 +916,26 @@ function draw(canvas: HTMLCanvasElement, s: GameState, now: number) {
     }
   }
 
+  // Crowd silhouettes — sit at top, bob, cheer (arms-up) after wave clear
+  for (const c of s.crowd) {
+    const bob = Math.sin(c.bobPhase) * 1.5 + (c.cheer > 0 ? Math.sin(c.bobPhase * 3) * 3 * c.cheer : 0);
+    const armUp = c.cheer > 0.3;
+    const baseColor = `rgb(${c.shade}, ${Math.max(0, c.shade - 10)}, ${Math.max(0, c.shade - 20)})`;
+    ctx.fillStyle = baseColor;
+    // Head
+    ctx.fillRect(c.x - 4, c.y + bob, 8, 6);
+    // Body
+    ctx.fillRect(c.x - 5, c.y + 6 + bob, 10, 12);
+    // Arms
+    if (armUp) {
+      ctx.fillRect(c.x - 7, c.y - 4 + bob, 3, 8);
+      ctx.fillRect(c.x + 4, c.y - 4 + bob, 3, 8);
+    } else {
+      ctx.fillRect(c.x - 7, c.y + 8 + bob, 3, 6);
+      ctx.fillRect(c.x + 4, c.y + 8 + bob, 3, 6);
+    }
+  }
+
   ctx.fillStyle = "rgba(255, 80, 40, 0.04)";
   for (let i = 0; i < 4; i++) {
     ctx.fillRect(i * 160 + 20, FLOOR_Y - 18, 140, 14);
@@ -746,6 +960,23 @@ function draw(canvas: HTMLCanvasElement, s: GameState, now: number) {
 
   // Player
   drawPlayer(ctx, s.player, now);
+
+  // Projectiles (zaps)
+  for (const pr of s.projectiles) {
+    const reflected = pr.fromId === -1;
+    // Trail
+    ctx.fillStyle = reflected ? "rgba(168, 85, 247, 0.5)" : "rgba(253, 224, 71, 0.4)";
+    for (let i = 1; i < 5; i++) {
+      ctx.fillRect(pr.x - pr.vx * 0.005 * i, pr.y - 1, 4, 2);
+    }
+    // Bolt — zigzag
+    ctx.fillStyle = reflected ? "#c084fc" : "#fde047";
+    ctx.fillRect(pr.x - 4, pr.y - 1, 8, 2);
+    const wob = Math.sin(pr.arcPhase) * 2;
+    ctx.fillRect(pr.x - 2, pr.y - 3 + wob, 4, 2);
+    ctx.fillStyle = "#fff";
+    ctx.fillRect(pr.x - 2, pr.y, 2, 1);
+  }
 
   // Particles
   for (const p of s.particles) {
@@ -803,6 +1034,36 @@ function draw(canvas: HTMLCanvasElement, s: GameState, now: number) {
     ctx.fillStyle = "#94a3b8";
     ctx.font = "10px monospace";
     ctx.fillText(`J·K·L`, W - 50, 19);
+  }
+
+  // Slow-mo edges + center vignette
+  if (now < s.slowMoUntil) {
+    const remainingMs = s.slowMoUntil - now;
+    const alpha = Math.min(1, remainingMs / 400);
+    ctx.fillStyle = `rgba(251, 146, 60, ${alpha * 0.18})`;
+    ctx.fillRect(0, 0, W, H);
+    // Diagonal speed-tear lines
+    ctx.strokeStyle = `rgba(255, 255, 255, ${alpha * 0.12})`;
+    ctx.lineWidth = 1;
+    for (let i = 0; i < 6; i++) {
+      ctx.beginPath();
+      ctx.moveTo(i * 110, 0);
+      ctx.lineTo(i * 110 + 50, H);
+      ctx.stroke();
+    }
+  }
+  // Combo screen-edge flash on big combos (10+)
+  if (s.comboFlash > 0) {
+    const edge = ctx.createLinearGradient(0, 0, 30, 0);
+    edge.addColorStop(0, `rgba(251, 146, 60, ${s.comboFlash * 0.5})`);
+    edge.addColorStop(1, "rgba(251, 146, 60, 0)");
+    ctx.fillStyle = edge;
+    ctx.fillRect(0, 30, 40, H - 30);
+    const edgeR = ctx.createLinearGradient(W - 30, 0, W, 0);
+    edgeR.addColorStop(0, "rgba(251, 146, 60, 0)");
+    edgeR.addColorStop(1, `rgba(251, 146, 60, ${s.comboFlash * 0.5})`);
+    ctx.fillStyle = edgeR;
+    ctx.fillRect(W - 40, 30, 40, H - 30);
   }
 
   // Wave banner
@@ -941,6 +1202,8 @@ function drawPlayer(ctx: CanvasRenderingContext2D, p: Player, now: number) {
 function drawEnemy(ctx: CanvasRenderingContext2D, e: Enemy, now: number) {
   const isBoss = e.kind === "boss";
   const isVeteran = e.kind === "veteran";
+  const isZapper = e.kind === "zapper";
+  const isShielder = e.kind === "shielder";
   const w = isBoss ? BOSS_W : ENEMY_W;
   const h = isBoss ? BOSS_H : ENEMY_H;
   const py = FLOOR_Y - h;
@@ -976,7 +1239,11 @@ function drawEnemy(ctx: CanvasRenderingContext2D, e: Enemy, now: number) {
       ? "#4c0519"
       : isVeteran
         ? "#991b1b"
-        : "#7f1d1d";
+        : isZapper
+          ? "#3b0764"
+          : isShielder
+            ? "#1e3a8a"
+            : "#7f1d1d";
   ctx.fillStyle = bodyColor;
   ctx.fillRect(e.x - w / 2, py + yOff, w, h);
   // Armor / belt
@@ -1017,7 +1284,44 @@ function drawEnemy(ctx: CanvasRenderingContext2D, e: Enemy, now: number) {
     ctx.closePath();
     ctx.fill();
   }
-  // Kind label badge for bosses
+  // Type-specific visual flourishes
+  if (isZapper) {
+    // Antenna + spark on head
+    ctx.fillStyle = "#a855f7";
+    ctx.fillRect(e.x - 1, py - 4 + yOff, 2, 6);
+    const sparkPulse = (Math.sin(now / 100) + 1) / 2;
+    ctx.fillStyle = `rgba(253, 224, 71, ${sparkPulse})`;
+    ctx.fillRect(e.x - 2, py - 6 + yOff, 4, 2);
+    // Zap gun in hand
+    ctx.fillStyle = "#1e1b4b";
+    ctx.fillRect(e.x + e.facing * (w / 2 - 2), py + 28 + yOff, e.facing * 8, 4);
+    ctx.fillStyle = "#a855f7";
+    ctx.fillRect(e.x + e.facing * (w / 2 + 4), py + 28 + yOff, 2, 4);
+  }
+  if (isShielder) {
+    // Riot shield in front
+    const sx = e.x + e.facing * (w / 2 + 1);
+    if (e.shieldUp) {
+      // Translucent base
+      ctx.fillStyle = "rgba(34, 211, 238, 0.4)";
+      ctx.fillRect(sx, py + 4 + yOff, e.facing * 5, h - 14);
+      // Border
+      ctx.fillStyle = "#22d3ee";
+      ctx.fillRect(sx, py + 4 + yOff, e.facing * 1, h - 14);
+      ctx.fillRect(sx + e.facing * 4, py + 4 + yOff, e.facing * 1, h - 14);
+      // Cross
+      ctx.fillStyle = "#a5f3fc";
+      ctx.fillRect(sx + e.facing * 1, py + h / 2 - 1 + yOff, e.facing * 3, 2);
+      ctx.fillRect(sx + e.facing * 2, py + h / 2 - 4 + yOff, e.facing * 1, 8);
+      // Shield HP mini-bar
+      const sFrac = Math.max(0, e.shieldHp / (40 + s_brawler_wave_for_label_only(e.hpMax)));
+      ctx.fillStyle = "rgba(0,0,0,0.4)";
+      ctx.fillRect(e.x - 14, py - 4, 28, 3);
+      ctx.fillStyle = "#22d3ee";
+      ctx.fillRect(e.x - 14, py - 4, 28 * sFrac, 3);
+    }
+  }
+  // Kind label badge
   if (isBoss) {
     ctx.fillStyle = "#fb923c";
     ctx.font = "bold 9px monospace";
@@ -1030,6 +1334,24 @@ function drawEnemy(ctx: CanvasRenderingContext2D, e: Enemy, now: number) {
     ctx.textAlign = "center";
     ctx.fillText("ВЕТ", e.x, py - 16);
     ctx.textAlign = "start";
+  } else if (isZapper) {
+    ctx.fillStyle = "#c084fc";
+    ctx.font = "bold 8px monospace";
+    ctx.textAlign = "center";
+    ctx.fillText("ЗАП ⚡", e.x, py - 16);
+    ctx.textAlign = "start";
+  } else if (isShielder) {
+    ctx.fillStyle = "#67e8f9";
+    ctx.font = "bold 8px monospace";
+    ctx.textAlign = "center";
+    ctx.fillText("ЩИТ 🛡", e.x, py - 16);
+    ctx.textAlign = "start";
   }
   ctx.globalAlpha = 1;
+}
+
+// Helper used only for shielder bar normalisation; harmless if hpMax 0
+function s_brawler_wave_for_label_only(hpMax: number): number {
+  // 40 (base shielder shield) + wave * 3 (scaling). Wave is approx hpMax/4.
+  return Math.max(40, hpMax * 0.8);
 }

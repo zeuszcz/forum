@@ -19,7 +19,9 @@ type Obstacle = {
   x: number;
   w: number;
   h: number;
-  kind: "barrier" | "pipe" | "guard";
+  kind: "barrier" | "pipe" | "guard" | "saw" | "drone" | "laser";
+  phase: number;     // for sawblade rotation, drone bob, laser blink
+  yOffset: number;   // for drones (variable height)
 };
 
 type Pickup = {
@@ -46,6 +48,12 @@ type ParallaxLayer = {
 };
 
 type FloatText = { x: number; y: number; text: string; color: string; life: number };
+
+type Lightning = {
+  x: number;
+  segments: Array<{ x: number; y: number }>;
+  life: number;
+};
 
 type GameState = {
   player: {
@@ -74,6 +82,9 @@ type GameState = {
   shake: { mag: number; life: number };
   animTime: number;
   floats: FloatText[];
+  lightnings: Lightning[];
+  nextLightningAt: number;
+  bgFlash: number;
 };
 
 const GRAVITY = 1800;
@@ -82,11 +93,25 @@ const JUMP_VELOCITY = -650;
 function newObstacle(s: GameState): Obstacle {
   const r = s.rng();
   let kind: Obstacle["kind"] = "barrier";
-  if (s.distance > 300 && r < 0.25) kind = "guard";
-  else if (s.distance > 100 && r < 0.5) kind = "pipe";
-  if (kind === "pipe") return { x: W + 20, w: 64, h: 60, kind };
-  if (kind === "guard") return { x: W + 20, w: 30, h: 56, kind };
-  return { x: W + 20, w: 22, h: 38, kind: "barrier" };
+  // Late-game obstacles unlock with distance
+  if (s.distance > 1500 && r < 0.10) kind = "laser";
+  else if (s.distance > 800 && r < 0.20) kind = "saw";
+  else if (s.distance > 500 && r < 0.25) kind = "drone";
+  else if (s.distance > 300 && r < 0.45) kind = "guard";
+  else if (s.distance > 100 && r < 0.60) kind = "pipe";
+  if (kind === "pipe") return { x: W + 20, w: 64, h: 60, kind, phase: 0, yOffset: 0 };
+  if (kind === "guard") return { x: W + 20, w: 30, h: 56, kind, phase: 0, yOffset: 0 };
+  if (kind === "saw") return { x: W + 20, w: 36, h: 36, kind, phase: 0, yOffset: 0 };
+  if (kind === "drone") {
+    // Drone flies at height where you need to duck OR jump
+    const lowAlt = s.rng() < 0.5;
+    return { x: W + 20, w: 30, h: 22, kind, phase: 0, yOffset: lowAlt ? GROUND_Y - 56 : GROUND_Y - 96 };
+  }
+  if (kind === "laser") {
+    // Vertical full-height beam with blink — blink-off provides safe window
+    return { x: W + 20, w: 8, h: GROUND_Y, kind, phase: s.rng() * 2000, yOffset: 0 };
+  }
+  return { x: W + 20, w: 22, h: 38, kind: "barrier", phase: 0, yOffset: 0 };
 }
 
 function spawnDust(s: GameState, x: number, y: number, kind: "jump" | "land" | "slide") {
@@ -194,6 +219,9 @@ export function RunnerGame({
       shake: { mag: 0, life: 0 },
       animTime: 0,
       floats: [],
+      lightnings: [],
+      nextLightningAt: 0,
+      bgFlash: 0,
     };
     stateRef.current = st;
     setTick((t) => t + 1);
@@ -265,6 +293,29 @@ export function RunnerGame({
         f.life -= dt;
       }
       s.floats = s.floats.filter((f) => f.life > 0);
+      // Lightning storm at extreme distance
+      if (s.distance > 1500) {
+        if (now > s.nextLightningAt) {
+          // 1-bolt every 2-5 seconds
+          s.nextLightningAt = now + 2000 + s.rng() * 3000;
+          const x0 = s.rng() * W;
+          const segs: Array<{ x: number; y: number }> = [];
+          let cy = 0;
+          let cx = x0;
+          while (cy < GROUND_Y) {
+            segs.push({ x: cx, y: cy });
+            cy += 14 + s.rng() * 12;
+            cx += (s.rng() - 0.5) * 30;
+          }
+          s.lightnings.push({ x: x0, segments: segs, life: 0.45 });
+          s.bgFlash = 0.6;
+          s.shake.mag = Math.max(s.shake.mag, 6);
+          s.shake.life = 0.25;
+        }
+      }
+      for (const lg of s.lightnings) lg.life -= dt * 2;
+      s.lightnings = s.lightnings.filter((lg) => lg.life > 0);
+      if (s.bgFlash > 0) s.bgFlash = Math.max(0, s.bgFlash - dt * 2.5);
 
       if (s.player.alive) {
         const keys = keysRef.current;
@@ -300,7 +351,10 @@ export function RunnerGame({
           s.obstacles.push(newObstacle(s));
           s.spawnTimerMs = 700 + s.rng() * 800 - Math.min(400, s.distance * 0.6);
         }
-        for (const o of s.obstacles) o.x -= s.worldSpeed * dt;
+        for (const o of s.obstacles) {
+          o.x -= s.worldSpeed * dt;
+          o.phase += dt;
+        }
         s.obstacles = s.obstacles.filter((o) => o.x > -80);
 
         // Pickup spawning
@@ -323,9 +377,21 @@ export function RunnerGame({
           s.pickups.push({ x: W + 30, y, kind, collected: false, bobPhase: 0 });
           s.pickupSpawnTimerMs = 1500 + s.rng() * 2000;
         }
+        const isBoosting = now < s.player.boostUntil;
         for (const p of s.pickups) {
           p.x -= s.worldSpeed * dt;
           p.bobPhase += dt * 3;
+          // Coin magnet during boost — accelerate coins toward player
+          if (isBoosting && p.kind === "coin" && !p.collected) {
+            const dx = PLAYER_X + PLAYER_W / 2 - p.x;
+            const dy = (s.player.y + (s.player.ducking ? PLAYER_DUCK_H : PLAYER_H) / 2) - p.y;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            if (dist < 220 && dist > 1) {
+              const pull = 380;
+              p.x += (dx / dist) * pull * dt;
+              p.y += (dy / dist) * pull * dt;
+            }
+          }
         }
         s.pickups = s.pickups.filter((p) => p.x > -40 && !p.collected);
 
@@ -377,13 +443,24 @@ export function RunnerGame({
         const opy1 = s.player.y + phH2;
         for (const o of s.obstacles) {
           let oy0: number, oy1: number;
+          let activeHit = true;
           if (o.kind === "pipe") {
+            oy0 = 0;
+            oy1 = o.h;
+          } else if (o.kind === "drone") {
+            oy0 = o.yOffset;
+            oy1 = o.yOffset + o.h;
+          } else if (o.kind === "laser") {
+            // Blink: on for 700ms, off for 600ms
+            const cycle = (o.phase * 1000) % 1300;
+            activeHit = cycle < 700;
             oy0 = 0;
             oy1 = o.h;
           } else {
             oy0 = GROUND_Y - o.h;
             oy1 = GROUND_Y;
           }
+          if (!activeHit) continue;
           const ox0 = o.x;
           const ox1 = o.x + o.w;
           if (ox1p > ox0 && ox0p < ox1 && opy1 > oy0 && opy0 < oy1) {
@@ -490,13 +567,57 @@ function draw(canvas: HTMLCanvasElement, s: GameState) {
   ctx.save();
   ctx.translate(shakeX, shakeY);
 
-  // Sky gradient (night corridor)
+  // Day/night cycle blends with distance:
+  //   < 500m  = early evening (warm-ish)
+  //   < 1500m = late night (deep purple)
+  //   > 1500m = storm (near-black with green hints)
+  const dist = s.distance;
+  const phase = Math.min(1, dist / 1500);
+  const stormPhase = Math.max(0, Math.min(1, (dist - 1500) / 600));
+  const top = blendColor("#1a0d1a", "#050505", phase);
+  const mid = blendColor("#2a1218", "#0a0510", phase);
+  const bot = blendColor("#3a1820", "#1a0a14", phase);
   const sky = ctx.createLinearGradient(0, 0, 0, GROUND_Y);
-  sky.addColorStop(0, "#0a0510");
-  sky.addColorStop(0.7, "#1a0a14");
-  sky.addColorStop(1, "#2a1014");
+  sky.addColorStop(0, blendColor(top, "#0a0d05", stormPhase));
+  sky.addColorStop(0.7, blendColor(mid, "#0a1408", stormPhase));
+  sky.addColorStop(1, blendColor(bot, "#0a1808", stormPhase));
   ctx.fillStyle = sky;
   ctx.fillRect(0, 0, W, GROUND_Y);
+
+  // Stars fade in mid-night
+  if (phase > 0.3) {
+    const starAlpha = Math.min(1, (phase - 0.3) / 0.5) * (1 - stormPhase);
+    for (let i = 0; i < 30; i++) {
+      const x = (i * 73 + (s.animTime * 8) % W) % W;
+      const y = (i * 41) % (GROUND_Y * 0.4);
+      const tw = (Math.sin(s.animTime * 3 + i) + 1) / 2;
+      ctx.fillStyle = `rgba(255, 255, 255, ${starAlpha * (0.3 + tw * 0.5)})`;
+      ctx.fillRect(x, y, 1, 1);
+    }
+  }
+
+  // BG flash from lightning
+  if (s.bgFlash > 0) {
+    ctx.fillStyle = `rgba(167, 243, 208, ${s.bgFlash * 0.18})`;
+    ctx.fillRect(0, 0, W, GROUND_Y);
+  }
+  // Lightning bolts
+  for (const lg of s.lightnings) {
+    ctx.strokeStyle = `rgba(167, 243, 208, ${lg.life * 1.4})`;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    if (lg.segments.length > 0) {
+      ctx.moveTo(lg.segments[0].x, lg.segments[0].y);
+      for (let i = 1; i < lg.segments.length; i++) {
+        ctx.lineTo(lg.segments[i].x, lg.segments[i].y);
+      }
+    }
+    ctx.stroke();
+    // Inner core
+    ctx.strokeStyle = `rgba(255, 255, 255, ${lg.life * 1.2})`;
+    ctx.lineWidth = 1;
+    ctx.stroke();
+  }
 
   // Parallax layers — back to front
   for (let i = 0; i < s.parallax.length; i++) {
@@ -567,35 +688,116 @@ function draw(canvas: HTMLCanvasElement, s: GameState) {
   // Obstacles
   for (const o of s.obstacles) {
     if (o.kind === "pipe") {
-      // Top-hanging pipe
       ctx.fillStyle = "#7c3aed";
       ctx.fillRect(o.x, 0, o.w, o.h);
       ctx.fillStyle = "#5b21b6";
       ctx.fillRect(o.x, o.h - 6, o.w, 6);
-      // Drip
       const dripT = (s.animTime * 1.5 + o.x) % 1;
       ctx.fillStyle = "#a78bfa";
       ctx.fillRect(o.x + o.w / 2 - 1, o.h + dripT * 14, 2, 3);
     } else if (o.kind === "guard") {
       const oy = GROUND_Y - o.h;
-      // Body
       ctx.fillStyle = "#7f1d1d";
       ctx.fillRect(o.x, oy, o.w, o.h);
-      // Belt
       ctx.fillStyle = "#dc2626";
       ctx.fillRect(o.x, oy + o.h - 14, o.w, 14);
-      // Head
       ctx.fillStyle = "#fde047";
       ctx.fillRect(o.x + 4, oy + 6, o.w - 8, 12);
-      // Visor
       ctx.fillStyle = "#0a0508";
       ctx.fillRect(o.x + 6, oy + 12, o.w - 12, 3);
-      // Baton (extends forward)
       ctx.fillStyle = "#525252";
       ctx.fillRect(o.x - 10, oy + 28, 14, 4);
+    } else if (o.kind === "saw") {
+      // Spinning sawblade on a small stand
+      const oy = GROUND_Y - o.h;
+      ctx.fillStyle = "#525252";
+      ctx.fillRect(o.x + o.w / 2 - 4, oy + o.h - 6, 8, 6);
+      // Blade (rotating star/disc)
+      ctx.save();
+      ctx.translate(o.x + o.w / 2, oy + o.h / 2 - 2);
+      ctx.rotate(o.phase * 18);
+      ctx.fillStyle = "#a3a3a3";
+      ctx.beginPath();
+      ctx.arc(0, 0, o.w / 2 - 2, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "#52525b";
+      ctx.beginPath();
+      ctx.arc(0, 0, 6, 0, Math.PI * 2);
+      ctx.fill();
+      // Teeth
+      ctx.fillStyle = "#e5e7eb";
+      for (let i = 0; i < 8; i++) {
+        const ang = (i * Math.PI * 2) / 8;
+        const tx = Math.cos(ang) * (o.w / 2 - 1);
+        const ty = Math.sin(ang) * (o.w / 2 - 1);
+        ctx.fillRect(tx - 2, ty - 2, 4, 4);
+      }
+      // Red center
+      ctx.fillStyle = "#dc2626";
+      ctx.fillRect(-2, -2, 4, 4);
+      ctx.restore();
+      // Sparks trail
+      if (Math.random() < 0.3) {
+        const sx = o.x + o.w / 2 + (Math.random() - 0.5) * 14;
+        const sy = oy + o.h + 4;
+        ctx.fillStyle = "#fde047";
+        ctx.fillRect(sx, sy, 2, 2);
+      }
+    } else if (o.kind === "drone") {
+      const dy = o.yOffset + Math.sin(o.phase * 3) * 4;
+      // Body
+      ctx.fillStyle = "#1f2937";
+      ctx.fillRect(o.x, dy, o.w, o.h);
+      ctx.fillStyle = "#374151";
+      ctx.fillRect(o.x + 2, dy + 2, o.w - 4, o.h - 4);
+      // Red scanning eye
+      const eyePulse = (Math.sin(o.phase * 8) + 1) / 2;
+      ctx.fillStyle = `rgba(220, 38, 38, ${0.6 + eyePulse * 0.4})`;
+      ctx.fillRect(o.x + o.w / 2 - 3, dy + 6, 6, 4);
+      // Propellers
+      ctx.fillStyle = "rgba(156, 163, 175, 0.5)";
+      const propW = 12;
+      const propSpin = (o.phase * 30) % (Math.PI * 2);
+      const ph = 2 + Math.abs(Math.sin(propSpin)) * 6;
+      ctx.fillRect(o.x - propW / 2 + 4, dy - 4, propW, ph);
+      ctx.fillRect(o.x + o.w - propW / 2 - 4, dy - 4, propW, ph);
+      // Hover shadow
+      ctx.fillStyle = "rgba(0,0,0,0.3)";
+      ctx.beginPath();
+      ctx.ellipse(o.x + o.w / 2, GROUND_Y - 1, o.w / 2, 2, 0, 0, Math.PI * 2);
+      ctx.fill();
+    } else if (o.kind === "laser") {
+      const cycle = (o.phase * 1000) % 1300;
+      const onPhase = cycle < 700;
+      if (onPhase) {
+        const intensity = cycle < 100 ? cycle / 100 : cycle > 600 ? (700 - cycle) / 100 : 1;
+        // Beam
+        const grad = ctx.createLinearGradient(o.x, 0, o.x + o.w, 0);
+        grad.addColorStop(0, `rgba(220, 38, 38, ${intensity * 0.3})`);
+        grad.addColorStop(0.5, `rgba(254, 240, 138, ${intensity})`);
+        grad.addColorStop(1, `rgba(220, 38, 38, ${intensity * 0.3})`);
+        ctx.fillStyle = grad;
+        ctx.fillRect(o.x, 0, o.w, GROUND_Y);
+        // Halo
+        ctx.fillStyle = `rgba(220, 38, 38, ${intensity * 0.15})`;
+        ctx.fillRect(o.x - 6, 0, o.w + 12, GROUND_Y);
+      } else {
+        // Off — warning marker
+        ctx.fillStyle = "rgba(220, 38, 38, 0.3)";
+        ctx.fillRect(o.x, 0, o.w, GROUND_Y);
+        const remaining = Math.ceil((1300 - cycle) / 100) / 10;
+        ctx.fillStyle = "#fde047";
+        ctx.font = "bold 9px monospace";
+        ctx.textAlign = "center";
+        ctx.fillText(`${remaining.toFixed(1)}s`, o.x + o.w / 2, GROUND_Y / 2);
+        ctx.textAlign = "start";
+      }
+      // Emitter caps
+      ctx.fillStyle = "#7f1d1d";
+      ctx.fillRect(o.x - 2, 0, o.w + 4, 4);
+      ctx.fillRect(o.x - 2, GROUND_Y - 4, o.w + 4, 4);
     } else {
       const oy = GROUND_Y - o.h;
-      // Chair stack
       ctx.fillStyle = "#9a3412";
       ctx.fillRect(o.x, oy, o.w, o.h);
       ctx.fillStyle = "#7c2d12";
@@ -676,6 +878,20 @@ function draw(canvas: HTMLCanvasElement, s: GameState) {
   }
 
   ctx.restore();
+}
+
+function blendColor(c1: string, c2: string, t: number): string {
+  // c1 and c2 are #RRGGBB hex
+  const r1 = parseInt(c1.slice(1, 3), 16);
+  const g1 = parseInt(c1.slice(3, 5), 16);
+  const b1 = parseInt(c1.slice(5, 7), 16);
+  const r2 = parseInt(c2.slice(1, 3), 16);
+  const g2 = parseInt(c2.slice(3, 5), 16);
+  const b2 = parseInt(c2.slice(5, 7), 16);
+  const r = Math.round(r1 + (r2 - r1) * t);
+  const g = Math.round(g1 + (g2 - g1) * t);
+  const b = Math.round(b1 + (b2 - b1) * t);
+  return `rgb(${r}, ${g}, ${b})`;
 }
 
 function drawPickup(ctx: CanvasRenderingContext2D, p: Pickup) {
